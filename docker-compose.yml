@@ -45,6 +45,28 @@ services:
     stop_signal: SIGTERM
     stop_grace_period: 30s
 
+  workspace:
+    build:
+      context: .
+      dockerfile: services/workspace/Dockerfile
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://postgres:rayfold@postgres:5432/apps
+      # the same secret as documents: a capability token one service mints is honoured by the next
+      CAPABILITY_SECRET: ${CAPABILITY_SECRET:-a-development-secret-at-least-16}
+      OPS_TOKEN: ${OPS_TOKEN:-dev-ops-token}
+      SERVICE_VERSION: ${GIT_SHA:-dev}
+    ports: ["4002:4000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/rayfold/ready || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+
 volumes:
   pgdata:
   documents:

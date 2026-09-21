@@ -16,10 +16,26 @@ npm test                         # each service against a real postgres
 | | |
 |---|---|
 | `services/documents` | Files: upload, replace, keep every revision, share one with a capability token. |
+| `services/workspace` | Issues, comments, and a project feed that carries what the rest of the fleet did. |
 | `packages/service-kit` | How every service is wired. The interesting file in the repository. |
 | `e2e/` | The harness services are started with, and the flows that cross them. |
 
 More services and the front ends follow; the shape below is what they plug into.
+
+## What one service knows about another
+
+Nothing, except the name of an event.
+
+The documents service raises `DocumentChanged` when a file is kept or replaced. The workspace service declares that
+event in its own schema without ever raising it, and subscribes:
+
+```ts
+server.events.on("DocumentChanged", (payload) => { /* record a line on the project's feed */ });
+```
+
+The relay delivers it. No shared table, no polling, no webhook to register — and a `live` query on the workspace's
+feed updates because of something that happened in a service on another port with its own database tables.
+`e2e/fleet.test.ts` asserts exactly that, and four of its five tests fail if that one subscription is removed.
 
 ## The platform library
 

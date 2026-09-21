@@ -18,7 +18,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "up": "docker compose up --build",
-    "down": "docker compose down -v"
+    "down": "docker compose down -v",
+    "pretest": "node scripts/check-install.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.5.1",

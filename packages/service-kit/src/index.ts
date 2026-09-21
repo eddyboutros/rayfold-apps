@@ -49,6 +49,12 @@ export interface ServiceOptions {
    * request was answered. This is where a service serves bytes, a webhook, or anything that is not a batch.
    */
   routes?: (req: IncomingMessage, res: ServerResponse, deps: Deps) => boolean;
+  /**
+   * Runs once the server exists and before the port opens. This is where a service reacts to the rest of the fleet:
+   * `server.events.on("DocumentChanged", ...)` hears an event raised by any service on the relay, and
+   * `server.changes.publish(...)` makes the live queries here re-run because of it.
+   */
+  onStart?: (server: RayfoldServer, deps: Deps) => void | Promise<void>;
 }
 
 /** What the platform hands a service. */
@@ -135,6 +141,8 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
     identity: { name: config.name, version: config.version, instance: config.instance },
     onRelayError: (e) => console.error(`[${config.name}] relay refused a message:`, e),
   });
+
+  await opts.onStart?.(server, deps);
 
   const uploads = opts.uploads?.(deps);
   const rayfold = createHttpHandler(server, {

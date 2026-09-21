@@ -34,6 +34,12 @@ async function freePort(): Promise<number> {
 
 const OPS_TOKEN = "test-ops-token";
 
+/** The tables each service owns, emptied between tests. The platform's own are added to every list. */
+const TABLES: Record<string, string[]> = {
+  documents: ["revisions", "documents"],
+  workspace: ["comments", "activity", "issues"],
+};
+
 export async function startTestService(name: string, env: Record<string, string> = {}): Promise<TestService> {
   const port = await freePort();
   Object.assign(process.env, {
@@ -59,7 +65,8 @@ export async function startTestService(name: string, env: Record<string, string>
     client: (who) => new RayfoldClient({ transport: createFetchTransport({ url: `${base}/rayfold`, headers: () => ({ authorization: `Bearer ${who}` }) }) }),
     reset: async () => {
       // the seed rows stay: they are part of the service, not of any one test
-      await sql.query("truncate revisions, documents restart identity cascade");
+      const tables = TABLES[name] ?? [];
+      if (tables.length) await sql.query(`truncate ${tables.join(", ")} restart identity cascade`);
       await sql.query("truncate rayfold_idempotency, rayfold_relay restart identity");
     },
     stop: async () => {

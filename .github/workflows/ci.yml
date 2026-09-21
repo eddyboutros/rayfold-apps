@@ -43,3 +43,4 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: docker build -f services/documents/Dockerfile -t apps/documents .
+      - run: docker build -f services/workspace/Dockerfile -t apps/workspace .

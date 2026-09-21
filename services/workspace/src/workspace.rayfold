@@ -1,0 +1,84 @@
+"""
+The workspace: issues, the conversation on them, and everything that has happened on a project.
+
+It is also where the fleet becomes visible to a person. The activity feed is not only this service's own work —
+when the documents service changes a file, that reaches here over the relay and shows up in the feed, which is why
+`DocumentChanged` is declared below without this service ever raising it.
+"""
+
+entity Member {
+  id: ID
+  name: String
+}
+
+enum IssueState { open, doing, done }
+
+entity Issue @allow(read: viewer != null) {
+  id: ID
+  projectId: ID
+  title: String
+  state: IssueState
+  assignee: Member?
+  """Bumped on every change. Send it back as ifVersion so a move cannot land on top of someone else's."""
+  version: Int @version
+  updatedAt: Instant
+}
+
+entity Comment @allow(read: viewer != null) {
+  id: ID
+  issueId: ID
+  body: String
+  at: Instant
+  by: Member
+}
+
+"""One line of what has happened on a project, whichever service it happened in."""
+entity Activity @allow(read: viewer != null) {
+  id: ID
+  projectId: ID
+  """Which service this came from: `workspace`, or `documents` when it arrived over the relay."""
+  source: String
+  kind: String
+  text: String
+  at: Instant
+}
+
+error NotFound { id: ID }
+
+"""Raised here when anything lands on a project's feed, so a stream can carry it without polling the table."""
+event ActivityHappened { projectId: ID, source: String, kind: String, text: String }
+
+event IssueMoved { issueId: ID, from: IssueState, to: IssueState }
+event CommentAdded { issueId: ID, commentId: ID }
+
+"""
+Raised by the **documents** service, not by this one. Declared here because the relay delivers events by name to
+every service in the fleet, and this service reacts to it: a changed document becomes a line in the feed.
+"""
+event DocumentChanged { documentId: ID, version: Int }
+
+query issue(id: ID): Issue? @allow(read: viewer != null)
+query issues(projectId: ID, page: PageArgs = { first: 20 }): Page<Issue> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
+query comments(issueId: ID, page: PageArgs = { first: 50 }): Page<Comment> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
+
+"""What has happened on this project, newest first. Ask for it `live` and it stays current by itself."""
+query activity(projectId: ID, page: PageArgs = { first: 20 }): Page<Activity> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
+
+command createIssue(projectId: ID, title: String @range(min: 1, max: 200)): Issue
+  emits ActivityHappened
+  @allow(write: viewer != null)
+
+"""Move an issue. Send `ifVersion` with the version you read and a move that would overwrite someone else's is refused."""
+command moveIssue(id: ID, to: IssueState): Issue
+  throws NotFound
+  emits IssueMoved ActivityHappened
+  @allow(write: viewer != null)
+  @simulate
+
+command addComment(issueId: ID, body: String @range(min: 1, max: 4000)): Comment
+  throws NotFound
+  emits CommentAdded ActivityHappened
+  @allow(write: viewer != null)
+
+"""Every line as it lands, without polling. Carries what other services did, too."""
+stream activityFeed(projectId: ID): ActivityHappened @allow(read: viewer != null)

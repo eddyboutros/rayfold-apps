@@ -1,0 +1,20 @@
+{
+  "name": "@apps/workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Issues, comments and an activity feed — and it hears what the rest of the fleet does.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@apps/service-kit": "*",
+    "@rayfold/server": "^0.2.0",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@rayfold/client": "^0.2.0"
+  }
+}
