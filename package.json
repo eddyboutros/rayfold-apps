@@ -1,0 +1,30 @@
+{
+  "name": "rayfold-apps",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A fleet of Rayfold microservices and the micro-frontends that use them, built the way a real team would.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "web/*",
+    "e2e"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "up": "docker compose up --build",
+    "down": "docker compose down -v"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.20.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}

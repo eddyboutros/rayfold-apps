@@ -1,0 +1,50 @@
+# The fleet, as it runs. One Postgres behind every service: each owns its own tables, and they share the two the
+# platform needs — idempotency records, so a retry that reaches another instance replays, and the relay, so a live
+# query on one service hears a command run on another.
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_PASSWORD: rayfold
+      POSTGRES_DB: apps
+    ports: ["55432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  documents:
+    build:
+      context: .
+      dockerfile: services/documents/Dockerfile
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://postgres:rayfold@postgres:5432/apps
+      # every service in the fleet shares this, so a capability token minted by one is honoured by the next
+      CAPABILITY_SECRET: ${CAPABILITY_SECRET:-a-development-secret-at-least-16}
+      OPS_TOKEN: ${OPS_TOKEN:-dev-ops-token}
+      SERVICE_VERSION: ${GIT_SHA:-dev}
+      FILES_DIR: /var/lib/documents/files
+      UPLOADS_DIR: /var/lib/documents/uploads
+      PUBLIC_BASE: http://localhost:4001/files
+    ports: ["4001:4000"]
+    volumes:
+      - documents:/var/lib/documents
+    depends_on:
+      postgres: { condition: service_healthy }
+    # what the platform answers, used as the platform intends: traffic only while it says it is ready
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/rayfold/ready || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # a deploy sends this and waits; the service drains, so a rolling restart loses nothing
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+
+volumes:
+  pgdata:
+  documents:

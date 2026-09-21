@@ -1,0 +1,13 @@
+{
+  "name": "@apps/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The harness services are started with, and the flows that cross them.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "dependencies": {
+    "@apps/service-kit": "*",
+    "@rayfold/client": "^0.2.0",
+    "pg": "^8.23.0"
+  }
+}
