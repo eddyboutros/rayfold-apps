@@ -1,0 +1,49 @@
+:host {
+  display: block;
+  min-height: 100vh;
+  background: #f6f8f8;
+  color: #101817;
+  font: 14px/1.55 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 22px;
+  background: #fff;
+  border-bottom: 1px solid #dfe6e6;
+}
+
+.who {
+  font-size: 12px;
+  color: #5a6b6a;
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 26px 22px 64px;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.lede {
+  margin: 0 0 18px;
+  max-width: 62ch;
+  color: #5a6b6a;
+  font-size: 12.5px;
+}
+
+.muted {
+  color: #5a6b6a;
+}
+
+.bad {
+  color: #b42318;
+}

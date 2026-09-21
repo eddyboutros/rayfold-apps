@@ -40,7 +40,9 @@ const service = await startService({
     server.events.on("DocumentChanged", (payload) => {
       const { documentId, version } = payload as { documentId: string; version: number };
       const line = {
-        id: crypto.randomUUID(),
+        // derived from what caused it, not random: this event reaches every instance of this service, and they
+        // must write one row between them rather than one each
+        id: `documents:${documentId}:${version}`,
         projectId: PROJECT_OF_DOCUMENTS,
         source: "documents",
         kind: version === 1 ? "document.added" : "document.replaced",
@@ -51,11 +53,11 @@ const service = await startService({
       void store
         .record(line)
         .then(() => {
-          // the stream hears this; `deliver` rather than `publish` because the event is already on the relay and
-          // sending it back would make every service hear it twice
+          // delivered locally on every instance, written by only one: each instance has its own connected clients,
+          // and each has to wake its own. `deliver` rather than `publish` for the same reason the id is derived —
+          // this event is already on the relay, and sending anything back would multiply it by the fleet.
           server.events.deliver("ActivityHappened", { projectId: line.projectId, source: line.source, kind: line.kind, text: line.text });
-          // and a `live` query on activity() re-runs, because the op it watches now has a different answer
-          server.changes.publish({ keys: new Set(), ops: new Set(["activity"]) });
+          server.changes.deliver({ keys: new Set(), ops: new Set(["activity"]) });
         })
         .catch((e: unknown) => console.error("[workspace] could not record a document change", e));
     });

@@ -75,6 +75,14 @@ export interface Config {
   /** Gates `GET /rayfold/stats`. Without one the route is not served at all. */
   opsToken: string | undefined;
   capabilitySecret: string;
+  /**
+   * Browser origins allowed to make a request that changes data. A page on another origin is refused (spec 12 §2.1),
+   * which is what stops a foreign site from acting as a signed-in user.
+   *
+   * In production a gateway puts the front ends and the services on one origin and this is empty. In development
+   * they are on different ports, so each front end's origin is named here.
+   */
+  allowedOrigins: string[];
 }
 
 export interface RunningService {
@@ -102,6 +110,10 @@ export function configFrom(name: string): Config {
     version: process.env["SERVICE_VERSION"] ?? "dev",
     opsToken: process.env["OPS_TOKEN"],
     capabilitySecret: required("CAPABILITY_SECRET"),
+    allowedOrigins: (process.env["ALLOWED_ORIGINS"] ?? "")
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean),
   };
 }
 
@@ -152,6 +164,9 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
     ...(config.opsToken ? { stats: { authorize: (req: Request) => req.headers.get("authorization") === `Bearer ${config.opsToken}` } } : {}),
     // the database is what this service cannot serve without, so readiness asks it rather than guessing
     readiness: { db: async () => void (await sql.query("select 1")) },
+    allowedOrigins: config.allowedOrigins,
+    // the reply that lets a browser on one of those origins read the answer at all
+    ...(config.allowedOrigins[0] ? { cors: config.allowedOrigins[0] } : {}),
   });
 
   // the service's own routes first, then Rayfold: a service owns its port, and Rayfold is what most of it answers

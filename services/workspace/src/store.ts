@@ -184,15 +184,23 @@ export class WorkspaceStore {
     ]);
   }
 
-  /** One line on a project's feed. `source` is the service it came from, which is the only trace of where it began. */
-  async record(entry: Activity): Promise<void> {
-    await this.sql.query("insert into activity (id, project_id, source, kind, text, at) values ($1,$2,$3,$4,$5,$6)", [
-      entry.id,
-      entry.projectId,
-      entry.source,
-      entry.kind,
-      entry.text,
-      entry.at,
-    ]);
+  /**
+   * One line on a project's feed, written once however many instances try.
+   *
+   * A relayed event reaches *every* instance of this service, and each one reacts. That is correct — each has its
+   * own connected clients to wake — but the write must not happen once per instance. So a reaction gives the line
+   * an id derived from what caused it, and the second instance to arrive writes nothing.
+   *
+   * The id is what keeps the feed right; `on conflict` is what keeps the losing instance quiet. Without the clause
+   * every replica but one raises a duplicate key on every event, which is a log full of errors that mean nothing.
+   *
+   * Answers whether this call is the one that wrote it.
+   */
+  async record(entry: Activity): Promise<boolean> {
+    const { rowCount } = await this.sql.query(
+      "insert into activity (id, project_id, source, kind, text, at) values ($1,$2,$3,$4,$5,$6) on conflict (id) do nothing",
+      [entry.id, entry.projectId, entry.source, entry.kind, entry.text, entry.at],
+    );
+    return !!rowCount;
   }
 }

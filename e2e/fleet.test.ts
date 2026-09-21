@@ -160,3 +160,33 @@ it("each service answers for itself, and says which it is", async () => {
     expect(ready.status, name).toBe(200);
   }
 });
+
+it("two instances of a service react to one event and write one row between them", async () => {
+  // as a deploy runs it: a second instance of the workspace, same database, same relay
+  const replica = await startTestService("workspace", { DOCUMENTS_PROJECT: PROJECT }, 2);
+
+  try {
+    const doc = await documents.client("ada").command<Doc>("createDocument", { upload: await upload(text("one copy")), name: "once.txt" }, { shape: "{ id version }" });
+
+    // both instances hear it and both react; only one row may exist, or the feed shows everything twice for
+    // every replica anyone deploys
+    const feed = await until("the line to reach the feed", async () => {
+      const page = await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text } }" });
+      return page.items.length ? page : undefined;
+    });
+    expect(feed.items).toHaveLength(1);
+    expect(feed.items[0]?.text).toContain(doc.id);
+
+    // and it stays one: the second instance had time to write its own and did not
+    await new Promise((r) => setTimeout(r, 200));
+    const { rows } = await workspace.sql.query("select id from activity");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.["id"]).toBe(`documents:${doc.id}:1`);
+
+    // guard: the replica is not inert — it serves the same feed, which is why it was listening at all
+    const fromReplica = await replica.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { text } }" });
+    expect(fromReplica.items).toHaveLength(1);
+  } finally {
+    await replica.stop();
+  }
+});

@@ -11,6 +11,9 @@ docker compose up --build        # postgres and every service
 npm test                         # each service against a real postgres
 ```
 
+The front ends are separate npm projects, started on their own — `web/README.md` says how. With them running, upload
+a file to the documents service and watch it appear on the workspace's feed without the page reloading.
+
 ## What is here
 
 | | |
@@ -19,6 +22,7 @@ npm test                         # each service against a real postgres
 | `services/workspace` | Issues, comments, and a project feed that carries what the rest of the fleet did. |
 | `packages/service-kit` | How every service is wired. The interesting file in the repository. |
 | `e2e/` | The harness services are started with, and the flows that cross them. |
+| `web/shell`, `web/workspace-ui` | The page, and a remote loaded into it at runtime. See [web/README.md](web/README.md). |
 
 More services and the front ends follow; the shape below is what they plug into.
 
@@ -35,7 +39,16 @@ server.events.on("DocumentChanged", (payload) => { /* record a line on the proje
 
 The relay delivers it. No shared table, no polling, no webhook to register — and a `live` query on the workspace's
 feed updates because of something that happened in a service on another port with its own database tables.
-`e2e/fleet.test.ts` asserts exactly that, and four of its five tests fail if that one subscription is removed.
+`e2e/fleet.test.ts` asserts exactly that, and four of its tests fail if that one subscription is removed.
+
+**A reaction runs on every instance, so it has to be written for that.** The event reaches all of them, and each
+one has its own connected clients to wake — that part is right. What must not happen once per instance is the
+*write*. So a reaction gives the row an id derived from what caused it (`documents:<id>:<version>`) and writes with
+`on conflict do nothing`: the instances race, one wins, the feed has one line. The id is what keeps the feed
+correct; the clause is what keeps the losing instances quiet instead of raising a duplicate key every time.
+
+This is the kind of thing that only appears with more than one instance running, which is why there is a test that
+starts two.
 
 ## The platform library
 
@@ -76,6 +89,7 @@ path for tests.
 |---|---|
 | `DATABASE_URL` | Postgres. Required. |
 | `CAPABILITY_SECRET` | Signs capability tokens. Shared by the fleet. Required. |
+| `ALLOWED_ORIGINS` | Browser origins allowed to change data, comma separated. Empty behind a gateway that puts everything on one origin; in development, each front end's origin. |
 | `OPS_TOKEN` | Gates `GET /rayfold/stats`. Without it that route is not served at all. |
 | `PORT` | Default 4000. |
 | `SERVICE_VERSION`, `INSTANCE` | What the service reports as its identity. A container's hostname does for the second. |

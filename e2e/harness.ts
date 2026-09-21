@@ -40,7 +40,11 @@ const TABLES: Record<string, string[]> = {
   workspace: ["comments", "activity", "issues"],
 };
 
-export async function startTestService(name: string, env: Record<string, string> = {}): Promise<TestService> {
+/**
+ * Starts one service. Pass `replica` to start a second instance of the same one, as a deploy runs several: a fresh
+ * query string makes Node load the module again rather than hand back the one already running.
+ */
+export async function startTestService(name: string, env: Record<string, string> = {}, replica = 0): Promise<TestService> {
   const port = await freePort();
   Object.assign(process.env, {
     PORT: String(port),
@@ -54,7 +58,8 @@ export async function startTestService(name: string, env: Record<string, string>
   });
 
   const base = `http://127.0.0.1:${port}`;
-  const service = ((await import(`../services/${name}/src/main.ts`)) as { default: RunningService }).default;
+  const specifier = replica ? `../services/${name}/src/main.ts?replica=${replica}` : `../services/${name}/src/main.ts`;
+  const service = ((await import(specifier)) as { default: RunningService }).default;
   const sql = new pg.Pool({ connectionString: DATABASE_URL });
 
   return {
