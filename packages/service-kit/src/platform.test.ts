@@ -97,6 +97,52 @@ describe("traces", () => {
   });
 });
 
+describe("logs", () => {
+  it("a line the service writes reaches the console, and one written while serving a batch carries its trace", async () => {
+    console_ = await startStandInConsole();
+    const platform = connect();
+    platform.log.info("the service started", { port: 4001 });
+    platform.log.warn("the mirror lags", { seconds: 240 });
+
+    // a resolver writing a line: the line and the batch's span share a trace id, which is what makes the console
+    // show the line under the request
+    const server = createRayfoldServer({
+      schema: `entity Thing { id: ID  name: String }  query thing(id: ID): Thing?`,
+      resolvers: {
+        Query: {
+          thing: ({ id }: { id: string }) => {
+            platform.log.info("looked up a thing", { id });
+            return { id, name: "one" };
+          },
+        },
+      },
+      instrumentation: platform.instrumentation!,
+    });
+    const http = await listen(server, 0);
+    try {
+      const port = (http.address() as { port: number }).port;
+      await new RayfoldClient({ transport: createFetchTransport({ url: `http://127.0.0.1:${port}/rayfold` }) }).query("thing", { id: "t1" }, { shape: "{ name }" });
+    } finally {
+      await shutdown(server, http, { timeoutMs: 1_000, flushMs: 50 });
+    }
+    await platform.stop();
+
+    expect(console_.logs.map((l) => [l.service, l.severity, l.body])).toEqual([
+      ["documents", "INFO", "the service started"],
+      ["documents", "WARN", "the mirror lags"],
+      ["documents", "INFO", "looked up a thing"],
+    ]);
+    expect(console_.logs[1]?.attributes).toMatchObject({ seconds: 240 });
+    const inBatch = console_.logs[2]!;
+    expect(inBatch.traceId).toBeTruthy();
+    const spanTraces = (console_.traces as Array<{ resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ traceId: string; name: string }> }> }> }>)
+      .flatMap((t) => t.resourceSpans.flatMap((r) => r.scopeSpans.flatMap((s) => s.spans)));
+    expect(spanTraces.find((s) => s.name === "rayfold query thing")?.traceId).toBe(inBatch.traceId);
+    // guard: a line written outside any batch has no trace to belong to
+    expect(console_.logs[0]?.traceId).toBeNull();
+  });
+});
+
 describe("the queue", () => {
   it("a job put on the queue is taken by a worker, finished with its result, and not run twice", async () => {
     console_ = await startStandInConsole();

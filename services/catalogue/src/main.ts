@@ -39,6 +39,7 @@ const service = await startService({
   onStart: async (server, deps: Deps) => {
     const store = new CatalogueStore(deps.sql);
     const { platform } = deps;
+    const { log } = platform;
     // the queue's limits are this service's to state: it is the one that knows how long a file takes to read
     await platform.defineQueue("extract-text", { maxAttempts: 5, leaseMs: 60_000, backoffMs: 5_000 });
     platform.work<ExtractJob>("extract-text", async ({ payload: job }) => {
@@ -46,6 +47,7 @@ const service = await startService({
       // gone is done: a document deleted before its job ran has nothing to index, and retrying will not bring it back
       if (res.status === 404) {
         await store.removeFile(job.documentId);
+        log.warn("a document was gone before its text could be read", { documentId: job.documentId, name: job.name });
         return { indexed: false, reason: "the document is gone" };
       }
       if (!res.ok) throw new Error(`fetching the bytes answered ${res.status}`);
@@ -64,6 +66,7 @@ const service = await startService({
       // a File is an entity this service returns from live queries; nothing here is live yet, but a screen that
       // subscribes to `items` will hear this
       if (kept) server.changes.publish({ keys: new Set([`File:${job.documentId}`]), ops: new Set(["items", "search"]) });
+      log.info(kept ? "indexed a document's text" : "left a newer version's text in place", { documentId: job.documentId, name: job.name, version: job.version, characters: text.length });
       return { indexed: kept, characters: text.length };
     });
   },

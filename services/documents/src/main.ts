@@ -51,6 +51,7 @@ const service = await startService({
       uploads,
       caps: deps.caps,
       platform: deps.platform,
+      log: deps.platform.log,
       selfUrl: deps.config.selfUrl,
       // set in the console under documents / <environment> / uploads.maxBytes; this is the default until it is
       limitBytes: () => deps.platform.config.number("uploads.maxBytes", 25 * 1024 * 1024),

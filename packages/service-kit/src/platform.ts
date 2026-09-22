@@ -13,9 +13,42 @@
 import { RayfoldClient, createFetchTransport } from "@rayfold/client";
 import type { Instrumentation } from "@rayfold/server";
 import { rayfoldTracing } from "@rayfold/otel";
+import { SeverityNumber, type Logger } from "@opentelemetry/api-logs";
+import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
+import { BatchLogRecordProcessor, LoggerProvider } from "@opentelemetry/sdk-logs";
 import { BatchSpanProcessor, NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+
+/** A line a service writes: to its own output always, and to the console when there is one. */
+export interface Log {
+  debug(message: string, attributes?: Record<string, unknown>): void;
+  info(message: string, attributes?: Record<string, unknown>): void;
+  warn(message: string, attributes?: Record<string, unknown>): void;
+  error(message: string, attributes?: Record<string, unknown>): void;
+}
+
+type Level = keyof Log;
+const SEVERITY: Record<Level, SeverityNumber> = { debug: SeverityNumber.DEBUG, info: SeverityNumber.INFO, warn: SeverityNumber.WARN, error: SeverityNumber.ERROR };
+
+/**
+ * A log that writes to the process's output, and to an OpenTelemetry logger when given one. A line written while a
+ * batch is being served carries that batch's trace id, because the SDK reads the active span: the console shows the
+ * line under the request that wrote it.
+ */
+function makeLog(app: string, otel: Logger | null): Log {
+  const write = (level: Level, message: string, attributes: Record<string, unknown> = {}): void => {
+    const line = `[${app}] ${message}${Object.keys(attributes).length ? ` ${JSON.stringify(attributes)}` : ""}`;
+    (level === "error" ? console.error : level === "warn" ? console.warn : console.log)(line);
+    otel?.emit({ severityNumber: SEVERITY[level], severityText: level.toUpperCase(), body: message, attributes: attributes as Record<string, string> });
+  };
+  return {
+    debug: (m, a) => write("debug", m, a),
+    info: (m, a) => write("info", m, a),
+    warn: (m, a) => write("warn", m, a),
+    error: (m, a) => write("error", m, a),
+  };
+}
 
 export interface PlatformOptions {
   /** The console, e.g. `http://console:4600`. Absent means no platform. */
@@ -45,6 +78,8 @@ export interface Platform {
   /** Whether a console is configured at all. */
   readonly connected: boolean;
   readonly config: LiveConfig;
+  /** The service's log: its own output, and the console's Logs screen when there is one, tied to the trace. */
+  readonly log: Log;
   /** Puts a job on a queue. Answers the job's id, or null when there is no platform to put it on. */
   enqueue(queue: string, payload: unknown, opts?: { key?: string }): Promise<{ id: string } | null>;
   /** Creates a queue with these limits, or leaves it as it is. */
@@ -75,14 +110,20 @@ const key = () => crypto.randomUUID();
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export function connectPlatform(opts: PlatformOptions): Platform {
-  const log = opts.log ?? ((line: string) => console.log(`[${opts.app}] ${line}`));
-  if (!opts.url) return alone(log);
+  if (!opts.url) return alone(opts.app, opts.log);
 
   const base = opts.url.replace(/\/$/, "");
   const client = new RayfoldClient({
     transport: createFetchTransport({ url: `${base}/rayfold` }),
     client: `${opts.app}/${opts.instance}`,
   });
+
+  const resource = resourceFromAttributes({ "service.name": opts.app, "service.instance.id": opts.instance, "deployment.environment.name": opts.environment });
+
+  // ---- logs: the OpenTelemetry logs SDK exporting to the console, beside the process's own output
+  const loggerProvider = new LoggerProvider({ resource, processors: [new BatchLogRecordProcessor({ exporter: new OTLPLogExporter({ url: `${base}/otlp/v1/logs` }) })] });
+  const logs = makeLog(opts.app, loggerProvider.getLogger(opts.app));
+  const log = opts.log ?? ((line: string) => logs.info(line));
 
   // ---- configuration: one live query, kept for the life of the process
   let values: Record<string, string> = {};
@@ -120,7 +161,7 @@ export function connectPlatform(opts: PlatformOptions): Platform {
 
   // ---- traces: the OpenTelemetry SDK exporting to the console's OTLP route, and Rayfold's spans on top of it
   const provider = new NodeTracerProvider({
-    resource: resourceFromAttributes({ "service.name": opts.app, "service.instance.id": opts.instance, "deployment.environment.name": opts.environment }),
+    resource,
     spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter({ url: `${base}/otlp/v1/traces` }))],
   });
   // registers the context manager and the W3C propagator, which is what carries a caller's traceparent into the
@@ -136,6 +177,7 @@ export function connectPlatform(opts: PlatformOptions): Platform {
   return {
     connected: true,
     config,
+    log: logs,
     instrumentation: rayfoldTracing({ tracer: provider.getTracer("@rayfold/server") }),
 
     async enqueue(queue, payload, o = {}) {
@@ -196,13 +238,16 @@ export function connectPlatform(opts: PlatformOptions): Platform {
       for (const b of beats) clearInterval(b);
       beats.clear();
       stopConfig();
-      await provider.shutdown();
+      // flushed, so a line written on the way out still arrives
+      await Promise.all([provider.shutdown(), loggerProvider.shutdown()]);
     },
   };
 }
 
-/** A service with no console: its defaults, a queue that takes nothing, no traces. Said once in the log. */
-function alone(log: (line: string) => void): Platform {
+/** A service with no console: its defaults, a queue that takes nothing, no traces, a log on its own output. */
+function alone(app: string, override?: (line: string) => void): Platform {
+  const logs = makeLog(app, null);
+  const log = override ?? ((line: string) => logs.info(line));
   let said = false;
   const say = () => {
     if (!said) log("no CONSOLE_URL: running without the platform (defaults, no queue, no traces)");
@@ -211,6 +256,7 @@ function alone(log: (line: string) => void): Platform {
   return {
     connected: false,
     config: { get: () => undefined, number: (_k, fallback) => fallback, snapshot: () => ({}), ready: () => Promise.resolve() },
+    log: logs,
     instrumentation: undefined,
     async enqueue() {
       say();

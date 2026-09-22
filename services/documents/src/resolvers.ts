@@ -7,7 +7,7 @@
  */
 import { RayfoldError, ok, type Resolvers, type UploadStore } from "@rayfold/server";
 import type { Capabilities } from "@rayfold/server";
-import type { Platform } from "@apps/service-kit";
+import type { Log, Platform } from "@apps/service-kit";
 import type { FileStore } from "./files.ts";
 import type { Document, Member, Revision } from "./store.ts";
 import type { DocumentStore } from "./store.ts";
@@ -37,6 +37,7 @@ export interface Parts {
   caps: Capabilities;
   /** The queue a kept document's text extraction goes on. */
   platform: Platform;
+  log: Log;
   /** Where a worker reaches this service, for the URL the job carries. */
   selfUrl: string;
   /** The most bytes a document may be, read each time: the platform can change it while the service runs. */
@@ -59,7 +60,7 @@ export interface ExtractJob {
   fetchUrl: string;
 }
 
-export function resolvers({ store, files, uploads, caps, platform, selfUrl, limitBytes, id = () => crypto.randomUUID(), now = Date.now }: Parts): Resolvers {
+export function resolvers({ store, files, uploads, caps, platform, log, selfUrl, limitBytes, id = () => crypto.randomUUID(), now = Date.now }: Parts): Resolvers {
   const find = async (documentId: string): Promise<Document> => {
     const doc = await store.document(documentId);
     if (!doc) throw RayfoldError.domain("NotFound", { id: documentId }, `No document ${documentId}`);
@@ -85,6 +86,7 @@ export function resolvers({ store, files, uploads, caps, platform, selfUrl, limi
     const limit = limitBytes();
     if (size > limit) {
       await files.remove(revisionId);
+      log.warn("refused an upload over the limit", { size, limit });
       throw RayfoldError.domain("UploadTooLarge", { size, limit }, `${size} bytes is over the limit of ${limit}`);
     }
     return { revisionId, size, type: kept.upload.type };
@@ -111,9 +113,10 @@ export function resolvers({ store, files, uploads, caps, platform, selfUrl, limi
     };
     try {
       // one job per revision: a retry of the command replays, and a second instance's enqueue finds this one
-      await platform.enqueue("extract-text", job, { key: `${doc.id}:${doc.version}` });
+      const queued = await platform.enqueue("extract-text", job, { key: `${doc.id}:${doc.version}` });
+      if (queued) log.info("queued text extraction", { documentId: doc.id, version: doc.version, job: queued.id });
     } catch (e) {
-      console.error(`[documents] could not queue text extraction for ${doc.id}`, e);
+      log.error("could not queue text extraction", { documentId: doc.id, error: e instanceof Error ? e.message : String(e) });
     }
   };
 
@@ -158,6 +161,7 @@ export function resolvers({ store, files, uploads, caps, platform, selfUrl, limi
           ownerId: viewer.id,
         };
         await store.create(doc, { id: revisionId, documentId: doc.id, version: 1, size, url: doc.url, at, byId: viewer.id });
+        log.info("kept a document", { documentId: doc.id, name: doc.name, size, projectId, by: viewer.id });
         await extractLater(doc);
         return ok(doc, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: 1, byId: viewer.id } }] });
       },
@@ -180,6 +184,7 @@ export function resolvers({ store, files, uploads, caps, platform, selfUrl, limi
           ctx.checkVersion(`Document:${doc.id}`, current.version, current);
           throw RayfoldError.domain("NotFound", { id: documentId }, `Document ${documentId} changed while this was running`);
         }
+        log.info("replaced a document's bytes", { documentId: doc.id, version: next.version, size, by: viewer.id });
         await extractLater(next);
         return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: next.version, byId: viewer.id } }] });
       },
@@ -207,6 +212,7 @@ export function resolvers({ store, files, uploads, caps, platform, selfUrl, limi
         const revisions = await store.remove(doc.id);
         // the row is gone first: bytes with no row are swept, a row with no bytes is a broken document
         for (const revisionId of revisions) await files.remove(revisionId);
+        log.info("deleted a document", { documentId: doc.id, name: doc.name, revisions: revisions.length, by: (ctx.viewer as Viewer).id });
         return ok(doc);
       },
     },

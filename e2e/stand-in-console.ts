@@ -58,7 +58,31 @@ export interface StandInConsole {
   traces: unknown[];
   /** The id of the job behind every heartbeat, in order. */
   beats: string[];
+  /** Log lines received on the OTLP route, flattened: service, severity, body, and the trace id when there was one. */
+  logs: Array<{ service: string; severity: string; body: string; traceId: string | null; attributes: Record<string, unknown> }>;
   stop(): Promise<void>;
+}
+
+/** OTLP's resourceLogs / scopeLogs / logRecords, as the console reads them: one row per line. */
+function flattenLogs(payload: Record<string, unknown>): StandInConsole["logs"] {
+  const out: StandInConsole["logs"] = [];
+  const attrs = (list: unknown): Record<string, unknown> =>
+    Object.fromEntries(((list as Array<{ key: string; value: Record<string, unknown> }>) ?? []).map((kv) => [kv.key, Object.values(kv.value)[0]]));
+  for (const r of (payload["resourceLogs"] as Array<Record<string, unknown>>) ?? []) {
+    const service = String(attrs((r["resource"] as Record<string, unknown>)?.["attributes"])["service.name"] ?? "");
+    for (const scope of (r["scopeLogs"] as Array<Record<string, unknown>>) ?? []) {
+      for (const l of (scope["logRecords"] as Array<Record<string, unknown>>) ?? []) {
+        out.push({
+          service,
+          severity: String(l["severityText"] ?? ""),
+          body: String((l["body"] as Record<string, unknown>)?.["stringValue"] ?? ""),
+          traceId: l["traceId"] ? String(l["traceId"]) : null,
+          attributes: attrs(l["attributes"]),
+        });
+      }
+    }
+  }
+  return out;
 }
 
 export async function startStandInConsole(now: () => number = Date.now): Promise<StandInConsole> {
@@ -66,6 +90,7 @@ export async function startStandInConsole(now: () => number = Date.now): Promise
   const jobs: JobRow[] = [];
   const traces: unknown[] = [];
   const beats: string[] = [];
+  const logs: StandInConsole["logs"] = [];
   const queues = new Map<string, { maxAttempts: number; leaseMs: number; backoffMs: number }>();
   const queueOf = (name: string) => queues.get(name) ?? { maxAttempts: 3, leaseMs: 30_000, backoffMs: 1_000 };
   const changed = [{ invOp: ["config"] }];
@@ -139,11 +164,13 @@ export async function startStandInConsole(now: () => number = Date.now): Promise
   const rayfold = createHttpHandler(server, { viewer: () => ({ id: "operator" }) });
   // the OTLP route beside the Rayfold one, as the console has it: JSON in, 200 out, kept for a test to look at
   const http: Server = createServer((req, res) => {
-    if (req.method === "POST" && req.url === "/otlp/v1/traces") {
+    if (req.method === "POST" && (req.url === "/otlp/v1/traces" || req.url === "/otlp/v1/logs")) {
       const chunks: Buffer[] = [];
       req.on("data", (c: Buffer) => chunks.push(c));
       req.on("end", () => {
-        traces.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+        if (req.url === "/otlp/v1/traces") traces.push(payload);
+        else logs.push(...flattenLogs(payload));
         res.writeHead(200, { "content-type": "application/json" }).end("{}");
       });
       return;
@@ -160,6 +187,7 @@ export async function startStandInConsole(now: () => number = Date.now): Promise
     jobs,
     traces,
     beats,
+    logs,
     stop: () => shutdown(server, http, { timeoutMs: 2_000, flushMs: 50 }),
   };
 }

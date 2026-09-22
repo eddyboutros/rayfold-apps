@@ -48,14 +48,15 @@ const service = await startService({
 
       void store
         .record(line)
-        .then(() => {
+        .then((written) => {
+          if (written) deps.platform.log.info("recorded what the documents service did", { documentId, projectId, version, kind: line.kind });
           // delivered locally on every instance, written by only one: each instance has its own connected clients,
           // and each has to wake its own. `deliver` rather than `publish` for the same reason the id is derived —
           // this event is already on the relay, and sending anything back would multiply it by the fleet.
           server.events.deliver("ActivityHappened", { projectId: line.projectId, source: line.source, kind: line.kind, text: line.text, byId: line.byId });
           server.changes.deliver({ keys: new Set(), ops: new Set(["activity"]) });
         })
-        .catch((e: unknown) => console.error("[workspace] could not record a document change", e));
+        .catch((e: unknown) => deps.platform.log.error("could not record a document change", { documentId, error: e instanceof Error ? e.message : String(e) }));
     });
   },
 });
