@@ -8,6 +8,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from "@angular/core";
 import { injectCommand, injectLive, provideRayfold } from "@rayfold/angular";
 import { workspaceClient } from "./client";
+import { Thread } from "./thread";
 
 export type State = "open" | "doing" | "done";
 
@@ -27,6 +28,7 @@ const LABEL: Record<State, string> = { open: "Open", doing: "In progress", done:
   selector: "workspace-issues",
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [provideRayfold(workspaceClient())],
+  imports: [Thread],
   styleUrl: "./issues.css",
   template: `
     <section class="card">
@@ -67,18 +69,25 @@ const LABEL: Record<State, string> = { open: "Open", doing: "In progress", done:
               <p class="eyebrow group">{{ label(group.state) }}</p>
               <ol>
                 @for (issue of group.items; track issue.id) {
-                  <li class="row" [class.done]="issue.state === 'done'">
-                    <span class="title">{{ issue.title }}</span>
-                    @if (issue.assignee) {
-                      <span class="who muted">{{ issue.assignee.name }}</span>
-                    }
-                    <span class="moves">
-                      @for (to of next(issue.state); track to) {
-                        <button type="button" class="btn quiet" (click)="move(issue, to)" [disabled]="moving() === issue.id">
-                          {{ label(to) }}
-                        </button>
+                  <li [class.done]="issue.state === 'done'" [class.open]="openId() === issue.id">
+                    <div class="row">
+                      <button type="button" class="title" (click)="toggle(issue.id)" [attr.aria-expanded]="openId() === issue.id">
+                        {{ issue.title }}
+                      </button>
+                      @if (issue.assignee) {
+                        <span class="who muted">{{ issue.assignee.name }}</span>
                       }
-                    </span>
+                      <span class="moves">
+                        @for (to of next(issue.state); track to) {
+                          <button type="button" class="btn quiet" (click)="move(issue, to)" [disabled]="moving() === issue.id">
+                            {{ label(to) }}
+                          </button>
+                        }
+                      </span>
+                    </div>
+                    @if (openId() === issue.id) {
+                      <workspace-thread [issueId]="issue.id" />
+                    }
                   </li>
                 }
               </ol>
@@ -95,6 +104,8 @@ export class Issues {
   readonly draft = signal("");
   readonly failed = signal<string | null>(null);
   readonly moving = signal<string | null>(null);
+  /** The one issue whose conversation is open; its thread subscribes only while it is. */
+  readonly openId = signal<string | null>(null);
 
   readonly list = injectLive<{ items: Issue[] }>("issues", () => ({ projectId: this.projectId() }), {
     shape: "{ items { id title state version updatedAt assignee { name } } }",
@@ -110,6 +121,10 @@ export class Issues {
 
   label(state: State): string {
     return LABEL[state];
+  }
+
+  toggle(id: string): void {
+    this.openId.update((open) => (open === id ? null : id));
   }
 
   /** Where an issue may go from here: forward one step, and back one, never a jump to the end. */

@@ -108,6 +108,8 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
         const comment: Comment = { id: id(), issueId, body, at: now(), byId: (ctx.viewer as Viewer).id };
         await store.addComment(comment);
         return ok(comment, {
+          // the feed only. an open thread re-runs on its own: this patch sets a Comment, and Comment is the type
+          // the thread returns, which is the conservative rule the protocol applies (spec 08 section 2)
           patch: feedChanged,
           emit: [
             { event: "CommentAdded", payload: { issueId, commentId: comment.id } },

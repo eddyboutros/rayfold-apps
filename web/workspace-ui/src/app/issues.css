@@ -22,24 +22,40 @@ ol {
   list-style: none;
 }
 
+li {
+  border-top: 1px solid var(--line);
+}
+
+ol li:first-child {
+  border-top: 0;
+}
+
 .row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   padding: 8px 0;
-  border-top: 1px solid var(--line);
 }
 
-ol .row:first-child {
-  border-top: 0;
-}
-
+/* the title is the way into the conversation, and looks like text until it is pointed at */
 .title {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
   font-weight: 500;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.title:hover,
+.open .title {
+  color: var(--accent);
 }
 
 .done .title {
