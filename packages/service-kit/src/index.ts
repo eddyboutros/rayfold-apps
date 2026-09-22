@@ -20,6 +20,7 @@ import { readFileSync } from "node:fs";
 import {
   Capabilities,
   MemoryCounters,
+  MemoryUsage,
   createHttpHandler,
   createRayfoldServer,
   shutdown,
@@ -173,6 +174,9 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
     // shared, so a live query on one instance hears a command run on another
     relay,
     counters,
+    // which members each client still asks for, served on /stats: what a console's field-usage screen and
+    // `rayfold check --unused` read, and what makes removing a field a fact rather than a guess (spec 11)
+    usage: new MemoryUsage(),
     identity: { name: config.name, version: config.version, instance: config.instance },
     onRelayError: (e) => console.error(`[${config.name}] relay refused a message:`, e),
   });
