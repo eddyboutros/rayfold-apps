@@ -71,7 +71,8 @@ const service = await startService({
           projectId: job.projectId,
           source: "catalogue",
           kind: indexed ? "document.indexed" : "document.empty",
-          text: indexed ? `${job.name} (${job.documentId})` : `${job.name}, nothing to index (${job.documentId})`,
+          // the kind carries the verb; the text is the file, so the feed reads "found nothing to index in <name>"
+          text: `${job.name} (${job.documentId})`,
           at: Date.now(),
           // no person did this: the platform did, which the feed shows as the product
           byId: null,
