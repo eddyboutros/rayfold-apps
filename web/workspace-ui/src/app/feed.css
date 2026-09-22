@@ -99,6 +99,13 @@ ol {
   text-transform: capitalize;
 }
 
+/* the JVM member's lines, in a colour of their own: the fleet has more than one runtime, and the feed shows it */
+.source[data-source="approvals"] {
+  background: var(--warn-soft);
+  color: var(--warn);
+  text-transform: capitalize;
+}
+
 time {
   color: var(--ink-faint);
   font-size: 11.5px;

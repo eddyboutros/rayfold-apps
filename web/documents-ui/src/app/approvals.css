@@ -1,0 +1,99 @@
+.approvals {
+  margin: 2px 0 8px 45px;
+  padding: 10px 12px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+}
+
+ol {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.state {
+  margin-top: 1px;
+}
+
+.state[data-decision="approved"] {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.state[data-decision="declined"] {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+.state[data-decision="pending"] {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.stale {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.note {
+  color: var(--ink-muted);
+}
+
+.acts {
+  display: flex;
+  gap: 4px;
+}
+
+.acts .btn {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+
+.none {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+}
+
+.ask {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ask select {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.ask .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.bad {
+  margin: 8px 0 0;
+  color: var(--bad);
+  font-size: 12.5px;
+}

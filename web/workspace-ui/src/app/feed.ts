@@ -20,7 +20,7 @@ export interface Line {
 }
 
 /** Lines whose text is "<file>: <what>", like an issue's. */
-const FILED = new Set(["document.filed", "document.tagged", "document.noted"]);
+const FILED = new Set(["document.filed", "document.tagged", "document.noted", "approval.requested", "approval.decided"]);
 
 const KIND_LABEL: Record<string, string> = {
   "document.added": "added a file",
@@ -28,6 +28,8 @@ const KIND_LABEL: Record<string, string> = {
   "document.filed": "filed",
   "document.tagged": "tagged",
   "document.noted": "remarked on",
+  "approval.requested": "asked for a sign-off on",
+  "approval.decided": "signed off on",
   "document.indexed": "made searchable",
   "document.empty": "found nothing to index in",
   "issue.created": "opened",
@@ -151,6 +153,7 @@ export class Feed {
       const rest = text.slice(i + 2);
       if (line.kind === "issue.assigned") return `to ${rest}`;
       if (line.kind === "document.filed") return `in ${rest}`;
+      if (line.kind === "approval.requested") return `from ${rest}`;
       if (line.kind === "comment.added" || line.kind === "document.noted") return `“${rest}”`;
       return rest;
     }

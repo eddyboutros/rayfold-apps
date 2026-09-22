@@ -39,6 +39,36 @@ jobs:
       # a service is tested the way it is deployed: its own main.ts, its own migration, a real database
       - run: npm test
 
+  approvals:
+    name: The JVM service against a real Postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: rayfold
+          POSTGRES_DB: apps
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://postgres:rayfold@127.0.0.1:5432/apps_jvm
+    defaults:
+      run:
+        working-directory: services/approvals
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      # the same way the Dockerfile builds it: the wrapper, the tests against the database
+      - run: ./mvnw -q -B verify
+
   images:
     name: Every service builds an image
     runs-on: ubuntu-latest
@@ -47,6 +77,7 @@ jobs:
       - run: docker build -f services/documents/Dockerfile -t apps/documents .
       - run: docker build -f services/workspace/Dockerfile -t apps/workspace .
       - run: docker build -f services/catalogue/Dockerfile -t apps/catalogue .
+      - run: docker build -f services/approvals/Dockerfile -t apps/approvals .
       - run: docker build --build-arg APP=shell -t apps/shell web
       - run: docker build --build-arg APP=documents-ui --build-arg BASE_HREF=/remotes/documents-ui/ -t apps/documents-ui web
       - run: docker build --build-arg APP=workspace-ui --build-arg BASE_HREF=/remotes/workspace-ui/ -t apps/workspace-ui web

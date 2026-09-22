@@ -130,6 +130,9 @@ event DocumentChanged { documentId: ID, projectId: ID, name: String, version: In
 event DocumentFiled { documentId: ID, projectId: ID, name: String, folder: String?, byId: ID }
 event DocumentTagged { documentId: ID, projectId: ID, name: String, tags: [String], byId: ID }
 event DocumentNoted { documentId: ID, projectId: ID, name: String, excerpt: String, byId: ID }
+"""The approvals service's, the fleet's JVM member: a sign-off asked, and one decided. Heard here the same way."""
+event ApprovalRequested { approvalId: ID, documentId: ID, projectId: ID, documentName: String, requesterId: ID, approverId: ID }
+event ApprovalDecided { approvalId: ID, documentId: ID, projectId: ID, documentName: String, decision: String, byId: ID, note: String? }
 
 """Everyone who can be assigned something, for a picker."""
 query members: [Member] @allow(read: viewer != null)

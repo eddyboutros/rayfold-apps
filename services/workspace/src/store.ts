@@ -311,6 +311,12 @@ export class WorkspaceStore {
     return (rows[0]?.["n"] as number) ?? 0;
   }
 
+  /** Who asked for a sign-off, as the feed recorded it when the request was heard: the requester's id is the line's by_id. */
+  async approvalRequesterOf(approvalId: string): Promise<string | null> {
+    const { rows } = await this.sql.query("select by_id from activity where id = $1", [`approvals:${approvalId}:asked`]);
+    return (rows[0]?.["by_id"] as string | null) ?? null;
+  }
+
   /** Written once however many instances react: the id is derived from the cause, as the feed's lines are. */
   async notify(n: Notification): Promise<boolean> {
     const { rowCount } = await this.sql.query(

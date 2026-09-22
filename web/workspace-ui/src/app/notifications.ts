@@ -32,6 +32,8 @@ const KIND_LABEL: Record<string, string> = {
   "issue.assigned": "Handed to you",
   "comment.added": "A reply",
   "document.indexed": "Searchable now",
+  "approval.requested": "Sign-off asked",
+  "approval.decided": "Sign-off decided",
 };
 
 /** How long a toast stays: long enough to read, short enough that four in a row do not pile up. */

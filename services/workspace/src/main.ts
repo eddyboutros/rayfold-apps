@@ -6,7 +6,7 @@
  * on the project's feed, and wakes the live queries and streams watching it. No polling, no webhook to register,
  * and no table shared between the two services.
  */
-import { personOf, schemaAt, startService, type Deps } from "@apps/service-kit";
+import { TEAM, personOf, schemaAt, startService, type Deps } from "@apps/service-kit";
 import type { RayfoldServer } from "@rayfold/server";
 import { WorkspaceStore } from "./store.ts";
 import { resolvers, type Viewer } from "./resolvers.ts";
@@ -33,8 +33,8 @@ const service = await startService({
      * its own connected clients to wake. `deliver` rather than `publish` for the same reason the id is derived: the
      * event is already on the relay, and sending anything back would multiply it by the fleet.
      */
-    const heard = (id: string, projectId: string, kind: string, text: string, byId: string | null, about: Record<string, unknown>) => {
-      const line = { id, projectId, source: "documents", kind, text, at: Date.now(), byId };
+    const heard = (id: string, projectId: string, kind: string, text: string, byId: string | null, about: Record<string, unknown>, source = "documents") => {
+      const line = { id, projectId, source, kind, text, at: Date.now(), byId };
       void store
         .record(line)
         .then((written) => {
@@ -69,6 +69,38 @@ const service = await startService({
       const { documentId, projectId, name, tags, byId } = payload as { documentId: string; projectId: string; name: string; tags: string[]; byId: string };
       heard(`documents:${documentId}:tagged:${tags.join(",")}`, projectId, "document.tagged", `${name}: ${tags.length ? tags.join(" ") : "no tags"} (${documentId})`, byId ?? null, { documentId, projectId, tags });
     });
+    // raised by the approvals service, in Kotlin, on another port: the same relay, the same shape of line. the person
+    // asked is told through the bell, and the one who asked hears the decision the same way
+    server.events.on("ApprovalRequested", (payload) => {
+      const { approvalId, documentId, projectId, documentName, requesterId, approverId } = payload as { approvalId: string; documentId: string; projectId: string; documentName: string; requesterId: string; approverId: string };
+      const who = Object.fromEntries(TEAM.map((p) => [p.id, p.name]));
+      heard(`approvals:${approvalId}:asked`, projectId, "approval.requested", `${documentName}: ${who[approverId] ?? approverId} (${documentId})`, requesterId ?? null, { approvalId, projectId }, "approvals");
+      void tellOnce({ id: `approval:${approvalId}:asked`, recipientId: approverId, kind: "approval.requested", text: `${who[requesterId] ?? "Someone"} asked you to sign off on ${documentName}`, projectId, issueId: null });
+    });
+    server.events.on("ApprovalDecided", (payload) => {
+      const { approvalId, documentId, projectId, documentName, decision, byId, note } = payload as { approvalId: string; documentId: string; projectId: string; documentName: string; decision: string; byId: string; note: string | null };
+      const who = Object.fromEntries(TEAM.map((p) => [p.id, p.name]));
+      heard(`approvals:${approvalId}:${decision}`, projectId, "approval.decided", `${documentName}: ${decision}${note ? `, ${note}` : ""} (${documentId})`, byId ?? null, { approvalId, projectId, decision }, "approvals");
+      // the one who asked hears the answer; a withdrawal is theirs already
+      if (decision !== "withdrawn") {
+        void store.approvalRequesterOf(approvalId).then((requesterId) => {
+          if (requesterId && requesterId !== byId) {
+            return tellOnce({ id: `approval:${approvalId}:${decision}`, recipientId: requesterId, kind: "approval.decided", text: `${who[byId] ?? "Someone"} ${decision} ${documentName}${note ? `: ${note}` : ""}`, projectId, issueId: null });
+          }
+          return undefined;
+        });
+      }
+    });
+
+    /** A notification written once for the fleet, and every open bell on this instance woken. */
+    const tellOnce = async (n: { id: string; recipientId: string; kind: string; text: string; projectId: string; issueId: string | null }) => {
+      const notification = { ...n, at: Date.now(), readAt: null };
+      if (await store.notify(notification)) {
+        server.events.deliver("Notified", { recipientId: n.recipientId, notificationId: n.id, kind: n.kind, text: n.text, projectId: n.projectId, issueId: n.issueId, at: notification.at });
+        server.changes.deliver({ keys: new Set(), ops: new Set(["unread", "notifications"]) });
+      }
+    };
+
     server.events.on("DocumentNoted", (payload) => {
       const { documentId, projectId, name, excerpt, byId } = payload as { documentId: string; projectId: string; name: string; excerpt: string; byId: string };
       heard(`documents:${documentId}:noted:${byId}:${excerpt}`, projectId, "document.noted", `${name}: ${excerpt} (${documentId})`, byId ?? null, { documentId, projectId });

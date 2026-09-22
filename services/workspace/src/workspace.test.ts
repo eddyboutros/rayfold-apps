@@ -365,6 +365,47 @@ it("three commands in one batch: the second and third name the first's result wi
   expect((await ada.query<{ items: unknown[] }>("activity", { projectId: PROJECT }, { shape: "{ items { kind } }" })).items).toHaveLength(3);
 });
 
+it("a sign-off asked in the approvals service, on the JVM, is a feed line and a notification here: the relay's format is the contract", async () => {
+  const grace = svc.client("grace");
+  const unread = signal<number>();
+  const stop = grace.live<number>("unread", {}, {}, (n) => unread.fire(n), (e) => {
+    throw e;
+  });
+  try {
+    expect(await unread.wait("the badge's first answer")).toBe(0);
+    // what the Kotlin service's PgRelay sends: one NOTIFY on the shared channel, in the shape both runtimes read.
+    // sent here by hand, so this suite proves the workspace's half without a JVM in the room
+    const send = (event: string, payload: Record<string, unknown>) =>
+      svc.sql.query("select pg_notify('rayfold', $1)", [JSON.stringify({ from: "approvals-test", event: { name: event, payload } })]);
+    await send("ApprovalRequested", { approvalId: "ap1", documentId: "d1", projectId: PROJECT, documentName: "MSA v3.pdf", requesterId: "u1", approverId: "u2" });
+    expect(await unread.wait("Grace to be told she was asked")).toBe(1);
+    const told = await grace.query<{ items: Array<{ kind: string; text: string }> }>("notifications", {}, { shape: "{ items { kind text } }" });
+    expect(told.items[0]).toMatchObject({ kind: "approval.requested", text: "Ada Lovelace asked you to sign off on MSA v3.pdf" });
+
+    await send("ApprovalDecided", { approvalId: "ap1", documentId: "d1", projectId: PROJECT, documentName: "MSA v3.pdf", decision: "approved", byId: "u2", note: "Clause 3 is fine." });
+    const feed = await until("both lines on the feed", async () => {
+      const page = await grace.query<{ items: Array<{ source: string; kind: string; text: string; by: { name: string } | null }> }>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text by { name } } }" });
+      return page.items.length === 2 ? page : undefined;
+    });
+    expect(feed.items.map((i) => [i.source, i.kind, i.by?.name, i.text.replace(" (d1)", "")])).toEqual([
+      ["approvals", "approval.decided", "Grace Hopper", "MSA v3.pdf: approved, Clause 3 is fine."],
+      ["approvals", "approval.requested", "Ada Lovelace", "MSA v3.pdf: Grace Hopper"],
+    ]);
+    // the one who asked hears the answer; the same event heard again (a second instance) writes nothing more
+    const ada = await until("Ada to be told", async () => {
+      const page = await svc.client("ada").query<{ items: Array<{ kind: string; text: string }> }>("notifications", {}, { shape: "{ items { kind text } }" });
+      return page.items.length ? page : undefined;
+    });
+    expect(ada.items[0]).toMatchObject({ kind: "approval.decided", text: "Grace Hopper approved MSA v3.pdf: Clause 3 is fine." });
+    await send("ApprovalDecided", { approvalId: "ap1", documentId: "d1", projectId: PROJECT, documentName: "MSA v3.pdf", decision: "approved", byId: "u2", note: "Clause 3 is fine." });
+    await send("ApprovalRequested", { approvalId: "ap2", documentId: "d1", projectId: PROJECT, documentName: "MSA v3.pdf", requesterId: "u1", approverId: "u2" });
+    expect(await unread.wait("the badge to count the second request only")).toBe(2);
+    expect((await grace.query<{ items: unknown[] }>("activity", { projectId: PROJECT }, { shape: "{ items { kind } }" })).items).toHaveLength(3);
+  } finally {
+    stop();
+  }
+});
+
 it("a browser's session cookie is the same person as a bearer token", async () => {
   // what a browser sends: the cookie the shell set at sign-in, and no Authorization header at all
   const browser = new RayfoldClient({

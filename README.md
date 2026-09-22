@@ -54,6 +54,7 @@ the bundles are identical in development and production.
 | `services/documents` | Files: upload, replace, keep every revision, file in folders, tag, remark on, share one with a capability token. |
 | `services/workspace` | Issues with priority, labels, due days and a partial-update command; comments; a project chat and each person's notifications over `stream` operations; the team's workload; and a project feed that carries what the rest of the fleet did. |
 | `services/catalogue` | Products, people and articles behind one search: an interface, a union shaped with `...on`, numbered pages, lazy fields, loaded fields read once per page (a product's category, a person's writing and department), and every article's earlier versions. |
+| `services/approvals` | **Kotlin on Spring Boot**, the fleet's JVM member: sign-offs asked of one person on one document. The same Postgres, the same relay and idempotency tables, the same session cookie; what it raises reaches the workspace's feed and bell, and a new version kept in the documents service reaches it. Built and tested with `./mvnw verify`. |
 | `packages/service-kit` | How every service is wired. The interesting file in the repository. |
 | `e2e/` | The harness services are started with, and the flows that cross them. |
 | `web/` | Keel: the page, and the panels loaded into it at runtime — one per team. Its guide page, "What this shows", maps every Rayfold feature to where it is on the page and the file that does it. See [web/README.md](web/README.md). |
@@ -83,6 +84,14 @@ correct; the clause is what keeps the losing instances quiet instead of raising 
 
 This is the kind of thing that only appears with more than one instance running, which is why there is a test that
 starts two.
+
+**The runtime is not part of the contract.** The approvals service is Kotlin on Spring Boot, with `rayfold-core`
+and `rayfold-jdbc` from Maven Central. It writes the same `rayfold_idempotency` table, so a retry that lands on it
+after landing on a TypeScript service replays; it publishes on the same Postgres channel in the same format, so
+`ApprovalRequested` is a line on the workspace's feed and a note on someone's bell; and it hears `DocumentChanged`
+from the documents service and marks a pending sign-off stale. Its own tests start a second relay to prove both
+directions, and the workspace's tests send the JVM's messages by hand with `pg_notify`, so each half is proved
+without the other in the room.
 
 ## The contract
 

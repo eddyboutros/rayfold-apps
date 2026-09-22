@@ -100,6 +100,27 @@ services:
     stop_signal: SIGTERM
     stop_grace_period: 30s
 
+  # the fleet's JVM member: Kotlin on Spring Boot, the same Postgres, the same relay and idempotency tables, the same
+  # session cookie. The gateway puts it at /api/approvals like the others; nothing in front of it knows the runtime.
+  approvals:
+    build:
+      context: .
+      dockerfile: services/approvals/Dockerfile
+    environment:
+      PORT: 4004
+      DATABASE_URL: postgres://postgres:rayfold@postgres:5432/apps
+      OPS_TOKEN: ${OPS_TOKEN:-dev-ops-token}
+      SERVICE_VERSION: ${GIT_SHA:-dev}
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:4004/rayfold/ready || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+
   # ---- the front ends: one container each, built from its own lockfile, deployed on its own
   shell:
     build: { context: web, dockerfile: Dockerfile, args: { APP: shell } }
@@ -121,6 +142,7 @@ services:
       - documents-ui
       - workspace-ui
       - catalogue-ui
+      - approvals
       - documents
       - workspace
       - catalogue

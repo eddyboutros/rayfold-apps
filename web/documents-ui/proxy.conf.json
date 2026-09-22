@@ -11,5 +11,12 @@
     "pathRewrite": {
       "^/api/workspace": ""
     }
+  },
+  "/api/approvals": {
+    "target": "http://localhost:4004",
+    "pathRewrite": {
+      "^/api/approvals": ""
+    },
+    "ws": true
   }
 }

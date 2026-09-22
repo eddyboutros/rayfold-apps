@@ -12,6 +12,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from "@angular/core";
 import { injectCommand, injectLive, injectQuery, injectRayfoldClient, provideRayfold } from "@rayfold/angular";
 import { documentsBase, documentsClient } from "./client";
+import { Approvals } from "./approvals";
 import { History } from "./history";
 import { Notes } from "./notes";
 import { Preview } from "./preview";
@@ -34,14 +35,14 @@ export interface Folder {
   count: number;
 }
 
-type Tab = "preview" | "notes" | "history";
+type Tab = "preview" | "notes" | "approvals" | "history";
 
 @Component({
   selector: "documents-panel",
   changeDetection: ChangeDetectionStrategy.OnPush,
   // the remote provides its own client, so this panel is the same component wherever it is dropped
   providers: [provideRayfold(documentsClient())],
-  imports: [History, Notes, Preview],
+  imports: [Approvals, History, Notes, Preview],
   styleUrl: "./documents.css",
   template: `
     <section class="card">
@@ -198,6 +199,7 @@ type Tab = "preview" | "notes" | "history";
                   <div class="tabs" role="tablist">
                     <button type="button" role="tab" [class.on]="tab() === 'preview'" (click)="tab.set('preview')">Preview</button>
                     <button type="button" role="tab" [class.on]="tab() === 'notes'" (click)="tab.set('notes')">Notes</button>
+                    <button type="button" role="tab" [class.on]="tab() === 'approvals'" (click)="tab.set('approvals')">Sign-offs</button>
                     <button type="button" role="tab" [class.on]="tab() === 'history'" (click)="tab.set('history')">Revisions <span class="n">{{ doc.version }}</span></button>
                   </div>
                   @switch (tab()) {
@@ -206,6 +208,9 @@ type Tab = "preview" | "notes" | "history";
                     }
                     @case ("notes") {
                       <documents-notes [documentId]="doc.id" />
+                    }
+                    @case ("approvals") {
+                      <documents-approvals [documentId]="doc.id" [projectId]="projectId()" [documentName]="doc.name" [version]="doc.version" [meId]="me.data()?.id ?? null" [canAsk]="mine(doc)" />
                     }
                     @case ("history") {
                       <documents-history [documentId]="doc.id" [base]="base" />

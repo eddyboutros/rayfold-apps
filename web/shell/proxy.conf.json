@@ -19,6 +19,13 @@
       "^/api/catalogue": ""
     }
   },
+  "/api/approvals": {
+    "target": "http://localhost:4004",
+    "pathRewrite": {
+      "^/api/approvals": ""
+    },
+    "ws": true
+  },
   "/remotes/documents-ui": {
     "target": "http://localhost:4202",
     "pathRewrite": {

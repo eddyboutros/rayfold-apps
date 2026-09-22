@@ -1,0 +1,68 @@
+// Approvals: a sign-off asked of one person on one document, at one version.
+//
+// The fleet's JVM member. What it knows of a document is what the request carried — its id, its name, its version —
+// and it never asks the documents service; when that service keeps a new version, its event reaches here over the
+// relay and every pending sign-off on the old one is marked stale. What happens here reaches the workspace the same
+// way: the feed says who asked whom, and the bell tells the person asked.
+
+entity Member {
+  id: ID
+  name: String
+}
+
+enum Decision { pending, approved, declined, withdrawn }
+
+"""One sign-off. Read by the team; asked by anyone; decided by the one person it was asked of."""
+entity Approval @cache(maxAge: 0s, scope: private) @allow(read: viewer != null) {
+  id: ID
+  documentId: ID
+  projectId: ID
+  """The document's name when the sign-off was asked, so a list reads without asking the documents service."""
+  documentName: String
+  """The version asked about. A newer one kept since makes a pending sign-off stale."""
+  version: Int
+  requester: Member
+  approver: Member
+  decision: Decision
+  note: String?
+  """True once the document has moved on from the version this was asked about, while still pending."""
+  stale: Boolean
+  askedAt: Instant
+  decidedAt: Instant?
+}
+
+error NotFound { id: ID }
+"""The caller is not the person this sign-off was asked of, or not the one who asked."""
+error NotYours { id: ID }
+error AlreadyDecided { id: ID, decision: Decision }
+
+event ApprovalRequested { approvalId: ID, documentId: ID, projectId: ID, documentName: String, requesterId: ID, approverId: ID }
+event ApprovalDecided { approvalId: ID, documentId: ID, projectId: ID, documentName: String, decision: Decision, byId: ID, note: String? }
+"""Raised by the documents service and heard here: a pending sign-off on an older version is stale from then on."""
+event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID }
+
+query approval(id: ID): Approval? @allow(read: viewer != null)
+"""Every sign-off on a document, newest first. Ask for it `live` and a decision made elsewhere lands as it is made."""
+query approvals(documentId: ID): [Approval] @allow(read: viewer != null) @cost(base: 2)
+"""What is waiting on the caller, oldest first."""
+query inbox: [Approval] @allow(read: viewer != null) @cost(base: 2)
+"""Who can be asked, for a picker."""
+query members: [Member] @allow(read: viewer != null)
+
+"""Ask someone to sign off on a document as it is now. Asking yourself is refused as NotYours."""
+command requestApproval(documentId: ID, projectId: ID, documentName: String @range(min: 1, max: 200), version: Int @range(min: 1), approverId: ID): Approval
+  throws NotYours
+  emits ApprovalRequested
+  @allow(write: viewer != null)
+
+"""Approve or decline. Only the person asked may, and only once; a stale sign-off can still be decided, with the version in view."""
+command decide(id: ID, decision: Decision, note: String? @range(max: 1000)): Approval
+  throws NotFound | NotYours | AlreadyDecided
+  emits ApprovalDecided
+  @allow(write: viewer != null)
+
+"""Take a pending request back. Only the one who asked may."""
+command withdraw(id: ID): Approval
+  throws NotFound | NotYours | AlreadyDecided
+  emits ApprovalDecided
+  @allow(write: viewer != null)
