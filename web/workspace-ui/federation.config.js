@@ -10,6 +10,7 @@ module.exports = withNativeFederation({
     './Chat': './src/app/chat.ts',
     './Notifications': './src/app/notifications.ts',
     './People': './src/app/people.ts',
+    './Quick': './src/app/quick.ts',
   },
 
   shared: {

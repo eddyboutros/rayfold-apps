@@ -338,6 +338,33 @@ it("the list narrows by state, holder and label, and the workload counts what ea
   expect(after.find((w) => w.member.name === "Noor Haddad")).toMatchObject({ done: 1, overdue: 0 });
 });
 
+it("three commands in one batch: the second and third name the first's result with $ref before it exists", async () => {
+  const ada = svc.client("ada");
+  const me = await ada.query<{ id: string; name: string }>("me", {}, { shape: "{ id name }" });
+  expect(me).toMatchObject({ id: "u1", name: "Ada Lovelace" });
+
+  const batch = ada.batch();
+  const opened = batch.command<{ id: string; title: string; version: number }>("createIssue", { projectId: PROJECT, title: "Wire the sandbox" }, { shape: "{ id title version }" });
+  const handed = batch.command<{ id: string; version: number; assignee: { name: string } | null }>("assignIssue", { id: opened.ref("id"), assigneeId: me.id }, { shape: "{ id version assignee { name } }" });
+  const noted = batch.command<{ id: string; issueId: string }>("addComment", { issueId: opened.ref("id"), body: "Opened from the command palette." }, { shape: "{ id issueId }" });
+  await batch.run();
+
+  const issue = await opened.promise;
+  expect(await handed.promise).toMatchObject({ id: issue.id, version: 2, assignee: { name: "Ada Lovelace" } });
+  expect((await noted.promise).issueId).toBe(issue.id);
+  // one request did all three, in order: the feed has the three lines, and the issue is as the last of them left it
+  const feed = await ada.query<{ items: Array<{ kind: string }> }>("activity", { projectId: PROJECT }, { shape: "{ items { kind } }" });
+  expect(feed.items.map((i) => i.kind)).toEqual(["comment.added", "issue.assigned", "issue.created"]);
+  // guard: a reference into a failed op fails the ops that named it, and nothing after the failure lands
+  const bad = ada.batch();
+  const missing = bad.command("assignIssue", { id: "nope", assigneeId: me.id }, { shape: "{ id }" });
+  const after = bad.command("addComment", { issueId: missing.ref("id"), body: "never" }, { shape: "{ id }" });
+  await bad.run();
+  expect(await missing.promise.then(() => null, (e: RayfoldClientError) => e.type)).toBe("NotFound");
+  expect(await after.promise.then(() => "landed", (e: RayfoldClientError) => e.code)).not.toBe("landed");
+  expect((await ada.query<{ items: unknown[] }>("activity", { projectId: PROJECT }, { shape: "{ items { kind } }" })).items).toHaveLength(3);
+});
+
 it("a browser's session cookie is the same person as a bearer token", async () => {
   // what a browser sends: the cookie the shell set at sign-in, and no Authorization header at all
   const browser = new RayfoldClient({

@@ -5,9 +5,12 @@
  * runtime from a remote the owning team deploys on its own, which is the point of the arrangement: the workspace
  * team ships a new feed without this application being rebuilt or redeployed.
  */
-import { ChangeDetectionStrategy, Component, computed, signal, type Type } from "@angular/core";
+import { ChangeDetectionStrategy, Component, HostListener, computed, signal, type Type } from "@angular/core";
 import { NgComponentOutlet } from "@angular/common";
 import { loadRemoteModule } from "@angular-architects/native-federation";
+import { GuidePage } from "./guide";
+import { Palette, type Action } from "./palette";
+import { SHORTCUTS, SettingsPage, applyTheme, loadSettings, saveSettings, type Settings } from "./settings";
 import { TEAM, current, initials, signIn, signOut, type Person } from "./session";
 
 /** A panel on the page, and the remote it comes from. */
@@ -25,10 +28,24 @@ const PROJECTS = [
   { id: "p2", name: "Q3 compliance" },
 ];
 
+/** Where the page opens: what the settings say, and the last project looked at when they say "last". */
+function startProject(settings: Settings): string {
+  const wanted = settings.startOn === "last" ? safeGet("keel.lastProject") : settings.startOn;
+  return PROJECTS.some((p) => p.id === wanted) ? (wanted as string) : PROJECTS[0]!.id;
+}
+
+function safeGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 @Component({
   selector: "app-root",
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgComponentOutlet],
+  imports: [NgComponentOutlet, Palette, SettingsPage, GuidePage],
   styleUrl: "./app.css",
   template: `
     @if (shareToken) {
@@ -109,12 +126,26 @@ const PROJECTS = [
             </button>
           }
 
+          <button type="button" class="nav palette-nav" (click)="openPalette()" title="Ctrl K">
+            <span class="glyph">⌘</span>
+            Anything…
+            <kbd>Ctrl K</kbd>
+          </button>
+
           <span class="spacer"></span>
 
           <div class="account">
             @if (bell().component; as component) {
               <ng-container *ngComponentOutlet="component" />
             }
+            <button type="button" class="nav" [class.on]="view() === 'guide'" (click)="view.set('guide')">
+              <span class="glyph">?</span>
+              What this shows
+            </button>
+            <button type="button" class="nav" [class.on]="view() === 'settings'" (click)="view.set('settings')">
+              <span class="glyph">⚙</span>
+              Settings
+            </button>
             <button type="button" class="nav" (click)="toggleTheme()">
               <span class="glyph">{{ theme() === "dark" ? "☾" : "☀" }}</span>
               {{ theme() === "dark" ? "Dark" : "Light" }}
@@ -131,7 +162,15 @@ const PROJECTS = [
         </nav>
 
         <div class="frame">
-          @if (page(); as page) {
+          @if (view() === "settings") {
+            <main class="single">
+              <keel-settings [value]="settings()" [projects]="projects" (changed)="applySettings($event)" />
+            </main>
+          } @else if (view() === "guide") {
+            <main class="single">
+              <keel-guide (open)="goFromGuide($event)" />
+            </main>
+          } @else if (page(); as page) {
             <main class="single">
               @if (page.component; as component) {
                 <ng-container *ngComponentOutlet="component" />
@@ -184,16 +223,34 @@ const PROJECTS = [
           }
         </div>
       </div>
+
+      @if (palette()) {
+        <keel-palette
+          [actions]="actions()"
+          [hints]="settings().hints"
+          [quick]="quick().component"
+          [projectId]="projectId()"
+          [projectName]="project().name"
+          [initial]="paletteInitial()"
+          (close)="palette.set(false)"
+          (did)="say($event)"
+        />
+      }
+      @if (said(); as line) {
+        <div class="said card" role="status">{{ line }}</div>
+      }
     }
   `,
 })
 export class App {
   readonly team = TEAM;
+  readonly shortcuts = SHORTCUTS;
   readonly me = signal<Person | null>(current());
   readonly initials = initials;
 
   readonly projects = PROJECTS;
-  readonly projectId = signal(PROJECTS[0]!.id);
+  readonly settings = signal<Settings>(loadSettings());
+  readonly projectId = signal(startProject(loadSettings()));
   /** What fills the page: a project's panels, or one of the company-wide pages by its key. */
   readonly view = signal<string>("project");
   readonly project = computed(() => this.projects.find((p) => p.id === this.projectId()) ?? this.projects[0]!);
@@ -224,10 +281,29 @@ export class App {
   readonly page = computed(() => this.pages().find((p) => p.key === this.view()) ?? null);
   /** The bell in the rail: the person's, not a project's, so it is on every page. A missing remote is a missing bell. */
   readonly bell = signal<Panel>({ key: "bell", label: "Notifications", remote: "workspace-ui", exposed: "./Notifications", component: null, failed: null });
+  /** The palette's "do" entries come from the workspace team, like a panel: the shell has no client to do them with. */
+  readonly quick = signal<Panel>({ key: "quick", label: "Quick actions", remote: "workspace-ui", exposed: "./Quick", component: null, failed: null });
+
+  readonly palette = signal(false);
+  readonly paletteInitial = signal("");
+  /** What the palette last did, shown for a moment where a toast would be. */
+  readonly said = signal<string | null>(null);
+  /** The first key of a two-key shortcut, while the second is awaited. */
+  private chord: string | null = null;
+
+  /** Everything the shell itself can do, for the palette. */
+  readonly actions = computed<Action[]>(() => [
+    ...this.projects.map((p, i) => ({ id: `project:${p.id}`, label: p.name, hint: "Project", keys: ["g", String(i + 1)], run: () => this.openProject(p.id) })),
+    ...this.pages().map((p) => ({ id: `page:${p.key}`, label: p.label, hint: "Company", keys: ["g", p.key[0]!], run: () => this.view.set(p.key) })),
+    { id: "guide", label: "What this shows", hint: "The guide to every Rayfold feature on this page", keys: ["?"], run: () => this.view.set("guide") },
+    { id: "settings", label: "Settings", hint: "Theme, toasts, where the page opens", keys: ["g", "s"], run: () => this.view.set("settings") },
+    { id: "theme", label: this.theme() === "dark" ? "Switch to light" : "Switch to dark", hint: "Theme", keys: ["t"], run: () => this.toggleTheme() },
+    { id: "signout", label: "Sign out", hint: this.me()?.name ?? "", run: () => this.leave() },
+  ]);
 
   constructor() {
     // a share link loads one remote and nothing else: the person may not be on the team, and the rest of the page is theirs
-    for (const panel of this.shareToken ? [this.sharePage()] : [...this.panels(), ...this.pages(), this.bell()]) {
+    for (const panel of this.shareToken ? [this.sharePage()] : [...this.panels(), ...this.pages(), this.bell(), this.quick()]) {
       // one remote failing is one panel missing, not a blank page: each is loaded and settled on its own
       void loadRemoteModule(panel.remote, panel.exposed)
         .then((m: Record<string, Type<unknown>>) => this.settle(panel.key, Object.values(m)[0] ?? null, null))
@@ -238,6 +314,7 @@ export class App {
   private settle(key: string, component: Type<unknown> | null, failed: string | null): void {
     if (key === this.sharePage().key) this.sharePage.update((p) => ({ ...p, component, failed }));
     else if (key === this.bell().key) this.bell.update((p) => ({ ...p, component, failed }));
+    else if (key === this.quick().key) this.quick.update((p) => ({ ...p, component, failed }));
     else if (this.pages().some((p) => p.key === key)) this.pages.update((pages) => pages.map((p) => (p.key === key ? { ...p, component, failed } : p)));
     else this.panels.update((panels) => panels.map((p) => (p.key === key ? { ...p, component, failed } : p)));
   }
@@ -245,6 +322,80 @@ export class App {
   openProject(id: string): void {
     this.projectId.set(id);
     this.view.set("project");
+    try {
+      localStorage.setItem("keel.lastProject", id);
+    } catch {
+      // then the page opens on the first project next time, which is no worse than before
+    }
+  }
+
+  goFromGuide(view: string): void {
+    if (view === "project") this.openProject(this.projectId());
+    else this.view.set(view);
+  }
+
+  openPalette(initial = ""): void {
+    this.paletteInitial.set(initial);
+    this.palette.set(true);
+  }
+
+  say(line: string): void {
+    this.said.set(line);
+    setTimeout(() => this.said.update((s) => (s === line ? null : s)), 4000);
+  }
+
+  applySettings(next: Settings): void {
+    this.settings.set(next);
+    saveSettings(next);
+    applyTheme(next.theme);
+    this.theme.set(next.theme === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : next.theme);
+  }
+
+  /**
+   * The keyboard, page-wide. Nothing fires while a field has focus, except the palette's own key: a person typing
+   * "g" into a chat must not be taken to a project. Two-key shortcuts start with g and wait one second for the rest.
+   */
+  @HostListener("document:keydown", ["$event"])
+  onKey(event: KeyboardEvent): void {
+    if (!this.me() || this.shareToken) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      this.palette.update((open) => !open);
+      return;
+    }
+    if (this.palette()) return;
+    const target = event.target as HTMLElement | null;
+    const typing = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable);
+    if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
+
+    if (this.chord === "g") {
+      this.chord = null;
+      const n = Number(event.key);
+      if (n >= 1 && n <= this.projects.length) return this.openProject(this.projects[n - 1]!.id);
+      if (event.key === "s") return this.view.set("settings");
+      const page = this.pages().find((p) => p.key[0] === event.key);
+      if (page) this.view.set(page.key);
+      return;
+    }
+    switch (event.key) {
+      case "g":
+        this.chord = "g";
+        setTimeout(() => (this.chord = null), 1000);
+        break;
+      case "/":
+        event.preventDefault();
+        this.openPalette();
+        break;
+      case "?":
+        this.view.set("guide");
+        break;
+      case "t":
+        this.toggleTheme();
+        break;
+      case "Escape":
+        if (this.view() === "settings" || this.view() === "guide") this.view.set("project");
+        break;
+    }
   }
 
   enter(person: Person): void {
@@ -261,12 +412,6 @@ export class App {
 
   toggleTheme(): void {
     const next = this.theme() === "dark" ? "light" : "dark";
-    this.theme.set(next);
-    document.documentElement.dataset["theme"] = next;
-    try {
-      localStorage.setItem("keel.theme", next);
-    } catch {
-      // a browser that refuses storage still gets the theme for this visit, which is the part that matters
-    }
+    this.applySettings({ ...this.settings(), theme: next });
   }
 }

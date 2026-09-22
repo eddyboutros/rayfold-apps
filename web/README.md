@@ -38,6 +38,13 @@ on the exposed component — and the shell provides none. A service is a path on
 `/api/documents`, in development and production alike: the gateway forwards it in one, `proxy.conf.json` in the
 other. No bundle knows a host, and nothing a browser does is cross-origin.
 
+**The shell does the page; the remotes do the work.** The shell owns the session, the project switcher, the theme,
+the settings page, the guide and the command palette (Ctrl K, or `/`), and none of the features. Even the palette's
+"do" entries come from a remote: the workspace team's `./Quick` is loaded into it with the typed text as its input,
+and it answers with a DOM event that bubbles up to the palette, which is the one thing a component can say to a page
+it knows nothing about. Its "new issue for me" is three commands in one batch, the second and third naming the
+first's result with `$ref` before it exists.
+
 **A remote with many subscriptions holds one socket.** The workspace panels keep the feed, the issues, the chat
 stream, the bell's count and its stream open at once. Over plain HTTP each is a connection, and a browser allows six
 per host — shared with everything else the page loads — so the sixth subscription stalled the page. The workspace

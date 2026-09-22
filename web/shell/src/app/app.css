@@ -99,6 +99,38 @@
   flex: 1;
 }
 
+/* the palette's entry in the rail: a row like the others, with its shortcut at the end */
+.palette-nav {
+  margin-top: 6px;
+  border: 1px dashed var(--line-strong);
+}
+
+.palette-nav kbd {
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+/* what the palette did, for a moment, bottom centre */
+.said {
+  position: fixed;
+  z-index: 32;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 9px 14px;
+  border-left: 3px solid var(--ok);
+  box-shadow: var(--shadow-md);
+  font-size: 13px;
+}
+
 .account {
   border-top: 1px solid var(--line);
   padding-top: 8px;

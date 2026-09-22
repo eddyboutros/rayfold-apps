@@ -1,0 +1,75 @@
+:host {
+  display: block;
+}
+
+.none {
+  margin: 0;
+  padding: 6px 10px 8px;
+  font-size: 12.5px;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list button {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.list button:hover:not(:disabled) {
+  background: var(--sunken);
+}
+
+.list button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.glyph {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.bad {
+  margin: 4px 10px 6px;
+  color: var(--bad);
+  font-size: 12.5px;
+}

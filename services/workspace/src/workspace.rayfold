@@ -134,6 +134,9 @@ event DocumentNoted { documentId: ID, projectId: ID, name: String, excerpt: Stri
 """Everyone who can be assigned something, for a picker."""
 query members: [Member] @allow(read: viewer != null)
 
+"""Who is asking, as this service knows them: the session made a person, and this is that person's row."""
+query me: Member? @allow(read: viewer != null)
+
 """How the work is spread over the team, across every project. Ask for it `live` and it follows each hand-over."""
 query workload: [Workload] @allow(read: viewer != null) @cost(base: 4)
 

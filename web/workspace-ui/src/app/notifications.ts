@@ -37,6 +37,19 @@ const KIND_LABEL: Record<string, string> = {
 /** How long a toast stays: long enough to read, short enough that four in a row do not pile up. */
 const TOAST_MS = 6000;
 
+/**
+ * The one setting of the page's that is this remote's to honour, read where the shell keeps it. Absent or
+ * unreadable means yes: a toast is the default, and turning it off is a choice a person made.
+ */
+function toastsWanted(): boolean {
+  try {
+    const raw = localStorage.getItem("keel.settings");
+    return raw ? (JSON.parse(raw) as { toasts?: boolean }).toasts !== false : true;
+  } catch {
+    return true;
+  }
+}
+
 @Component({
   selector: "workspace-notifications",
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -150,6 +163,7 @@ export class Notifications {
       try {
         for await (const n of this.client.stream<Notified>("notified", {}, { signal })) {
           pause = 1000;
+          if (!toastsWanted()) continue;
           this.toasts.update((ts) => [...ts.filter((t) => t.notificationId !== n.notificationId), n]);
           setTimeout(() => this.dismiss(n.notificationId), TOAST_MS);
         }

@@ -100,6 +100,8 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
     Query: {
       members: () => store.members(),
 
+      me: async (_: unknown, ctx) => (await store.membersByIds([(ctx.viewer as Viewer).id])).get((ctx.viewer as Viewer).id) ?? null,
+
       issue: ({ id: issueId }: { id: string }) => store.issue(issueId),
 
       issues: async ({ projectId, state, assigneeId, label, page }: { projectId: string; state?: IssueState | null; assigneeId?: string | null; label?: string | null; page: { first: number; after?: string | null } }) => {
