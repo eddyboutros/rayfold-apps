@@ -19,6 +19,19 @@ export interface FullArticle {
   version: number;
   updatedAt: number;
   author: { id: string; name: string } | null;
+  editor: { id: string; name: string } | null;
+}
+
+/** An earlier version, as the history lists it; the body arrives in a later frame, as the article's own does. */
+export interface Revision {
+  id: string;
+  version: number;
+  name: string;
+  summary: string;
+  tags: string[];
+  body: string | null;
+  at: number;
+  editor: { name: string } | null;
 }
 
 @Component({
@@ -67,28 +80,88 @@ export interface FullArticle {
               }
               updated {{ when(article()!.updatedAt) }}
               @if (article()!.version > 1) {
-                · revision {{ article()!.version }}
+                · version {{ article()!.version }}
+                @if (article()!.editor && article()!.editor?.id !== article()!.author?.id) {
+                  · last edited by {{ article()!.editor?.name }}
+                }
               }
             </p>
           </div>
           <span class="actions">
+            @if (article()!.version > 1) {
+              <button type="button" class="btn quiet" [class.on]="history()" (click)="history.update((h) => !h); viewing.set(null)">History</button>
+            }
             <button type="button" class="btn" (click)="editing.set(true)">Edit</button>
           </span>
         </header>
+        @if (history()) {
+          <div class="history">
+            @if (revisions.error(); as e) {
+              <p class="bad" role="alert">The history could not be loaded: {{ describe(e) }}</p>
+            } @else if (!revisions.data()) {
+              <span class="skeleton" style="width: 50%"></span>
+            } @else {
+              <ol>
+                <li class="current" [class.on]="!viewing()">
+                  <button type="button" (click)="viewing.set(null)">
+                    <span class="v mono">v{{ article()!.version }}</span>
+                    <span class="what">{{ article()!.name }} <span class="muted">— current</span></span>
+                    <span class="who muted">{{ article()!.editor?.name ?? article()!.author?.name ?? "" }} · {{ when(article()!.updatedAt) }}</span>
+                  </button>
+                </li>
+                @for (r of revisions.data()!.items; track r.id) {
+                  <li [class.on]="viewing()?.id === r.id">
+                    <button type="button" (click)="viewing.set(r)">
+                      <span class="v mono">v{{ r.version }}</span>
+                      <span class="what">{{ r.name }}</span>
+                      <span class="who muted">{{ r.editor?.name ?? "" }} · {{ when(r.at) }}</span>
+                    </button>
+                  </li>
+                }
+              </ol>
+            }
+          </div>
+        }
         <div class="body">
-          @if (article()!.tags.length) {
-            <p class="tags">
-              @for (tag of article()!.tags; track tag) {
-                <span class="pill">{{ tag }}</span>
-              }
+          @if (viewing(); as r) {
+            <p class="notice">
+              <span>Reading version {{ r.version }}, from {{ when(r.at) }}. The page is at version {{ article()!.version }}.</span>
+              <span class="actions">
+                <button type="button" class="btn quiet" (click)="viewing.set(null)">Back to current</button>
+                <button type="button" class="btn primary" (click)="restore(r)" [disabled]="write.running()">Restore this version</button>
+              </span>
             </p>
-          }
-          @if (article()!.body === null) {
-            <span class="skeleton" style="width: 90%; margin-bottom: 9px"></span>
-            <span class="skeleton" style="width: 76%; margin-bottom: 9px"></span>
-            <span class="skeleton" style="width: 84%"></span>
+            @if (failed(); as message) {
+              <p class="bad" role="alert">{{ message }}</p>
+            }
+            @if (r.tags.length) {
+              <p class="tags">
+                @for (tag of r.tags; track tag) {
+                  <span class="pill">{{ tag }}</span>
+                }
+              </p>
+            }
+            @if (r.body === null) {
+              <span class="skeleton" style="width: 90%; margin-bottom: 9px"></span>
+              <span class="skeleton" style="width: 76%"></span>
+            } @else {
+              <div class="prose" [innerHTML]="render(r.body)"></div>
+            }
           } @else {
-            <div class="prose" [innerHTML]="html()"></div>
+            @if (article()!.tags.length) {
+              <p class="tags">
+                @for (tag of article()!.tags; track tag) {
+                  <span class="pill">{{ tag }}</span>
+                }
+              </p>
+            }
+            @if (article()!.body === null) {
+              <span class="skeleton" style="width: 90%; margin-bottom: 9px"></span>
+              <span class="skeleton" style="width: 76%; margin-bottom: 9px"></span>
+              <span class="skeleton" style="width: 84%"></span>
+            } @else {
+              <div class="prose" [innerHTML]="html()"></div>
+            }
           }
         </div>
       }
@@ -101,13 +174,24 @@ export class ArticleView {
 
   readonly editing = signal(false);
   readonly failed = signal<string | null>(null);
+  /** The history panel, and the earlier version being read instead of the current one. */
+  readonly history = signal(false);
+  readonly viewing = signal<Revision | null>(null);
+  readonly render = render;
 
   readonly page = injectQuery<FullArticle | null>("article", () => ({ slug: this.slug() }), {
-    shape: "{ id slug name summary tags body version updatedAt author { id name } }",
+    shape: "{ id slug name summary tags body version updatedAt author { id name } editor { id name } }",
     enabled: () => this.slug() !== "",
   });
   readonly article = computed(() => this.page.data() ?? null);
   readonly html = computed(() => render(this.article()?.body ?? ""));
+
+  // asked for only while the history is open, with the bodies: the shape asks for the lazy field, so each arrives
+  // in its own later frame and the list is on screen before any of them
+  readonly revisions = injectQuery<{ items: Revision[] }>("articleRevisions", () => ({ id: this.article()?.id ?? "" }), {
+    shape: "{ items { id version name summary tags body at editor { name } } total }",
+    enabled: () => this.history() && !!this.article(),
+  });
 
   readonly write = injectCommand<FullArticle>("writeArticle");
 
@@ -135,6 +219,22 @@ export class ArticleView {
       await this.write.run({ id: current.id, name: field("name").trim(), summary: field("summary").trim(), body: field("body"), tags }, { ifVersion: current.version });
       this.editing.set(false);
       await this.page.refetch();
+      if (this.history()) await this.revisions.refetch();
+    } catch (e: unknown) {
+      this.failed.set(this.describe(e));
+    }
+  }
+
+  /** An old version made current: a new edit with its text, on the version the page has now, so nothing is lost. */
+  async restore(r: Revision): Promise<void> {
+    const current = this.article();
+    if (!current || r.body === null) return;
+    this.failed.set(null);
+    try {
+      await this.write.run({ id: current.id, name: r.name, summary: r.summary, body: r.body, tags: r.tags }, { ifVersion: current.version });
+      this.viewing.set(null);
+      await this.page.refetch();
+      await this.revisions.refetch();
     } catch (e: unknown) {
       this.failed.set(this.describe(e));
     }

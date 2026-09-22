@@ -1,0 +1,177 @@
+:host {
+  display: block;
+}
+
+.card > header {
+  align-items: flex-start;
+  padding: 18px 22px;
+}
+
+.crumbs {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.crumbs span {
+  margin: 0 5px;
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+header h1 {
+  font-size: 22px;
+  text-wrap: balance;
+}
+
+.byline {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.buy {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  flex: none;
+}
+
+.price {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.price.small {
+  font-size: 14px;
+}
+
+.price .per {
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.card > .body {
+  padding: 18px 22px 26px;
+}
+
+.lede {
+  max-width: 68ch;
+  margin: 0 0 18px;
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 0 0 26px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+}
+
+.facts div {
+  display: grid;
+  gap: 2px;
+}
+
+.facts dt {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.facts dd {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.section-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.section-title .muted {
+  margin-left: 4px;
+  font-weight: 500;
+}
+
+.related {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.mini {
+  display: grid;
+  gap: 6px;
+  padding: 13px 15px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mini:hover {
+  border-color: var(--accent-line);
+}
+
+.mini .name {
+  font-weight: 600;
+}
+
+.mini .text {
+  font-size: 12.5px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mini .foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.alone {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.pill[data-availability="available"] {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.pill[data-availability="limited"],
+.pill[data-availability="waitlist"] {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.pill[data-availability="retired"] {
+  background: var(--bad-soft);
+  color: var(--bad);
+}

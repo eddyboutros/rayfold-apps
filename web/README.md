@@ -10,7 +10,7 @@ services, which are on another.
 | `shell` | The page, the project switcher, the theme, sign-in and the session. Owns no features and no client. |
 | `documents-ui` | Files: upload, preview, file in folders, tag, remark on, keep revisions, share; and the page a share link opens for someone with no account. Owned by the team that owns the documents service. |
 | `workspace-ui` | Issues with their detail (priority, labels, due day, description), hand-overs, conversations, the activity feed, the project chat, the bell with each person's notifications, and the People page. Owned by the team that owns the workspace service. |
-| `catalogue-ui` | The catalogue: one search over products, people and articles, and a catalogue to leaf through. A whole page, not a panel. |
+| `catalogue-ui` | The catalogue: one search over products, people and articles, a catalogue to leaf through, a page for each product and person, and an article's history with restore. A whole page, not a panel. |
 
 ```sh
 cd web/documents-ui && npm install && npx ng serve --port 4202   # the remotes first

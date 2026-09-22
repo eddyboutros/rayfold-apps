@@ -53,7 +53,7 @@ the bundles are identical in development and production.
 |---|---|
 | `services/documents` | Files: upload, replace, keep every revision, file in folders, tag, remark on, share one with a capability token. |
 | `services/workspace` | Issues with priority, labels, due days and a partial-update command; comments; a project chat and each person's notifications over `stream` operations; the team's workload; and a project feed that carries what the rest of the fleet did. |
-| `services/catalogue` | Products, people and articles behind one search: an interface, a union shaped with `...on`, numbered pages, a lazy field. |
+| `services/catalogue` | Products, people and articles behind one search: an interface, a union shaped with `...on`, numbered pages, lazy fields, loaded fields read once per page (a product's category, a person's writing and department), and every article's earlier versions. |
 | `packages/service-kit` | How every service is wired. The interesting file in the repository. |
 | `e2e/` | The harness services are started with, and the flows that cross them. |
 | `web/` | Keel: the page, and the panels loaded into it at runtime — one per team. See [web/README.md](web/README.md). |

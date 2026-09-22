@@ -159,12 +159,37 @@ h3 {
   gap: 12px;
 }
 
+/* a card is a button: the whole of it opens the product, and it reads the same as before */
+.card.product,
+.card.person {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card.product:hover,
+.card.person:hover {
+  border-color: var(--accent-line);
+}
+
+.card.product:hover h3,
+.card.person:hover h3 {
+  color: var(--accent);
+}
+
 .product > .body {
   display: flex;
   flex-direction: column;
   gap: 5px;
   height: 100%;
   padding: 14px 16px 12px;
+}
+
+.product .eyebrow,
+.product .sku,
+.product .text {
+  display: block;
 }
 
 .product .eyebrow {
@@ -258,8 +283,9 @@ h3 {
   font-size: 11.5px;
 }
 
-.person a.line {
+.person .mail {
   margin-top: 3px;
+  color: var(--ink-faint);
 }
 
 .avatar {

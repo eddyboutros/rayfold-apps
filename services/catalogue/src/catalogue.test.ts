@@ -36,7 +36,7 @@ beforeAll(async () => {
   });
   svc = await startTestService("catalogue", { CONSOLE_URL: platform.url, APP_ENVIRONMENT: "test" });
   // the catalogue is reference data and is not emptied between runs, so what a test writes it removes itself
-  await svc.sql.query("delete from articles where slug like 'sandbox-reset-how-it-works%'");
+  await svc.sql.query("delete from articles where slug like 'sandbox-reset-how-it-works%'"); // its revisions go with it
   await svc.sql.query("delete from files");
 });
 afterAll(async () => {
@@ -174,6 +174,35 @@ it("an article is written under a slug made from its title, and an edit needs th
   // it is searchable the moment it is written
   const found = await ada().query<Page<Hit>>("search", { q: "sandbox reset" }, { shape: "{ items { ...on Article { slug } } }" });
   expect(found.items.map((h) => h.slug)).toContain("sandbox-reset-how-it-works");
+
+  // what Grace replaced is kept, under the version it was, by the person who wrote it: the body stays lazy on the list
+  const listed = await ada().query<Page<{ version: number; name: string; editor: { name: string } | null; body?: string }>>("articleRevisions", { id: written.id }, { shape: "{ items { version name editor { name } } total }" });
+  expect(listed.total).toBe(1);
+  expect(listed.items[0]).toMatchObject({ version: 1, name: "Sandbox reset: how it works", editor: { name: "Ada Lovelace" } });
+  expect("body" in listed.items[0]!).toBe(false);
+  const read = await ada().query<Page<{ version: number; body: string }>>("articleRevisions", { id: written.id }, { shape: "{ items { version body } }" });
+  expect(read.items[0]).toMatchObject({ version: 1, body: "# Sandbox reset\n\nEverything but the configuration is dropped." });
+  // and the article says who wrote what it is now
+  expect(await ada().query("article", { slug: "sandbox-reset-how-it-works" }, { shape: "{ version author { name } editor { name } }" })).toMatchObject({ version: 2, author: { name: "Ada Lovelace" }, editor: { name: "Grace Hopper" } });
+  // a refused edit keeps no revision (guard)
+  expect((await ada().query<Page<unknown>>("articleRevisions", { id: written.id }, { shape: "{ total }" })).total).toBe(1);
+});
+
+it("a product knows the rest of its category, and a person their writing and their department, each loaded once for a page", async () => {
+  const product = await ada().query<{ name: string; related: Array<{ id: string; name: string }> }>("product", { id: "pr-invoicing" }, { shape: "{ name related { id name } }" });
+  expect(product.related.map((p) => p.id)).toEqual(["pr-tax", "pr-returns"]);
+  // guard: a category of one has no related products, and never itself
+  expect((await ada().query<{ related: unknown[] }>("product", { id: "pr-edi" }, { shape: "{ related { id } }" })).related).toEqual([]);
+
+  const kwame = await ada().query<{ articles: Array<{ slug: string }>; colleagues: Array<{ name: string }> }>("person", { id: "u12" }, { shape: "{ articles { slug } colleagues { name } }" });
+  expect(kwame.articles.map((a) => a.slug)).toContain("rollout-playbook");
+  expect(kwame.articles).toHaveLength(2);
+  expect(kwame.colleagues.map((c) => c.name)).toEqual(["Priya Raman"]);
+
+  // a whole page of people at once: one read serves every one of them, and each gets their own department
+  const page = await ada().query<Page<{ name: string; colleagues: Array<{ name: string }> }>>("items", { kind: "person", page: { first: 20 } }, { shape: "{ items { ...on Person { name department colleagues { name } } } }" });
+  const elena = page.items.find((p) => p.name === "Elena Petrova")!;
+  expect(elena.colleagues.map((c) => c.name).sort()).toEqual(["Ada Lovelace", "Grace Hopper", "Hannah Weiss"]);
 });
 
 it("a kept document's text is read by the extract step, indexed by the index step, and found — text and PDF alike", async () => {

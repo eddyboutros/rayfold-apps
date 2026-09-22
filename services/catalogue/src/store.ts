@@ -41,9 +41,23 @@ export interface Article {
   summary: string;
   tags: string[];
   authorId: string | null;
+  /** Who wrote the current version; the author until someone edits it. */
+  editorId: string | null;
   body: string;
   version: number;
   updatedAt: number;
+}
+
+export interface ArticleRevision {
+  id: string;
+  articleId: string;
+  version: number;
+  name: string;
+  summary: string;
+  tags: string[];
+  body: string;
+  editorId: string | null;
+  at: number;
 }
 
 export interface File {
@@ -93,6 +107,21 @@ export const SCHEMA = `
     body text not null,
     version int not null,
     updated_at bigint not null
+  );
+  -- added later: who wrote the current version. rows from before were written by their author
+  alter table articles add column if not exists editor_id text references people(id);
+
+  create table if not exists article_revisions (
+    id text primary key,
+    article_id text not null references articles(id) on delete cascade,
+    version int not null,
+    name text not null,
+    summary text not null,
+    tags text[] not null default '{}',
+    body text not null,
+    editor_id text references people(id),
+    at bigint not null,
+    unique (article_id, version)
   );
 
   -- what the extract-text worker writes: the document's text, and enough about it to show a result. the id is the
@@ -158,9 +187,22 @@ const toArticle = (r: Record<string, unknown>): Article => ({
   summary: r["summary"] as string,
   tags: r["tags"] as string[],
   authorId: (r["author_id"] as string | null) ?? null,
+  editorId: (r["editor_id"] as string | null) ?? (r["author_id"] as string | null) ?? null,
   body: r["body"] as string,
   version: r["version"] as number,
   updatedAt: Number(r["updated_at"]),
+});
+
+const toRevision = (r: Record<string, unknown>): ArticleRevision => ({
+  id: r["id"] as string,
+  articleId: r["article_id"] as string,
+  version: r["version"] as number,
+  name: r["name"] as string,
+  summary: r["summary"] as string,
+  tags: r["tags"] as string[],
+  body: r["body"] as string,
+  editorId: (r["editor_id"] as string | null) ?? null,
+  at: Number(r["at"]),
 });
 
 const toFile = (r: Record<string, unknown>): File => ({
@@ -202,6 +244,36 @@ export class CatalogueStore {
     if (!ids.length) return new Map();
     const { rows } = await this.sql.query("select * from people where id = any($1::text[])", [ids]);
     return new Map(rows.map((r) => [r["id"] as string, toPerson(r)]));
+  }
+
+  /** Everyone in any of these departments, by name: one read for a whole page of people, grouped by the caller. */
+  async peopleInDepartments(departments: string[]): Promise<Person[]> {
+    if (!departments.length) return [];
+    const { rows } = await this.sql.query("select * from people where department = any($1::text[]) order by name", [departments]);
+    return rows.map(toPerson);
+  }
+
+  /** Every product in any of these categories, newest first. */
+  async productsInCategories(categories: string[]): Promise<Product[]> {
+    if (!categories.length) return [];
+    const { rows } = await this.sql.query("select * from products where category = any($1::text[]) order by updated_at desc, id", [categories]);
+    return rows.map(toProduct);
+  }
+
+  /** Everything these people wrote, newest first. */
+  async articlesBy(authorIds: string[]): Promise<Article[]> {
+    if (!authorIds.length) return [];
+    const { rows } = await this.sql.query("select * from articles where author_id = any($1::text[]) order by updated_at desc, id", [authorIds]);
+    return rows.map(toArticle);
+  }
+
+  async revisions(articleId: string, first: number, after: string | null): Promise<{ items: ArticleRevision[]; total: number }> {
+    const { rows } = await this.sql.query(
+      "select * from article_revisions where article_id = $1 and ($2::text is null or version < (select version from article_revisions where id = $2)) order by version desc limit $3",
+      [articleId, after, first],
+    );
+    const { rows: counted } = await this.sql.query("select count(*)::int as n from article_revisions where article_id = $1", [articleId]);
+    return { items: rows.map(toRevision), total: (counted[0]?.["n"] as number) ?? 0 };
   }
 
   async article(slug: string): Promise<Article | null> {
@@ -254,18 +326,39 @@ export class CatalogueStore {
 
   async createArticle(a: Article): Promise<void> {
     await this.sql.query(
-      "insert into articles (id, name, slug, summary, tags, author_id, body, version, updated_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
-      [a.id, a.name, a.slug, a.summary, a.tags, a.authorId, a.body, a.version, a.updatedAt],
+      "insert into articles (id, name, slug, summary, tags, author_id, editor_id, body, version, updated_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+      [a.id, a.name, a.slug, a.summary, a.tags, a.authorId, a.editorId, a.body, a.version, a.updatedAt],
     );
   }
 
-  /** Lands only while the version is what the caller read; two edits cannot both win. */
-  async updateArticle(a: Article, fromVersion: number): Promise<boolean> {
-    const { rowCount } = await this.sql.query(
-      "update articles set name = $2, summary = $3, tags = $4, body = $5, version = $6, updated_at = $7 where id = $1 and version = $8",
-      [a.id, a.name, a.summary, a.tags, a.body, a.version, a.updatedAt, fromVersion],
-    );
-    return !!rowCount;
+  /**
+   * Lands only while the version is what the caller read; two edits cannot both win. The version being replaced is
+   * kept as a revision in the same transaction, so an article never has an edit without the text it replaced.
+   */
+  async updateArticle(a: Article, fromVersion: number, was: ArticleRevision): Promise<boolean> {
+    const client = await this.sql.connect();
+    try {
+      await client.query("begin");
+      const { rowCount } = await client.query(
+        "update articles set name = $2, summary = $3, tags = $4, body = $5, version = $6, updated_at = $7, editor_id = $9 where id = $1 and version = $8",
+        [a.id, a.name, a.summary, a.tags, a.body, a.version, a.updatedAt, fromVersion, a.editorId],
+      );
+      if (!rowCount) {
+        await client.query("rollback");
+        return false;
+      }
+      await client.query(
+        "insert into article_revisions (id, article_id, version, name, summary, tags, body, editor_id, at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        [was.id, was.articleId, was.version, was.name, was.summary, was.tags, was.body, was.editorId, was.at],
+      );
+      await client.query("commit");
+      return true;
+    } catch (e) {
+      await client.query("rollback");
+      throw e;
+    } finally {
+      client.release();
+    }
   }
 
   /**

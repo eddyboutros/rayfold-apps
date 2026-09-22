@@ -25,6 +25,8 @@ entity Product implements Item @cache(maxAge: 60s, scope: public) {
   price: Int @unit("EUR cents")
   availability: Availability
   updatedAt: Instant
+  """The others in its category, newest first: what a buyer of this one also looks at. Loaded once for a whole page."""
+  related: [Product] @cost(base: 2)
 }
 
 """Someone who works here. The directory, as the identity provider and HR agree on it."""
@@ -36,6 +38,10 @@ entity Person implements Item @cache(maxAge: 5m, scope: public) {
   email: String
   location: String
   updatedAt: Instant
+  """What they have written, newest first."""
+  articles: [Article] @cost(base: 2)
+  """The rest of their department."""
+  colleagues: [Person] @cost(base: 2)
 }
 
 """A page of the knowledge base: a runbook, a policy, a note someone took the trouble to write down."""
@@ -51,6 +57,26 @@ entity Article implements Item @cache(maxAge: 60s, scope: public) {
   """Bumped on every edit. Send it back as ifVersion so an edit cannot land on top of someone else's."""
   version: Int @version
   updatedAt: Instant
+  """Who wrote the current version: the author until someone edits it."""
+  editor: Person?
+}
+
+"""
+What an article was before an edit. One is kept on every edit, so nothing is rewritten in place and any version
+can be read again or put back. `version` is the number the article had when this was its text.
+"""
+entity ArticleRevision @cache(maxAge: 60s, scope: public) {
+  id: ID
+  articleId: ID
+  version: Int
+  name: String
+  summary: String
+  tags: [String]
+  """The text as it was. Long, and not needed on a list, so it arrives when a shape asks for it."""
+  body: String @lazy
+  """Who wrote that version."""
+  editor: Person?
+  at: Instant
 }
 
 """
@@ -89,6 +115,8 @@ query items(kind: Kind?, page: PageArgs = { first: 12 }): Page<Item>
   @page(offset) @allow(read: viewer != null) @cost(base: 2, perItem: 1)
 
 query article(slug: String): Article? @allow(read: viewer != null)
+"""Every earlier version of an article, newest first. The current one is the article itself."""
+query articleRevisions(id: ID, page: PageArgs = { first: 20 }): Page<ArticleRevision> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
 query product(id: ID): Product? @allow(read: viewer != null)
 query person(id: ID): Person? @allow(read: viewer != null)
 

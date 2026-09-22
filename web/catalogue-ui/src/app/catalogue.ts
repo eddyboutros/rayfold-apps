@@ -12,6 +12,8 @@ import { NgTemplateOutlet } from "@angular/common";
 import { injectQuery, provideRayfold } from "@rayfold/angular";
 import { catalogueClient, documentsBase } from "./client";
 import { ArticleView } from "./article";
+import { PersonView } from "./person";
+import { ProductView } from "./product";
 
 export type Kind = "product" | "person" | "article" | "file";
 
@@ -81,11 +83,15 @@ const AVAILABILITY: Record<NonNullable<Entry["availability"]>, string> = {
   selector: "catalogue-page",
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [provideRayfold(catalogueClient())],
-  imports: [ArticleView, NgTemplateOutlet],
+  imports: [ArticleView, PersonView, ProductView, NgTemplateOutlet],
   styleUrl: "./catalogue.css",
   template: `
     @if (reading(); as slug) {
       <catalogue-article [slug]="slug" (close)="reading.set(null)" />
+    } @else if (viewing()?.kind === "product") {
+      <catalogue-product [id]="viewing()!.id" (close)="viewing.set(null)" (open)="viewing.set({ kind: 'product', id: $event })" />
+    } @else if (viewing()?.kind === "person") {
+      <catalogue-person [id]="viewing()!.id" (close)="viewing.set(null)" (openPerson)="viewing.set({ kind: 'person', id: $event })" (openArticle)="viewing.set(null); reading.set($event)" />
     } @else {
       <header class="head">
         <div class="titles">
@@ -204,33 +210,33 @@ const AVAILABILITY: Record<NonNullable<Entry["availability"]>, string> = {
         @case ("product") {
           <div class="products">
             @for (e of items; track e.id) {
-              <div class="card product">
-                <div class="body">
-                  <p class="eyebrow">{{ e.category }}</p>
+              <button type="button" class="card product" (click)="viewing.set({ kind: 'product', id: e.id })">
+                <span class="body">
+                  <span class="eyebrow">{{ e.category }}</span>
                   <h3>{{ e.name }}</h3>
-                  <p class="text">{{ e.summary }}</p>
-                  <div class="foot">
+                  <span class="text">{{ e.summary }}</span>
+                  <span class="foot">
                     <span class="price">{{ money(e.price ?? 0) }}</span>
                     <span class="pill" [attr.data-availability]="e.availability">{{ availability(e) }}</span>
-                  </div>
-                  <p class="sku mono">{{ e.sku }}</p>
-                </div>
-              </div>
+                  </span>
+                  <span class="sku mono">{{ e.sku }}</span>
+                </span>
+              </button>
             }
           </div>
         }
         @case ("person") {
           <div class="people">
             @for (e of items; track e.id) {
-              <div class="card person">
+              <button type="button" class="card person" (click)="viewing.set({ kind: 'person', id: e.id })">
                 <span class="avatar" [attr.data-person]="e.id" aria-hidden="true">{{ initials(e.name) }}</span>
                 <span class="text">
                   <h3>{{ e.name }}</h3>
                   <span class="muted line">{{ e.title }}</span>
                   <span class="muted line small">{{ e.department }} · {{ e.location }}</span>
-                  <a class="line small" [href]="'mailto:' + e.email">{{ e.email }}</a>
+                  <span class="line small mail">{{ e.email }}</span>
                 </span>
-              </div>
+              </button>
             }
           </div>
         }
@@ -322,6 +328,8 @@ export class Catalogue {
   /** How many search results to show; "show more" widens the same query rather than paging away from the first. */
   readonly wanted = signal(20);
   readonly reading = signal<string | null>(null);
+  /** A product or a person opened from a card; the page shows it instead of the lists until it is closed. */
+  readonly viewing = signal<{ kind: "product" | "person"; id: string } | null>(null);
 
   readonly results = injectQuery<Page>("search", () => ({ q: this.q(), page: { first: this.wanted() } }), {
     shape: SHAPE,
