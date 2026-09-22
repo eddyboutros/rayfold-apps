@@ -52,6 +52,10 @@ export const DOCUMENT_KEPT = "document-kept";
  * What happens to a document once it is kept, as the platform runs it: three steps on three queues, each on the
  * service that owns the work.
  *
+ * NEEDS THE RAYFOLD CONSOLE. The flow, its queues and the workers' claims are the console's — a separate commercial
+ * product, in a private repository, not yet on sale. Without `CONSOLE_URL` the run below is not started, the
+ * document is still kept and served, and it simply never becomes searchable in the catalogue.
+ *
  * `extract` reads the bytes; `index` runs only when there was text to index — a condition on the step before it,
  * not an `if` in a worker — and `notify` tells the workspace either way. The lock keeps two versions of one document
  * from being worked on at the same time, whichever queue the step is on: the race that would otherwise index an

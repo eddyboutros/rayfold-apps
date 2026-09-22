@@ -103,6 +103,12 @@ A service says what it is; none of that is repeated in it.
 
 ## The platform's console
 
+> **The Rayfold Console is a separate, commercial product, in a private repository, and it is not on sale yet.**
+> This repository does not contain it. The queues, the flows, the live configuration and the traces and logs
+> below all run in it. Without `CONSOLE_URL` every service here still starts and serves — the flow in the table
+> further down is simply never started, kept files never become searchable, and configuration is the defaults.
+> The tests do not need it: `e2e/stand-in-console.ts` stands in for the operations a service calls.
+
 With `CONSOLE_URL` set, every service is on the platform: it reads its configuration from the console with a **live
 query** and applies a change the moment it arrives (the documents service's upload limit is one such value, under
 `documents / <environment> / uploads.maxBytes`), it puts work on and takes work from the console's **queue** through

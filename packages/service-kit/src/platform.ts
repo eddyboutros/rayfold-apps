@@ -2,6 +2,13 @@
  * What a service gets from the platform's console, when there is one: configuration it keeps watching, a queue it
  * can put work on and take work from, and somewhere to send its traces.
  *
+ * THE CONSOLE IS A SEPARATE, COMMERCIAL PRODUCT. It is the Rayfold Console — the queue, the flows, the live
+ * configuration and the traces and logs screens live there, in a private repository, and it is not on sale yet. This
+ * repository does not contain it. Everything in this file talks to it over its own Rayfold API; without it (no
+ * `CONSOLE_URL`) every service here still starts and serves — the fallback below — but no job is queued, no flow
+ * runs, configuration is the defaults, and nothing is traced or logged beyond the process's own output. If you have
+ * cloned this repository to try it, expect exactly that until the console is available.
+ *
  * All three are the console's own Rayfold API, used through the ordinary client — a service on the platform speaks
  * to the platform the way its own front end speaks to it. Configuration is a live query, so a value changed in the
  * console reaches every instance without a restart; a job is a command, so a worker inherits idempotency and typed

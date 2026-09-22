@@ -37,7 +37,8 @@ services:
       PUBLIC_BASE: /files
       # where a worker in the fleet fetches a document's bytes: this container, on the compose network
       SELF_URL: http://documents:4000
-      # the console, when one runs beside the fleet: configuration, the queue, traces. empty means none
+      # the Rayfold Console, when one runs beside the fleet: configuration, the queue, traces. it is a separate
+      # commercial product (private repository, not yet on sale); empty means none, and the fleet runs without it
       CONSOLE_URL: ${CONSOLE_URL:-}
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
     volumes:

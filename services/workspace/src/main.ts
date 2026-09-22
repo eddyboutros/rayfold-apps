@@ -59,6 +59,10 @@ const service = await startService({
         .catch((e: unknown) => deps.platform.log.error("could not record a document change", { documentId, error: e instanceof Error ? e.message : String(e) }));
     });
 
+    // NEEDS THE RAYFOLD CONSOLE: this queue is the console's — a separate commercial product in a private
+    // repository, not yet on sale. Without CONSOLE_URL the "made searchable" lines never reach the feed; everything
+    // else on it does.
+    //
     // the last step of the document-kept flow, worked here because the feed is this service's: the platform hands
     // it what the steps before produced, so it can say whether the file became searchable or had nothing to index
     void deps.platform.defineQueue("notify-workspace", { maxAttempts: 3, leaseMs: 15_000 });

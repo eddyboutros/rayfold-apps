@@ -51,6 +51,10 @@ const service = await startService({
     const store = new CatalogueStore(deps.sql);
     const { platform } = deps;
     const { log } = platform;
+    // NEEDS THE RAYFOLD CONSOLE: the queues below, and the flow that puts work on them, are the console's — a
+    // separate commercial product in a private repository, not yet on sale. Without CONSOLE_URL these workers never
+    // take a job and the Files kind stays empty; the rest of the catalogue serves as before.
+    //
     // the queues' limits are this service's to state: it is the one that knows how long a file takes to read, and
     // how many it can read at once without starving the searches it serves
     await platform.defineQueue("extract-text", { maxAttempts: 5, leaseMs: 60_000, backoffMs: 5_000, concurrency: 4, timeoutMs: 120_000 });
