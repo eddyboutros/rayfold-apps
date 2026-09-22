@@ -11,7 +11,30 @@ import { createServer } from "node:http";
 import type { RunningService } from "@apps/service-kit";
 import pg from "pg";
 
-export const DATABASE_URL = process.env["TEST_DATABASE_URL"] ?? "postgres://postgres:rayfold@127.0.0.1:55432/apps";
+/**
+ * The tests' own database, not the one a person develops against: every test empties the tables it uses, and a
+ * suite that shares a database with a running fleet wipes that fleet's data on every run. Created if it is not
+ * there, so `npm test` needs nothing beyond a reachable Postgres.
+ */
+export const DATABASE_URL = process.env["TEST_DATABASE_URL"] ?? "postgres://postgres:rayfold@127.0.0.1:55432/apps_test";
+
+async function ensureDatabase(url: string): Promise<void> {
+  const target = new URL(url);
+  const name = target.pathname.slice(1);
+  // the maintenance database is where a database is created from
+  const admin = new URL(url);
+  admin.pathname = "/postgres";
+  const client = new pg.Client({ connectionString: admin.toString() });
+  await client.connect();
+  try {
+    const { rowCount } = await client.query("select 1 from pg_database where datname = $1", [name]);
+    // no `if not exists` for databases in postgres; two suites racing here would both see none and one would fail,
+    // which is why the suites in this repository take the database in turns
+    if (!rowCount) await client.query(`create database "${name.replace(/"/g, '""')}"`);
+  } finally {
+    await client.end();
+  }
+}
 
 export interface TestService {
   base: string;
@@ -45,6 +68,7 @@ const TABLES: Record<string, string[]> = {
  * query string makes Node load the module again rather than hand back the one already running.
  */
 export async function startTestService(name: string, env: Record<string, string> = {}, replica = 0): Promise<TestService> {
+  await ensureDatabase(DATABASE_URL);
   const port = await freePort();
   Object.assign(process.env, {
     PORT: String(port),
