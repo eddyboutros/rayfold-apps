@@ -70,6 +70,26 @@ services:
     stop_signal: SIGTERM
     stop_grace_period: 30s
 
+  catalogue:
+    build:
+      context: .
+      dockerfile: services/catalogue/Dockerfile
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://postgres:rayfold@postgres:5432/apps
+      CAPABILITY_SECRET: ${CAPABILITY_SECRET:-a-development-secret-at-least-16}
+      OPS_TOKEN: ${OPS_TOKEN:-dev-ops-token}
+      SERVICE_VERSION: ${GIT_SHA:-dev}
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/rayfold/ready || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+
   # ---- the front ends: one container each, built from its own lockfile, deployed on its own
   shell:
     build: { context: web, dockerfile: Dockerfile, args: { APP: shell } }
@@ -77,6 +97,8 @@ services:
     build: { context: web, dockerfile: Dockerfile, args: { APP: documents-ui, BASE_HREF: /remotes/documents-ui/ } }
   workspace-ui:
     build: { context: web, dockerfile: Dockerfile, args: { APP: workspace-ui, BASE_HREF: /remotes/workspace-ui/ } }
+  catalogue-ui:
+    build: { context: web, dockerfile: Dockerfile, args: { APP: catalogue-ui, BASE_HREF: /remotes/catalogue-ui/ } }
 
   # ---- one origin for all of it
   gateway:
@@ -88,8 +110,10 @@ services:
       - shell
       - documents-ui
       - workspace-ui
+      - catalogue-ui
       - documents
       - workspace
+      - catalogue
 
 volumes:
   pgdata:

@@ -76,11 +76,17 @@ const PROJECTS = [
 
           <p class="eyebrow group">Projects</p>
           @for (project of projects; track project.id) {
-            <button type="button" class="nav" [class.on]="project.id === projectId()" (click)="projectId.set(project.id)">
+            <button type="button" class="nav" [class.on]="view() === 'project' && project.id === projectId()" (click)="openProject(project.id)">
               <span class="swatch" [attr.data-project]="project.id"></span>
               {{ project.name }}
             </button>
           }
+
+          <p class="eyebrow group">Company</p>
+          <button type="button" class="nav" [class.on]="view() === 'catalogue'" (click)="view.set('catalogue')">
+            <span class="glyph">⌕</span>
+            Catalogue
+          </button>
 
           <span class="spacer"></span>
 
@@ -101,37 +107,57 @@ const PROJECTS = [
         </nav>
 
         <div class="frame">
-          <header class="topbar">
-            <div>
-              <h1>{{ project().name }}</h1>
-              <p class="path">Projects <span aria-hidden="true">/</span> {{ project().name }}</p>
-            </div>
-          </header>
+          @if (view() === "catalogue") {
+            <main class="single">
+              @if (catalogue().component; as component) {
+                <ng-container *ngComponentOutlet="component" />
+              } @else if (catalogue().failed; as failed) {
+                <div class="card">
+                  <div class="body empty">
+                    <strong>The catalogue is unavailable</strong>
+                    {{ failed }}
+                  </div>
+                </div>
+              } @else {
+                <div class="card">
+                  <header><span class="skeleton" style="width: 120px"></span></header>
+                  <div class="body"><span class="skeleton" style="width: 80%"></span></div>
+                </div>
+              }
+            </main>
+          } @else {
+            <header class="topbar">
+              <div>
+                <h1>{{ project().name }}</h1>
+                <p class="path">Projects <span aria-hidden="true">/</span> {{ project().name }}</p>
+              </div>
+            </header>
 
-          <main>
-            @for (panel of panels(); track panel.key) {
-              <section class="slot">
-                @if (panel.component) {
-                  <ng-container *ngComponentOutlet="panel.component; inputs: { projectId: projectId() }" />
-                } @else if (panel.failed) {
-                  <div class="card">
-                    <div class="body empty">
-                      <strong>{{ panel.label }} is unavailable</strong>
-                      {{ panel.failed }}
+            <main>
+              @for (panel of panels(); track panel.key) {
+                <section class="slot">
+                  @if (panel.component) {
+                    <ng-container *ngComponentOutlet="panel.component; inputs: { projectId: projectId() }" />
+                  } @else if (panel.failed) {
+                    <div class="card">
+                      <div class="body empty">
+                        <strong>{{ panel.label }} is unavailable</strong>
+                        {{ panel.failed }}
+                      </div>
                     </div>
-                  </div>
-                } @else {
-                  <div class="card">
-                    <header><span class="skeleton" style="width: 120px"></span></header>
-                    <div class="body">
-                      <span class="skeleton" style="width: 80%; margin-bottom: 9px"></span>
-                      <span class="skeleton" style="width: 55%"></span>
+                  } @else {
+                    <div class="card">
+                      <header><span class="skeleton" style="width: 120px"></span></header>
+                      <div class="body">
+                        <span class="skeleton" style="width: 80%; margin-bottom: 9px"></span>
+                        <span class="skeleton" style="width: 55%"></span>
+                      </div>
                     </div>
-                  </div>
-                }
-              </section>
-            }
-          </main>
+                  }
+                </section>
+              }
+            </main>
+          }
         </div>
       </div>
     }
@@ -144,6 +170,8 @@ export class App {
 
   readonly projects = PROJECTS;
   readonly projectId = signal(PROJECTS[0]!.id);
+  /** What fills the page: a project's panels, or the company-wide catalogue. */
+  readonly view = signal<"project" | "catalogue">("project");
   readonly project = computed(() => this.projects.find((p) => p.id === this.projectId()) ?? this.projects[0]!);
   // what is actually on screen: a chosen theme if there is one, otherwise whatever the system decided
   readonly theme = signal<"light" | "dark">(
@@ -155,9 +183,11 @@ export class App {
     { key: "documents", label: "Documents", remote: "documents-ui", exposed: "./Documents", component: null, failed: null },
     { key: "activity", label: "Activity", remote: "workspace-ui", exposed: "./Feed", component: null, failed: null },
   ]);
+  /** A whole page from one remote, rather than a panel among others. */
+  readonly catalogue = signal<Panel>({ key: "catalogue", label: "Catalogue", remote: "catalogue-ui", exposed: "./Catalogue", component: null, failed: null });
 
   constructor() {
-    for (const panel of this.panels()) {
+    for (const panel of [...this.panels(), this.catalogue()]) {
       // one remote failing is one panel missing, not a blank page: each is loaded and settled on its own
       void loadRemoteModule(panel.remote, panel.exposed)
         .then((m: Record<string, Type<unknown>>) => this.settle(panel.key, Object.values(m)[0] ?? null, null))
@@ -166,7 +196,13 @@ export class App {
   }
 
   private settle(key: string, component: Type<unknown> | null, failed: string | null): void {
-    this.panels.update((panels) => panels.map((p) => (p.key === key ? { ...p, component, failed } : p)));
+    if (key === this.catalogue().key) this.catalogue.update((p) => ({ ...p, component, failed }));
+    else this.panels.update((panels) => panels.map((p) => (p.key === key ? { ...p, component, failed } : p)));
+  }
+
+  openProject(id: string): void {
+    this.projectId.set(id);
+    this.view.set("project");
   }
 
   enter(person: Person): void {

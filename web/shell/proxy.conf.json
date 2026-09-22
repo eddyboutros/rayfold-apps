@@ -11,6 +11,12 @@
       "^/api/workspace": ""
     }
   },
+  "/api/catalogue": {
+    "target": "http://localhost:4003",
+    "pathRewrite": {
+      "^/api/catalogue": ""
+    }
+  },
   "/remotes/documents-ui": {
     "target": "http://localhost:4202",
     "pathRewrite": {
@@ -21,6 +27,12 @@
     "target": "http://localhost:4201",
     "pathRewrite": {
       "^/remotes/workspace-ui": ""
+    }
+  },
+  "/remotes/catalogue-ui": {
+    "target": "http://localhost:4203",
+    "pathRewrite": {
+      "^/remotes/catalogue-ui": ""
     }
   }
 }

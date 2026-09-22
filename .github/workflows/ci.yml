@@ -44,9 +44,11 @@ jobs:
       - uses: actions/checkout@v5
       - run: docker build -f services/documents/Dockerfile -t apps/documents .
       - run: docker build -f services/workspace/Dockerfile -t apps/workspace .
+      - run: docker build -f services/catalogue/Dockerfile -t apps/catalogue .
       - run: docker build --build-arg APP=shell -t apps/shell web
       - run: docker build --build-arg APP=documents-ui --build-arg BASE_HREF=/remotes/documents-ui/ -t apps/documents-ui web
       - run: docker build --build-arg APP=workspace-ui --build-arg BASE_HREF=/remotes/workspace-ui/ -t apps/workspace-ui web
+      - run: docker build --build-arg APP=catalogue-ui --build-arg BASE_HREF=/remotes/catalogue-ui/ -t apps/catalogue-ui web
 
   frontends:
     name: Every front end builds
@@ -55,7 +57,7 @@ jobs:
       # every front end reports on its own; one failing must not hide what the others would have said
       fail-fast: false
       matrix:
-        app: [shell, documents-ui, workspace-ui]
+        app: [shell, documents-ui, workspace-ui, catalogue-ui]
     defaults:
       run:
         working-directory: web/${{ matrix.app }}

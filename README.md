@@ -39,7 +39,7 @@ is real.
 |---|---|
 | `/` | the shell |
 | `/remotes/<app>/` | a remote's bundle, loaded by the shell at runtime |
-| `/api/<service>/rayfold` | a service's endpoint; the prefix is stripped, the service sees `/rayfold` |
+| `/api/<service>/rayfold` | a service's endpoint (`documents`, `workspace`, `catalogue`); the prefix is stripped, the service sees `/rayfold` |
 | `/api/documents/files/` | a document's bytes |
 
 Nothing a browser does is cross-origin, so no service names an allowed origin and no preflight ever happens. Each
@@ -53,6 +53,7 @@ the bundles are identical in development and production.
 |---|---|
 | `services/documents` | Files: upload, replace, keep every revision, share one with a capability token. |
 | `services/workspace` | Issues, comments, and a project feed that carries what the rest of the fleet did. |
+| `services/catalogue` | Products, people and articles behind one search: an interface, a union shaped with `...on`, numbered pages, a lazy field. |
 | `packages/service-kit` | How every service is wired. The interesting file in the repository. |
 | `e2e/` | The harness services are started with, and the flows that cross them. |
 | `web/` | Keel: the page, and the panels loaded into it at runtime — one per team. See [web/README.md](web/README.md). |

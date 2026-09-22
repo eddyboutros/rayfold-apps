@@ -1,4 +1,5 @@
 {
   "documents-ui": "/remotes/documents-ui/remoteEntry.json",
-  "workspace-ui": "/remotes/workspace-ui/remoteEntry.json"
+  "workspace-ui": "/remotes/workspace-ui/remoteEntry.json",
+  "catalogue-ui": "/remotes/catalogue-ui/remoteEntry.json"
 }

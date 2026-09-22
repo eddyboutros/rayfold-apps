@@ -1,0 +1,20 @@
+{
+  "name": "@apps/catalogue",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Products, people and articles behind one search: an interface, a union, and numbered pages.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@apps/service-kit": "*",
+    "@rayfold/server": "^0.2.0",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@rayfold/client": "^0.2.0"
+  }
+}

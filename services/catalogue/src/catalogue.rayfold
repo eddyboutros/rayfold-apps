@@ -1,0 +1,78 @@
+// The catalogue: everything the company knows that is worth finding — what it sells, who works here, and what has
+// been written down — behind one search.
+//
+// Three kinds of thing, one list. `Item` is what they have in common, so a page can hold all of them; `Hit` is what
+// a search returns, and a shape says what it wants from each kind with `...on`. Browsing is numbered pages, because
+// a person leafing through a catalogue wants page 4 of 12 and not a cursor.
+
+"""What every catalogue entry has in common, so one list can hold any of them."""
+object Item @interface {
+  id: ID
+  name: String
+  updatedAt: Instant
+}
+
+enum Availability { available, limited, waitlist, retired }
+
+"""Something the company sells. Prices are in cents, as the billing system keeps them."""
+entity Product implements Item @cache(maxAge: 60s, scope: public) {
+  id: ID
+  name: String
+  sku: String
+  summary: String
+  category: String
+  """Cents, so a price is an integer everywhere and rounds nowhere."""
+  price: Int @unit("EUR cents")
+  availability: Availability
+  updatedAt: Instant
+}
+
+"""Someone who works here. The directory, as the identity provider and HR agree on it."""
+entity Person implements Item @cache(maxAge: 5m, scope: public) {
+  id: ID
+  name: String
+  title: String
+  department: String
+  email: String
+  location: String
+  updatedAt: Instant
+}
+
+"""A page of the knowledge base: a runbook, a policy, a note someone took the trouble to write down."""
+entity Article implements Item @cache(maxAge: 60s, scope: public) {
+  id: ID
+  name: String
+  slug: String
+  summary: String
+  tags: [String]
+  author: Person?
+  """The full text. Long, and not needed on a list, so it arrives in a later frame unless the shape asks for it eagerly."""
+  body: String @lazy
+  """Bumped on every edit. Send it back as ifVersion so an edit cannot land on top of someone else's."""
+  version: Int @version
+  updatedAt: Instant
+}
+
+"""What a search finds. A shape names what it wants of each kind: `{ ...on Product { sku } ...on Person { title } }`."""
+union Hit = Product | Person | Article
+
+enum Kind { product, person, article }
+
+error NotFound { id: ID }
+
+"""Everything matching a phrase, whatever kind of thing it is, best match first."""
+query search(q: String @range(min: 1, max: 200), page: PageArgs = { first: 20 }): Page<Hit>
+  @allow(read: viewer != null) @cost(base: 5, perItem: 2) @live(false)
+
+"""Leaf through the catalogue: one kind, or all of them, most recently changed first. Numbered pages."""
+query items(kind: Kind?, page: PageArgs = { first: 12 }): Page<Item>
+  @page(offset) @allow(read: viewer != null) @cost(base: 2, perItem: 1)
+
+query article(slug: String): Article? @allow(read: viewer != null)
+query product(id: ID): Product? @allow(read: viewer != null)
+query person(id: ID): Person? @allow(read: viewer != null)
+
+"""Write or rewrite an article. With `id`, an edit — send `ifVersion`; without, a new page under a fresh slug."""
+command writeArticle(id: ID?, name: String @range(min: 1, max: 160), summary: String @range(max: 300), body: String @range(min: 1, max: 50000), tags: [String] = []): Article
+  throws NotFound
+  @allow(write: viewer != null) @simulate
