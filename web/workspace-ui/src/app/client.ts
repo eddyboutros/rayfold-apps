@@ -4,16 +4,20 @@
  */
 import { RayfoldClient, createFetchTransport } from "@rayfold/client";
 
-/** `<meta name="workspace-origin" content="…">`, or the page's own origin behind a gateway. */
-export function workspaceOrigin(): string {
-  const tag = document.querySelector<HTMLMetaElement>('meta[name="workspace-origin"]');
-  return tag?.content?.replace(/\/$/, "") || window.location.origin;
+/**
+ * Where the workspace service is: `/api/workspace` on the page's own origin. The gateway forwards it in production and
+ * the dev server's proxy does in development, so there is no cross-origin request and no origin to configure.
+ * A `<meta name="workspace-base">` overrides it for the rare page that is not behind either.
+ */
+export function workspaceBase(): string {
+  const tag = document.querySelector<HTMLMetaElement>('meta[name="workspace-base"]');
+  return (tag?.content || "/api/workspace").replace(/\/$/, "");
 }
 
 export function workspaceClient(): RayfoldClient {
   return new RayfoldClient({
     transport: createFetchTransport({
-      url: `${workspaceOrigin()}/rayfold`,
+      url: `${workspaceBase()}/rayfold`,
       headers: () => ({ authorization: "Bearer ada" }),
     }),
     client: "workspace-ui/0.1.0",

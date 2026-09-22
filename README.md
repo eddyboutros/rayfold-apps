@@ -7,12 +7,29 @@ Everything here depends on the **published** `@rayfold/*` packages from npm, the
 reaches into a checkout of the protocol, which is the point: if a service compiles here, it compiles for you.
 
 ```sh
-docker compose up --build        # postgres and every service
+docker compose up --build        # postgres, every service, every front end, and a gateway on http://localhost:8080
 npm test                         # each service against a real postgres
 ```
 
-The front ends are separate npm projects, started on their own — `web/README.md` says how. With them running, upload
-a file to the documents service and watch it appear on the workspace's feed without the page reloading.
+Open http://localhost:8080. Add a file in the Documents panel and watch it appear on the Activity feed, which is
+served by a different service, without the page reloading. For development, `web/README.md` says how to run the
+front ends on their own dev servers against the same services.
+
+## One origin
+
+`infra/gateway/nginx.conf` puts everything behind one host:
+
+| Path | Reaches |
+|---|---|
+| `/` | the shell |
+| `/remotes/<app>/` | a remote's bundle, loaded by the shell at runtime |
+| `/api/<service>/rayfold` | a service's endpoint; the prefix is stripped, the service sees `/rayfold` |
+| `/api/documents/files/` | a document's bytes |
+
+Nothing a browser does is cross-origin, so no service names an allowed origin and no preflight ever happens. Each
+path is owned by one team and forwards to the container that team ships: a new front end or a new service is a new
+container behind the same path, and nothing else moves. The dev servers answer the same paths through a proxy, so
+the bundles are identical in development and production.
 
 ## What is here
 
@@ -89,7 +106,8 @@ path for tests.
 |---|---|
 | `DATABASE_URL` | Postgres. Required. |
 | `CAPABILITY_SECRET` | Signs capability tokens. Shared by the fleet. Required. |
-| `ALLOWED_ORIGINS` | Browser origins allowed to change data, comma separated. Empty behind a gateway that puts everything on one origin; in development, each front end's origin. |
+| `ALLOWED_ORIGINS` | Browser origins allowed to change data, comma separated. Empty here: the gateway and the dev proxies put everything on one origin. For a page that is behind neither. |
+| `PUBLIC_BASE` | What a document's `url` starts with; `/files`, reached as `/api/documents/files/` through the gateway. |
 | `OPS_TOKEN` | Gates `GET /rayfold/stats`. Without it that route is not served at all. |
 | `PORT` | Default 4000. |
 | `SERVICE_VERSION`, `INSTANCE` | What the service reports as its identity. A container's hostname does for the second. |

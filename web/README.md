@@ -32,9 +32,13 @@ The feed is never compiled into the shell. The workspace team ships a new one by
 
 **Each remote owns its connection.** A page assembled from several teams' work talks to several services, so a
 remote provides the client for the service it was built against — `providers: [provideRayfold(documentsClient())]`
-on the exposed component — and the shell provides none. Where that service is comes from the document at runtime
-(`<meta name="documents-origin">`), so one bundle serves development and production; behind a gateway the tags are
-empty and every remote uses the page's own origin.
+on the exposed component — and the shell provides none. A service is a path on the page's own origin,
+`/api/documents`, in development and production alike: the gateway forwards it in one, `proxy.conf.json` in the
+other. No bundle knows a host, and nothing a browser does is cross-origin.
+
+**Deployed, each front end is its own container.** `web/Dockerfile` builds any of them from its own lockfile
+(`--build-arg APP=…`) and serves the result with nginx; a remote is built with `/remotes/<app>/` as its base href,
+so the chunks its `remoteEntry.json` names resolve there wherever the page that loads it lives.
 
 **One design system.** `design/tokens.css` and `design/base.css` are in every app's build. Angular scopes a
 component's own styles, so a remote loaded at runtime cannot reach the shell's — but global CSS reaches into every

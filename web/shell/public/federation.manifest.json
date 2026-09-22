@@ -1,4 +1,4 @@
 {
-  "documents-ui": "http://localhost:4202/remoteEntry.json",
-  "workspace-ui": "http://localhost:4201/remoteEntry.json"
+  "documents-ui": "/remotes/documents-ui/remoteEntry.json",
+  "workspace-ui": "/remotes/workspace-ui/remoteEntry.json"
 }

@@ -1,0 +1,26 @@
+{
+  "/api/documents": {
+    "target": "http://localhost:4001",
+    "pathRewrite": {
+      "^/api/documents": ""
+    }
+  },
+  "/api/workspace": {
+    "target": "http://localhost:4002",
+    "pathRewrite": {
+      "^/api/workspace": ""
+    }
+  },
+  "/remotes/documents-ui": {
+    "target": "http://localhost:4202",
+    "pathRewrite": {
+      "^/remotes/documents-ui": ""
+    }
+  },
+  "/remotes/workspace-ui": {
+    "target": "http://localhost:4201",
+    "pathRewrite": {
+      "^/remotes/workspace-ui": ""
+    }
+  }
+}

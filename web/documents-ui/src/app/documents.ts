@@ -7,7 +7,7 @@
  */
 import { ChangeDetectionStrategy, Component, computed, input, signal } from "@angular/core";
 import { injectCommand, injectQuery, injectRayfoldClient, provideRayfold } from "@rayfold/angular";
-import { documentsClient, documentsOrigin } from "./client";
+import { documentsBase, documentsClient } from "./client";
 
 export interface Doc {
   id: string;
@@ -55,7 +55,12 @@ export interface Doc {
       }
 
       <div class="body list">
-        @if (page.loading() && !items().length) {
+        @if (page.error(); as e) {
+          <div class="empty" role="alert">
+            <strong>Your files could not be loaded</strong>
+            {{ describe(e) }}
+          </div>
+        } @else if (page.loading() && !items().length) {
           @for (row of [1, 2, 3]; track row) {
             <span class="skeleton" style="width: 70%"></span>
           }
@@ -90,7 +95,7 @@ export class Documents {
   readonly projectId = input<string>("");
 
   private readonly client = injectRayfoldClient();
-  private readonly origin = documentsOrigin();
+  private readonly base = documentsBase();
 
   readonly over = signal(false);
   readonly busy = signal(false);
@@ -105,8 +110,14 @@ export class Documents {
   readonly items = computed(() => this.page.data()?.items ?? []);
   readonly create = injectCommand<Doc>("createDocument");
 
+  /** The service hands out `/files/<id>`, its own path; it is reached under the service's base. */
+  /** A failure is told as itself. This panel once showed "No files yet" for a 403, which is a lie a person acts on. */
+  describe(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
+  }
+
   href(doc: Doc): string {
-    return doc.url.startsWith("http") ? doc.url : `${this.origin}${doc.url}`;
+    return doc.url.startsWith("http") ? doc.url : `${this.base}${doc.url}`;
   }
 
   size(bytes: number): string {

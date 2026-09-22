@@ -10,16 +10,20 @@
  */
 import { RayfoldClient, createFetchTransport } from "@rayfold/client";
 
-/** `<meta name="documents-origin" content="https://documents.example">`, or the page's own origin behind a gateway. */
-export function documentsOrigin(): string {
-  const tag = document.querySelector<HTMLMetaElement>('meta[name="documents-origin"]');
-  return tag?.content?.replace(/\/$/, "") || window.location.origin;
+/**
+ * Where the documents service is: `/api/documents` on the page's own origin. The gateway forwards it in production and
+ * the dev server's proxy does in development, so there is no cross-origin request and no origin to configure.
+ * A `<meta name="documents-base">` overrides it for the rare page that is not behind either.
+ */
+export function documentsBase(): string {
+  const tag = document.querySelector<HTMLMetaElement>('meta[name="documents-base"]');
+  return (tag?.content || "/api/documents").replace(/\/$/, "");
 }
 
 export function documentsClient(): RayfoldClient {
   return new RayfoldClient({
     transport: createFetchTransport({
-      url: `${documentsOrigin()}/rayfold`,
+      url: `${documentsBase()}/rayfold`,
       // stands in for the session the shell would already hold
       headers: () => ({ authorization: "Bearer ada" }),
     }),

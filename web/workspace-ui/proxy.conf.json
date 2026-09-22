@@ -1,0 +1,14 @@
+{
+  "/api/documents": {
+    "target": "http://localhost:4001",
+    "pathRewrite": {
+      "^/api/documents": ""
+    }
+  },
+  "/api/workspace": {
+    "target": "http://localhost:4002",
+    "pathRewrite": {
+      "^/api/workspace": ""
+    }
+  }
+}
