@@ -35,16 +35,19 @@
 }
 
 .list li {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 11px;
-  padding: 9px 0;
   border-top: 1px solid var(--line);
 }
 
 .list li:first-child {
   border-top: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 0;
 }
 
 /* the file's kind, as a small tab with its extension: what a person looks for in a list of files */
@@ -106,14 +109,61 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* the revisions open from the version, which reads as text until it is pointed at */
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.link:hover,
+.open .link {
+  color: var(--accent);
+}
+
+.rename {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.rename .input {
+  padding: 4px 9px;
+}
+
+.rename .btn {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
 .row-actions {
+  display: flex;
+  gap: 2px;
   opacity: 0;
   transition: opacity 0.12s ease;
 }
 
-li:hover .row-actions,
-li:focus-within .row-actions {
+.row:hover .row-actions,
+.row:focus-within .row-actions {
   opacity: 1;
+}
+
+.row-actions .btn {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.row-actions .btn.disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.row-actions .danger:hover:not(:disabled) {
+  color: var(--bad);
+  background: var(--bad-soft);
 }
 
 .bad {

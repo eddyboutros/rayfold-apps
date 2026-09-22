@@ -8,6 +8,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from "@angular/core";
 import { injectCommand, injectQuery, injectRayfoldClient, provideRayfold } from "@rayfold/angular";
 import { documentsBase, documentsClient } from "./client";
+import { History } from "./history";
 
 export interface Doc {
   id: string;
@@ -25,13 +26,14 @@ export interface Doc {
   changeDetection: ChangeDetectionStrategy.OnPush,
   // the remote provides its own client, so this panel is the same component wherever it is dropped
   providers: [provideRayfold(documentsClient())],
+  imports: [History],
   styleUrl: "./documents.css",
   template: `
     <section class="card">
       <header>
         <h2>Documents</h2>
         @if (busy()) {
-          <span class="pill"><span class="dot"></span>uploading</span>
+          <span class="pill"><span class="dot"></span>{{ busy() }}</span>
         } @else {
           <span class="muted count">{{ items().length }} {{ items().length === 1 ? "file" : "files" }}</span>
         }
@@ -73,25 +75,49 @@ export interface Doc {
         } @else {
           <ol>
             @for (doc of items(); track doc.id) {
-              <li>
-                <span class="glyph" [attr.data-kind]="kind(doc)" aria-hidden="true">{{ ext(doc) }}</span>
-                <span class="meta">
-                  <a [href]="href(doc)" target="_blank" rel="noreferrer">{{ doc.name }}</a>
-                  <span class="muted sub">
-                    {{ size(doc.size) }}
-                    @if (doc.version > 1) {
-                      · v{{ doc.version }}
+              <li [class.open]="openId() === doc.id">
+                <div class="row">
+                  <span class="glyph" [attr.data-kind]="kind(doc)" aria-hidden="true">{{ ext(doc) }}</span>
+                  <span class="meta">
+                    @if (renaming() === doc.id) {
+                      <form class="rename" (submit)="rename($event, doc)">
+                        <input class="input" name="name" [value]="doc.name" autocomplete="off" autofocus aria-label="New name" />
+                        <button type="submit" class="btn primary">Save</button>
+                        <button type="button" class="btn quiet" (click)="renaming.set(null)">Cancel</button>
+                      </form>
+                    } @else {
+                      <a [href]="href(doc)" target="_blank" rel="noreferrer">{{ doc.name }}</a>
+                      <span class="muted sub">
+                        {{ size(doc.size) }}
+                        @if (doc.version > 1) {
+                          ·
+                          <button type="button" class="link" (click)="toggle(doc.id)" [attr.aria-expanded]="openId() === doc.id">
+                            v{{ doc.version }}, {{ doc.version }} revisions
+                          </button>
+                        }
+                        · {{ doc.owner?.name ?? "someone" }} · {{ when(doc.updatedAt) }}
+                      </span>
                     }
-                    · {{ doc.owner?.name ?? "someone" }} · {{ when(doc.updatedAt) }}
                   </span>
-                </span>
-                <span class="row-actions">
-                  @if (mine(doc)) {
-                    <button type="button" class="btn quiet" (click)="share(doc)" [disabled]="sharing() === doc.id">
-                      {{ shared() === doc.id ? "Link copied" : "Share" }}
-                    </button>
-                  }
-                </span>
+                  <span class="row-actions">
+                    @if (mine(doc)) {
+                      <label class="btn quiet" [class.disabled]="!!busy()" title="Upload a new version; the old one is kept">
+                        <input type="file" hidden [disabled]="!!busy()" (change)="onReplace($event, doc)" />
+                        New version
+                      </label>
+                      <button type="button" class="btn quiet" (click)="renaming.set(doc.id)" [disabled]="!!busy()">Rename</button>
+                      <button type="button" class="btn quiet" (click)="share(doc)" [disabled]="!!busy()">
+                        {{ shared() === doc.id ? "Link copied" : "Share" }}
+                      </button>
+                      <button type="button" class="btn quiet danger" (click)="remove(doc)" [disabled]="!!busy()">
+                        {{ confirming() === doc.id ? "Really delete" : "Delete" }}
+                      </button>
+                    }
+                  </span>
+                </div>
+                @if (openId() === doc.id) {
+                  <documents-history [documentId]="doc.id" [base]="base" />
+                }
               </li>
             }
           </ol>
@@ -104,24 +130,32 @@ export class Documents {
   readonly projectId = input<string>("");
 
   private readonly client = injectRayfoldClient();
-  private readonly base = documentsBase();
+  readonly base = documentsBase();
 
   readonly over = signal(false);
-  readonly busy = signal(false);
+  /** What is happening, in a word, while a command runs: the header says it and the actions wait. */
+  readonly busy = signal<string | null>(null);
   readonly failed = signal<string | null>(null);
-  readonly sharing = signal<string | null>(null);
   readonly shared = signal<string | null>(null);
+  readonly renaming = signal<string | null>(null);
+  /** Delete asks once, in place, rather than with a dialog: the second click on the same file is the answer. */
+  readonly confirming = signal<string | null>(null);
+  /** The one document whose revisions are open. */
+  readonly openId = signal<string | null>(null);
 
   // scoped to the project, and read reactively: switching projects re-runs it and ends the old one
   readonly page = injectQuery<{ items: Doc[] }>("documents", () => ({ projectId: this.projectId() }), {
     shape: "{ items { id name contentType size url version updatedAt owner { id name } } }",
     enabled: () => this.projectId() !== "",
   });
-  /** Whose files this panel may offer to change: sharing is the owner's, and the button is not shown to anyone else. */
+  /** Whose files this panel may offer to change: that is the owner's, and nobody else is shown the buttons. */
   readonly me = injectQuery<{ id: string } | null>("me", {}, { shape: "{ id }" });
 
   readonly items = computed(() => this.page.data()?.items ?? []);
   readonly create = injectCommand<Doc>("createDocument");
+  readonly replace = injectCommand<Doc>("replaceContent");
+  readonly renameDocument = injectCommand<Doc>("renameDocument");
+  readonly deleteDocument = injectCommand<Doc>("deleteDocument");
 
   mine(doc: Doc): boolean {
     const me = this.me.data();
@@ -163,6 +197,10 @@ export class Documents {
     return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 
+  toggle(id: string): void {
+    this.openId.update((open) => (open === id ? null : id));
+  }
+
   onPick(event: Event): void {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (file) void this.upload(file);
@@ -175,38 +213,72 @@ export class Documents {
     if (file) void this.upload(file);
   }
 
+  onReplace(event: Event, doc: Doc): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (file) void this.newVersion(doc, file);
+  }
+
   /**
    * The bytes go to the upload route on their own, then a command names what arrived. They never travel inside the
    * batch — that is what the extension is for, and what keeps a 40 MB file from becoming 53 MB of base64.
    */
-  private async upload(file: File): Promise<void> {
-    this.busy.set(true);
-    this.failed.set(null);
-    try {
-      // the bytes go on their own route; the command only names what arrived
+  private upload(file: File): Promise<void> {
+    return this.run("uploading", async () => {
       const kept = await this.client.upload(file);
       await this.create.run({ upload: kept.id, name: file.name, projectId: this.projectId() });
-      await this.page.refetch();
-    } catch (e: unknown) {
-      this.failed.set(e instanceof Error ? e.message : String(e));
-    } finally {
-      this.busy.set(false);
+    });
+  }
+
+  private newVersion(doc: Doc, file: File): Promise<void> {
+    return this.run("uploading", async () => {
+      const kept = await this.client.upload(file);
+      // the version on screen is the version sent: a new version on top of someone else's is refused, not lost
+      await this.replace.run({ id: doc.id, upload: kept.id }, { ifVersion: doc.version });
+    });
+  }
+
+  rename(event: Event, doc: Doc): Promise<void> {
+    event.preventDefault();
+    const name = ((event.target as HTMLFormElement).elements.namedItem("name") as HTMLInputElement).value.trim();
+    this.renaming.set(null);
+    if (!name || name === doc.name) return Promise.resolve();
+    return this.run("renaming", () => this.renameDocument.run({ id: doc.id, name }, { ifVersion: doc.version }));
+  }
+
+  remove(doc: Doc): Promise<void> {
+    if (this.confirming() !== doc.id) {
+      this.confirming.set(doc.id);
+      setTimeout(() => this.confirming.update((c) => (c === doc.id ? null : c)), 4000);
+      return Promise.resolve();
     }
+    this.confirming.set(null);
+    return this.run("deleting", () => this.deleteDocument.run({ id: doc.id }));
   }
 
   async share(doc: Doc): Promise<void> {
-    this.sharing.set(doc.id);
-    try {
+    await this.run("sharing", async () => {
       const share = await this.client.command<{ token: string }>("shareDocument", { id: doc.id }, { shape: "{ token }" });
       // a capability token in the query string: a browser following a link cannot set a header, which is the
       // trade-off every signed URL makes. it expires on its own, which is what makes that acceptable.
       await navigator.clipboard.writeText(`${this.href(doc)}?token=${share.token}`);
       this.shared.set(doc.id);
-      setTimeout(() => this.shared.set(null), 2200);
+      setTimeout(() => this.shared.update((s) => (s === doc.id ? null : s)), 2200);
+    }, false);
+  }
+
+  /** One command at a time, its name in the header while it runs, and the list read again after one that changed it. */
+  private async run(what: string, work: () => Promise<unknown>, refetch = true): Promise<void> {
+    this.busy.set(what);
+    this.failed.set(null);
+    try {
+      await work();
+      if (refetch) await this.page.refetch();
     } catch (e: unknown) {
-      this.failed.set(e instanceof Error ? e.message : String(e));
+      this.failed.set(this.describe(e));
     } finally {
-      this.sharing.set(null);
+      this.busy.set(null);
     }
   }
 }

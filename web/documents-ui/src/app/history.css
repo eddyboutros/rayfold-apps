@@ -1,0 +1,46 @@
+.history {
+  margin: 2px 0 8px 45px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  font-size: 12px;
+}
+
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto auto;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.v {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+time,
+.size {
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.bad {
+  color: var(--bad);
+  font-size: 12.5px;
+}
