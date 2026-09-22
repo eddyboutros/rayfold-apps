@@ -83,10 +83,12 @@ const PROJECTS = [
           }
 
           <p class="eyebrow group">Company</p>
-          <button type="button" class="nav" [class.on]="view() === 'catalogue'" (click)="view.set('catalogue')">
-            <span class="glyph">⌕</span>
-            Catalogue
-          </button>
+          @for (page of pages(); track page.key) {
+            <button type="button" class="nav" [class.on]="view() === page.key" (click)="view.set(page.key)">
+              <span class="glyph">{{ page.glyph }}</span>
+              {{ page.label }}
+            </button>
+          }
 
           <span class="spacer"></span>
 
@@ -110,14 +112,14 @@ const PROJECTS = [
         </nav>
 
         <div class="frame">
-          @if (view() === "catalogue") {
+          @if (page(); as page) {
             <main class="single">
-              @if (catalogue().component; as component) {
+              @if (page.component; as component) {
                 <ng-container *ngComponentOutlet="component" />
-              } @else if (catalogue().failed; as failed) {
+              } @else if (page.failed; as failed) {
                 <div class="card">
                   <div class="body empty">
-                    <strong>The catalogue is unavailable</strong>
+                    <strong>{{ page.label }} is unavailable</strong>
                     {{ failed }}
                   </div>
                 </div>
@@ -173,8 +175,8 @@ export class App {
 
   readonly projects = PROJECTS;
   readonly projectId = signal(PROJECTS[0]!.id);
-  /** What fills the page: a project's panels, or the company-wide catalogue. */
-  readonly view = signal<"project" | "catalogue">("project");
+  /** What fills the page: a project's panels, or one of the company-wide pages by its key. */
+  readonly view = signal<string>("project");
   readonly project = computed(() => this.projects.find((p) => p.id === this.projectId()) ?? this.projects[0]!);
   // what is actually on screen: a chosen theme if there is one, otherwise whatever the system decided
   readonly theme = signal<"light" | "dark">(
@@ -187,13 +189,17 @@ export class App {
     { key: "activity", label: "Activity", remote: "workspace-ui", exposed: "./Feed", component: null, failed: null },
     { key: "chat", label: "Chat", remote: "workspace-ui", exposed: "./Chat", component: null, failed: null },
   ]);
-  /** A whole page from one remote, rather than a panel among others. */
-  readonly catalogue = signal<Panel>({ key: "catalogue", label: "Catalogue", remote: "catalogue-ui", exposed: "./Catalogue", component: null, failed: null });
+  /** Whole pages from one remote each, rather than panels among others: the company's, not a project's. */
+  readonly pages = signal<Array<Panel & { glyph: string }>>([
+    { key: "catalogue", label: "Catalogue", glyph: "\u2315", remote: "catalogue-ui", exposed: "./Catalogue", component: null, failed: null },
+    { key: "people", label: "People", glyph: "\u25CE", remote: "workspace-ui", exposed: "./People", component: null, failed: null },
+  ]);
+  readonly page = computed(() => this.pages().find((p) => p.key === this.view()) ?? null);
   /** The bell in the rail: the person's, not a project's, so it is on every page. A missing remote is a missing bell. */
   readonly bell = signal<Panel>({ key: "bell", label: "Notifications", remote: "workspace-ui", exposed: "./Notifications", component: null, failed: null });
 
   constructor() {
-    for (const panel of [...this.panels(), this.catalogue(), this.bell()]) {
+    for (const panel of [...this.panels(), ...this.pages(), this.bell()]) {
       // one remote failing is one panel missing, not a blank page: each is loaded and settled on its own
       void loadRemoteModule(panel.remote, panel.exposed)
         .then((m: Record<string, Type<unknown>>) => this.settle(panel.key, Object.values(m)[0] ?? null, null))
@@ -202,8 +208,8 @@ export class App {
   }
 
   private settle(key: string, component: Type<unknown> | null, failed: string | null): void {
-    if (key === this.catalogue().key) this.catalogue.update((p) => ({ ...p, component, failed }));
-    else if (key === this.bell().key) this.bell.update((p) => ({ ...p, component, failed }));
+    if (key === this.bell().key) this.bell.update((p) => ({ ...p, component, failed }));
+    else if (this.pages().some((p) => p.key === key)) this.pages.update((pages) => pages.map((p) => (p.key === key ? { ...p, component, failed } : p)));
     else this.panels.update((panels) => panels.map((p) => (p.key === key ? { ...p, component, failed } : p)));
   }
 

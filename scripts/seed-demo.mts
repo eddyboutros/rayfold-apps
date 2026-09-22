@@ -51,10 +51,16 @@ class Person {
     console.log(`  ${this.who} added ${name}`);
   }
 
-  async open(projectId: string, title: string, assignee?: Handle): Promise<Issue> {
-    const issue = await this.workspace.command<Issue>("createIssue", { projectId, title, assigneeId: assignee ? MEMBER[assignee] : null }, { shape: "{ id version }" });
+  async open(projectId: string, title: string, assignee?: Handle, more: { priority?: "low" | "normal" | "high" | "urgent"; labels?: string[]; dueOn?: string; description?: string } = {}): Promise<Issue> {
+    const issue = await this.workspace.command<Issue>("createIssue", { projectId, title, assigneeId: assignee ? MEMBER[assignee] : null, ...more }, { shape: "{ id version }" });
     console.log(`  ${this.who} opened "${title}"${assignee ? ` for ${assignee}` : ""}`);
     return issue;
+  }
+
+  async edit(issue: Issue, changes: { priority?: "low" | "normal" | "high" | "urgent"; labels?: string[]; dueOn?: string | null; description?: string | null }): Promise<Issue> {
+    const next = await this.workspace.command<Issue>("updateIssue", { id: issue.id, changes }, { shape: "{ id version }", ifVersion: issue.version });
+    console.log(`  ${this.who} changed an issue: ${Object.keys(changes).join(", ")}`);
+    return next;
   }
 
   async handOver(issue: Issue, to: Handle): Promise<Issue> {
@@ -128,29 +134,37 @@ Disable legacy writes,Ada,todo,wave 3 only
     ]),
   );
 
-  const mirror = await grace.open(p, "Order mirror lags at peak", "grace");
+  const mirror = await grace.open(p, "Order mirror lags at peak", "grace", {
+    priority: "high",
+    labels: ["wave-1", "platform"],
+    dueOn: "2026-10-03",
+    description: "The read-only mirror falls behind during the 11:00 batch. Wave 2 writes through it, so it has to be under a minute by then.",
+  });
   await grace.say(mirror, "Peaks at about four minutes behind during the 11:00 batch. Looking at the relay's fan-out.");
   const inProgress = await grace.move(mirror, "doing");
   await ada.say(inProgress, "If it is the batch size, wave 2 needs it under a minute. Happy to pair.");
 
-  const rounding = await ada.open(p, "Tax rounding differs between the two tenants");
+  const rounding = await ada.open(p, "Tax rounding differs between the two tenants", undefined, { labels: ["finance", "wave-2"], dueOn: "2026-10-15" });
   await ada.say(rounding, "Legacy rounds per line, we round per order. Finance wants per line.");
   const roundingForNoor = await ada.handOver(rounding, "noor");
   await noor.say(roundingForNoor, "Per line it is. I will write it up in the plan.");
+  await noor.edit(roundingForNoor, { description: "Decision: round per line, as the legacy desk does. Update the plan and tell finance." });
 
-  const msa = await tomas.open(p, "Sign the revised MSA", "tomas");
+  const msa = await tomas.open(p, "Sign the revised MSA", "tomas", { priority: "urgent", labels: ["legal"], dueOn: "2026-09-18" });
   await tomas.say(msa, "Draft 3 is up. Only section 3 changed. Need Ada's read on the export clause by Friday.");
   await ada.say(msa, "Read it. Clause 3 works for us as written.");
   const msaDone = await tomas.move(msa, "doing");
   await tomas.move(msaDone, "done");
 
-  const rota = await ada.open(p, "On-call rota for the fortnight after wave 3");
+  const rota = await ada.open(p, "On-call rota for the fortnight after wave 3", undefined, { labels: ["ops"], dueOn: "2026-11-01" });
   await ada.handOver(rota, "grace");
 
-  const freeze = await grace.open(p, "Freeze the legacy price list", "grace");
+  const freeze = await grace.open(p, "Freeze the legacy price list", "grace", { labels: ["wave-1"] });
   await grace.move(await grace.move(freeze, "doing"), "done");
 
-  await noor.open(p, "Customer comms for wave 2", "noor");
+  await noor.open(p, "Customer comms for wave 2", "noor", { priority: "high", labels: ["wave-2", "comms"], dueOn: "2026-10-13", description: "Announcement, FAQ and the in-app banner. Legal reads the announcement first." });
+  // overdue and untouched: the one thing on the board that is red
+  await ada.open(p, "Rehearse the wave two cutover", undefined, { priority: "urgent", labels: ["wave-2", "ops"], dueOn: "2026-09-19" });
 }
 
 async function compliance(): Promise<void> {
@@ -186,7 +200,7 @@ documents,2026-09-01 06:05,2026-09-01 06:41,36,Grace
     ]),
   );
 
-  const evidence = await tomas.open(p, "Collect Q3 control evidence", "tomas");
+  const evidence = await tomas.open(p, "Collect Q3 control evidence", "tomas", { priority: "high", labels: ["audit"], dueOn: "2026-09-30" });
   await tomas.say(evidence, "Everything except the access review export is in the folder.");
   const evidenceDoing = await tomas.move(evidence, "doing");
   await grace.say(evidenceDoing, "Export is running now, will attach it here.");
@@ -195,16 +209,16 @@ documents,2026-09-01 06:05,2026-09-01 06:41,36,Grace
   await grace.say(access, "Three leavers still had read access to the documents service. Revoked; noting it in the review.");
   await grace.move(await grace.move(access, "doing"), "done");
 
-  const drill = await grace.open(p, "Restore drill took longer than the target", "grace");
+  const drill = await grace.open(p, "Restore drill took longer than the target", "grace", { labels: ["backups", "audit"], description: "Target is 30 minutes end to end. The documents restore alone took 36." });
   await grace.say(drill, "Documents restore was 36 minutes against a 30 minute target. The files volume is the slow part.");
   await ada.say(drill, "Snapshot the volume instead of copying it; that should halve it.");
   await grace.move(drill, "doing");
 
-  const dpa = await tomas.open(p, "Publish the updated DPA");
+  const dpa = await tomas.open(p, "Publish the updated DPA", undefined, { labels: ["legal", "comms"], dueOn: "2026-10-06" });
   await tomas.handOver(dpa, "noor");
   await noor.say(dpa, "Goes out with the October release notes.");
 
-  await ada.open(p, "Post-mortem for the 14 Sep P2", "ada");
+  await ada.open(p, "Post-mortem for the 14 Sep P2", "ada", { priority: "low", labels: ["incident"], dueOn: "2026-09-28" });
 }
 
 for (const [name, projectId, run] of [

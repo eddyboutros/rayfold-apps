@@ -27,6 +27,7 @@ const KIND_LABEL: Record<string, string> = {
   "issue.created": "opened",
   "issue.moved": "moved",
   "issue.assigned": "handed over",
+  "issue.edited": "changed",
   "comment.added": "commented on",
 };
 

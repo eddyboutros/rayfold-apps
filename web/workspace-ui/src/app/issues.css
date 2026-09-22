@@ -166,3 +166,166 @@ ol li:first-child {
   color: var(--bad);
   font-size: 12.5px;
 }
+
+/* ---- filters: two pickers in a quiet row under the composer */
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 16px 0;
+  font-size: 12px;
+}
+
+.filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter select {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.filters .clear {
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+
+/* ---- the row: priority first, as a mark, then the title with its tags under it */
+.row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.priority {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+
+.priority[data-priority="low"] {
+  background: transparent;
+  border: 1px solid var(--line-strong);
+}
+
+.priority[data-priority="high"] {
+  background: var(--warn);
+}
+
+.priority[data-priority="urgent"] {
+  background: var(--bad);
+  box-shadow: 0 0 0 3px var(--bad-soft);
+}
+
+.title {
+  display: grid;
+  gap: 2px;
+  white-space: normal;
+}
+
+.title .text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-weight: 450;
+}
+
+.tag,
+.due {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--sunken);
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.due.soon {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.due.late {
+  background: var(--bad-soft);
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.done .tags {
+  opacity: 0.6;
+}
+
+/* ---- the open issue: its fields, then its conversation */
+.detail {
+  margin: 2px 0 8px;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  padding: 12px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+}
+
+.fields label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.fields .wide {
+  grid-column: 1 / -1;
+}
+
+.fields select,
+.fields input[type="date"] {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.fields .input {
+  background: var(--surface);
+  font-size: 12.5px;
+}
+
+.fields textarea.input {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.actions .version {
+  flex: 1;
+  font-size: 11.5px;
+}
+
+.actions .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}

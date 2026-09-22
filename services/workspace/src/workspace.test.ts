@@ -252,6 +252,92 @@ it("a project's chat: what is said arrives on every open chat as it is said, and
   }
 });
 
+it("an issue's fields change one at a time: what a form did not touch is left alone, null clears, and a stale edit is refused", async () => {
+  const ada = svc.client("ada");
+  const grace = svc.client("grace");
+  const SHAPE = "{ id version priority labels dueOn description title }";
+  const issue = await ada.command<Detail>("createIssue", { projectId: PROJECT, title: "Rehearse the cutover", labels: ["Ops", " ops", "Wave-2"] }, { shape: SHAPE });
+  // defaults, and labels tidied: trimmed, lower-cased, each once
+  expect(issue).toMatchObject({ version: 1, priority: "normal", labels: ["ops", "wave-2"], dueOn: null, description: null });
+
+  // Ada sets a priority and a day; Grace, reading the same version, writes a description. both land: the second
+  // edit is on a different field, and it reads the version again after being told it moved
+  const v2 = await ada.command<Detail>("updateIssue", { id: issue.id, changes: { priority: "high", dueOn: "2026-10-02" } }, { shape: SHAPE, ifVersion: 1 });
+  expect(v2).toMatchObject({ version: 2, priority: "high", dueOn: "2026-10-02", labels: ["ops", "wave-2"], description: null });
+  const stale = await grace.command("updateIssue", { id: issue.id, changes: { description: "Run it twice" } }, { shape: SHAPE, ifVersion: 1 }).then(() => null, (e: RayfoldClientError) => e);
+  expect(stale).toMatchObject({ code: "failed_precondition", type: "VersionConflict" });
+  expect(stale?.data).toMatchObject({ expected: 1, actual: 2 });
+  const v3 = await grace.command<Detail>("updateIssue", { id: issue.id, changes: { description: "Run it twice" } }, { shape: SHAPE, ifVersion: 2 });
+  // what Ada set is still there: the description was the only column written
+  expect(v3).toMatchObject({ version: 3, priority: "high", dueOn: "2026-10-02", description: "Run it twice" });
+
+  // null clears a day; an absent field is not null
+  const v4 = await ada.command<Detail>("updateIssue", { id: issue.id, changes: { dueOn: null } }, { shape: SHAPE, ifVersion: 3 });
+  expect(v4).toMatchObject({ version: 4, dueOn: null, description: "Run it twice", priority: "high" });
+  // read back, not the command's own answer: the columns it did not name are as they were
+  expect(await ada.query<Detail>("issue", { id: issue.id }, { shape: SHAPE })).toMatchObject({ version: 4, dueOn: null, description: "Run it twice", priority: "high", labels: ["ops", "wave-2"] });
+  // and a null where the schema allows none is refused before any resolver runs (guard for the rule above)
+  const noTitle = await ada.command("updateIssue", { id: issue.id, changes: { title: null } }, { shape: SHAPE, ifVersion: 4 }).then(() => null, (e: RayfoldClientError) => e);
+  expect(noTitle?.code).toBe("invalid_argument");
+
+  // a dry run says what would happen and writes nothing
+  const dry = await ada.command<Detail>("updateIssue", { id: issue.id, changes: { priority: "urgent" } }, { shape: SHAPE, ifVersion: 4, simulate: true });
+  expect(dry).toMatchObject({ version: 5, priority: "urgent" });
+  expect(await ada.query<Detail>("issue", { id: issue.id }, { shape: SHAPE })).toMatchObject({ version: 4, priority: "high" });
+
+  const feed = await ada.query<{ items: Array<{ kind: string; text: string }> }>("activity", { projectId: PROJECT }, { shape: "{ items { kind text } }" });
+  expect(feed.items.map((i) => [i.kind, i.text])).toEqual([
+    ["issue.edited", "Rehearse the cutover: due day cleared"],
+    ["issue.edited", "Rehearse the cutover: description"],
+    ["issue.edited", "Rehearse the cutover: priority high, due 2026-10-02"],
+    ["issue.created", "Rehearse the cutover"],
+  ]);
+});
+
+interface Detail {
+  id: string;
+  version: number;
+  title: string;
+  priority: string;
+  labels: string[];
+  dueOn: string | null;
+  description: string | null;
+}
+
+it("the list narrows by state, holder and label, and the workload counts what each person holds", async () => {
+  const ada = svc.client("ada");
+  const members = await ada.query<Array<{ id: string; name: string; title: string | null; email: string | null }>>("members", {}, { shape: "{ id name title email }" });
+  expect(members[0]).toEqual({ $type: "Member", id: "u1", name: "Ada Lovelace", title: "Engineering lead", email: "ada@keel.example" });
+  const noor = members.find((m) => m.name === "Noor Haddad")!;
+
+  const a = await ada.command<Detail>("createIssue", { projectId: PROJECT, title: "A", assigneeId: noor.id, labels: ["ops"], dueOn: "2000-01-01" }, { shape: "{ id version }" });
+  const b = await ada.command<Detail>("createIssue", { projectId: PROJECT, title: "B", assigneeId: noor.id, labels: ["legal"] }, { shape: "{ id version }" });
+  await ada.command<Detail>("createIssue", { projectId: PROJECT, title: "C", labels: ["ops", "legal"] }, { shape: "{ id }" });
+  await ada.command("moveIssue", { id: b.id, to: "doing" }, { shape: "{ id }", ifVersion: b.version });
+
+  const titles = async (args: Record<string, unknown>) => (await ada.query<{ items: Array<{ title: string }>; total: number }>("issues", { projectId: PROJECT, ...args }, { shape: "{ items { title } total }" })).items.map((i) => i.title);
+  expect((await titles({})).sort()).toEqual(["A", "B", "C"]);
+  expect((await titles({ label: "ops" })).sort()).toEqual(["A", "C"]);
+  expect((await titles({ assigneeId: noor.id })).sort()).toEqual(["A", "B"]);
+  expect(await titles({ state: "doing" })).toEqual(["B"]);
+  expect((await titles({ assigneeId: noor.id, label: "legal" })).sort()).toEqual(["B"]);
+  // guard: a label nobody used narrows to nothing rather than to everything
+  expect(await titles({ label: "nope" })).toEqual([]);
+
+  const load = await ada.query<Array<{ member: { name: string }; open: number; doing: number; done: number; overdue: number }>>("workload", {}, { shape: "{ member { name } open doing done overdue }" });
+  expect(load.map((w) => [w.member.name, w.open, w.doing, w.done, w.overdue])).toEqual([
+    ["Ada Lovelace", 0, 0, 0, 0],
+    ["Grace Hopper", 0, 0, 0, 0],
+    ["Noor Haddad", 1, 1, 0, 1],
+    ["Tomás Ferreira", 0, 0, 0, 0],
+  ]);
+  // done is never overdue, whatever its day
+  await ada.command("moveIssue", { id: a.id, to: "doing" }, { shape: "{ id }", ifVersion: a.version });
+  await ada.command("moveIssue", { id: a.id, to: "done" }, { shape: "{ id }", ifVersion: a.version + 1 });
+  const after = await ada.query<Array<{ member: { name: string }; done: number; overdue: number }>>("workload", {}, { shape: "{ member { name } done overdue }" });
+  expect(after.find((w) => w.member.name === "Noor Haddad")).toMatchObject({ done: 1, overdue: 0 });
+});
+
 it("a browser's session cookie is the same person as a bearer token", async () => {
   // what a browser sends: the cookie the shell set at sign-in, and no Authorization header at all
   const browser = new RayfoldClient({

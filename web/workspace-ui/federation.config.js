@@ -9,6 +9,7 @@ module.exports = withNativeFederation({
     './Issues': './src/app/issues.ts',
     './Chat': './src/app/chat.ts',
     './Notifications': './src/app/notifications.ts',
+    './People': './src/app/people.ts',
   },
 
   shared: {

@@ -9,7 +9,7 @@ services, which are on another.
 | `design/` | Tokens and base styles every app here builds from. Nobody owns the palette; teams own components. |
 | `shell` | The page, the project switcher, the theme, sign-in and the session. Owns no features and no client. |
 | `documents-ui` | Files: upload, share. Owned by the team that owns the documents service. |
-| `workspace-ui` | Issues, hand-overs, conversations, the activity feed, the project chat, and the bell with each person's notifications. Owned by the team that owns the workspace service. |
+| `workspace-ui` | Issues with their detail (priority, labels, due day, description), hand-overs, conversations, the activity feed, the project chat, the bell with each person's notifications, and the People page. Owned by the team that owns the workspace service. |
 | `catalogue-ui` | The catalogue: one search over products, people and articles, and a catalogue to leaf through. A whole page, not a panel. |
 
 ```sh

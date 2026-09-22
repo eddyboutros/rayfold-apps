@@ -8,10 +8,13 @@ import { membersSeed } from "@apps/service-kit";
 import type pg from "pg";
 
 export type IssueState = "open" | "doing" | "done";
+export type Priority = "low" | "normal" | "high" | "urgent";
 
 export interface Member {
   id: string;
   name: string;
+  title: string | null;
+  email: string | null;
 }
 
 export interface Issue {
@@ -20,8 +23,36 @@ export interface Issue {
   title: string;
   state: IssueState;
   assigneeId: string | null;
+  priority: Priority;
+  labels: string[];
+  /** YYYY-MM-DD, or null when no day was set. */
+  dueOn: string | null;
+  description: string | null;
   version: number;
   updatedAt: number;
+}
+
+/** What `updateIssue` may change: a key that is present is written, one that is absent is left alone. */
+export interface IssueChanges {
+  title?: string;
+  description?: string | null;
+  priority?: Priority;
+  labels?: string[];
+  dueOn?: string | null;
+}
+
+export interface IssueFilter {
+  state?: IssueState | null;
+  assigneeId?: string | null;
+  label?: string | null;
+}
+
+export interface Workload {
+  member: Member;
+  open: number;
+  doing: number;
+  done: number;
+  overdue: number;
 }
 
 export interface Comment {
@@ -77,6 +108,12 @@ export const SCHEMA = `
     updated_at bigint not null
   );
   create index if not exists issues_project on issues (project_id, id);
+  -- added after the first deploy, each with what an existing row means: normal, no labels, no day, nothing written
+  alter table issues add column if not exists priority text not null default 'normal';
+  alter table issues add column if not exists labels text[] not null default '{}';
+  alter table issues add column if not exists due_on text;
+  alter table issues add column if not exists description text;
+  create index if not exists issues_assignee on issues (assignee_id, state);
 
   create table if not exists comments (
     id text primary key,
@@ -130,8 +167,19 @@ const toIssue = (r: Record<string, unknown>): Issue => ({
   title: r["title"] as string,
   state: r["state"] as IssueState,
   assigneeId: (r["assignee_id"] as string | null) ?? null,
+  priority: r["priority"] as Priority,
+  labels: (r["labels"] as string[] | null) ?? [],
+  dueOn: (r["due_on"] as string | null) ?? null,
+  description: (r["description"] as string | null) ?? null,
   version: r["version"] as number,
   updatedAt: Number(r["updated_at"]),
+});
+
+const toMember = (r: Record<string, unknown>): Member => ({
+  id: r["id"] as string,
+  name: r["name"] as string,
+  title: (r["title"] as string | null) ?? null,
+  email: (r["email"] as string | null) ?? null,
 });
 
 const toComment = (r: Record<string, unknown>): Comment => ({
@@ -184,13 +232,30 @@ export class WorkspaceStore {
     return rows[0] ? toIssue(rows[0]) : null;
   }
 
-  async issues(projectId: string, first: number, after: string | null): Promise<{ items: Issue[]; total: number }> {
-    const { rows } = await this.sql.query(
-      "select * from issues where project_id = $1 and ($2::text is null or id > $2) order by id limit $3",
-      [projectId, after, first],
-    );
-    const { rows: n } = await this.sql.query("select count(*)::int as n from issues where project_id = $1", [projectId]);
+  async issues(projectId: string, filter: IssueFilter, first: number, after: string | null): Promise<{ items: Issue[]; total: number }> {
+    const where = `project_id = $1
+      and ($2::text is null or state = $2)
+      and ($3::text is null or assignee_id = $3)
+      and ($4::text is null or $4 = any(labels))`;
+    const args = [projectId, filter.state ?? null, filter.assigneeId ?? null, filter.label ?? null];
+    const { rows } = await this.sql.query(`select * from issues where ${where} and ($5::text is null or id > $5) order by id limit $6`, [...args, after, first]);
+    const { rows: n } = await this.sql.query(`select count(*)::int as n from issues where ${where}`, args);
     return { items: rows.map(toIssue), total: (n[0]?.["n"] as number) ?? 0 };
+  }
+
+  /** Every person with what they hold, across projects; a person holding nothing still appears, with zeros. */
+  async workload(today: string): Promise<Workload[]> {
+    const { rows } = await this.sql.query(
+      `select m.*,
+         count(i.id) filter (where i.state = 'open')::int as open,
+         count(i.id) filter (where i.state = 'doing')::int as doing,
+         count(i.id) filter (where i.state = 'done')::int as done,
+         count(i.id) filter (where i.state <> 'done' and i.due_on is not null and i.due_on < $1)::int as overdue
+       from members m left join issues i on i.assignee_id = m.id
+       group by m.id order by m.name`,
+      [today],
+    );
+    return rows.map((r) => ({ member: toMember(r), open: r["open"] as number, doing: r["doing"] as number, done: r["done"] as number, overdue: r["overdue"] as number }));
   }
 
   async comments(issueId: string, first: number, after: string | null): Promise<{ items: Comment[]; total: number }> {
@@ -263,21 +328,39 @@ export class WorkspaceStore {
 
   async members(): Promise<Member[]> {
     const { rows } = await this.sql.query("select * from members order by name");
-    return rows.map((r) => ({ id: r["id"] as string, name: r["name"] as string }));
+    return rows.map(toMember);
   }
 
   async membersByIds(ids: string[]): Promise<Map<string, Member>> {
     const wanted = ids.filter(Boolean);
     if (!wanted.length) return new Map();
     const { rows } = await this.sql.query("select * from members where id = any($1::text[])", [wanted]);
-    return new Map(rows.map((r) => [r["id"] as string, { id: r["id"] as string, name: r["name"] as string }]));
+    return new Map(rows.map((r) => [r["id"] as string, toMember(r)]));
   }
 
   async createIssue(issue: Issue): Promise<void> {
     await this.sql.query(
-      "insert into issues (id, project_id, title, state, assignee_id, version, updated_at) values ($1,$2,$3,$4,$5,$6,$7)",
-      [issue.id, issue.projectId, issue.title, issue.state, issue.assigneeId, issue.version, issue.updatedAt],
+      "insert into issues (id, project_id, title, state, assignee_id, priority, labels, due_on, description, version, updated_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+      [issue.id, issue.projectId, issue.title, issue.state, issue.assigneeId, issue.priority, issue.labels, issue.dueOn, issue.description, issue.version, issue.updatedAt],
     );
+  }
+
+  /**
+   * Writes only the columns the changes name, and only while the version is what the caller read. Two people
+   * editing different fields at the same time both land in turn; the same field at the same time, the second is
+   * told, because the version moved under them.
+   */
+  async updateIssue(id: string, changes: IssueChanges, fromVersion: number, at: number): Promise<boolean> {
+    const columns: Record<keyof IssueChanges, string> = { title: "title", description: "description", priority: "priority", labels: "labels", dueOn: "due_on" };
+    const sets: string[] = [];
+    const args: unknown[] = [id, at, fromVersion];
+    for (const key of Object.keys(columns) as Array<keyof IssueChanges>) {
+      if (!(key in changes)) continue;
+      args.push(changes[key]);
+      sets.push(`${columns[key]} = $${args.length}`);
+    }
+    const { rowCount } = await this.sql.query(`update issues set ${[...sets, "version = version + 1", "updated_at = $2"].join(", ")} where id = $1 and version = $3`, args);
+    return !!rowCount;
   }
 
   /** Moves the issue only while its version is still what the caller read: two moves cannot both win. */

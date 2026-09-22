@@ -7,7 +7,7 @@
  * service's, and nothing here reads another service's tables to build it.
  */
 import { RayfoldError, ok, type Resolvers } from "@rayfold/server";
-import type { Activity, Comment, Issue, IssueState, Member, Message, Notification, WorkspaceStore } from "./store.ts";
+import type { Activity, Comment, Issue, IssueChanges, IssueState, Member, Message, Notification, Priority, WorkspaceStore } from "./store.ts";
 
 export interface Viewer {
   id: string;
@@ -28,6 +28,25 @@ export interface Line {
   text: string;
   /** Who did it; null for a line no person caused. */
   byId: string | null;
+}
+
+/** Labels as the project sees them: trimmed, lower-cased, no blanks, each once. */
+const tidy = (labels: string[]): string[] => [...new Set(labels.map((l) => l.trim().toLowerCase()).filter(Boolean))];
+
+/** One change as the feed says it, so a line reads "priority high, due 2026-10-02" rather than a diff. */
+function describeChange(key: keyof IssueChanges, next: Issue): string {
+  switch (key) {
+    case "title":
+      return "renamed";
+    case "description":
+      return next.description ? "description" : "description cleared";
+    case "priority":
+      return `priority ${next.priority}`;
+    case "labels":
+      return next.labels.length ? `labels ${next.labels.join(" ")}` : "labels cleared";
+    case "dueOn":
+      return next.dueOn ? `due ${next.dueOn}` : "due day cleared";
+  }
 }
 
 export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.now }: Parts): Resolvers {
@@ -52,9 +71,13 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
 
   /**
    * What a command that wrote a feed line hands back beside its result. A new row touches no entity a live
-   * `activity` query has already read, so the patch names the operation itself: every open feed re-runs.
+   * `activity` query has already read, so the patch names the operation itself: every open feed re-runs. The
+   * workload is a count over issues, which no entity in its result names either, so it is re-run the same way.
    */
-  const feedChanged = [{ invOp: ["activity"] }];
+  const feedChanged = [{ invOp: ["activity", "workload"] }];
+
+  /** Today as the day an issue's `dueOn` is compared with: a date, not an instant, so a due day is the whole day. */
+  const today = () => new Date(now()).toISOString().slice(0, 10);
 
   /** The one line every command writes: what happened, on which project, by the person calling. */
   const did = (ctx: { viewer: unknown }, projectId: string, kind: string, text: string) =>
@@ -79,10 +102,12 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
 
       issue: ({ id: issueId }: { id: string }) => store.issue(issueId),
 
-      issues: async ({ projectId, page }: { projectId: string; page: { first: number; after?: string | null } }) => {
-        const { items, total } = await store.issues(projectId, page.first, page.after ?? null);
+      issues: async ({ projectId, state, assigneeId, label, page }: { projectId: string; state?: IssueState | null; assigneeId?: string | null; label?: string | null; page: { first: number; after?: string | null } }) => {
+        const { items, total } = await store.issues(projectId, { state: state ?? null, assigneeId: assigneeId ?? null, label: label ?? null }, page.first, page.after ?? null);
         return pageOf(items, total, (i) => i.id);
       },
+
+      workload: () => store.workload(today()),
 
       comments: async ({ issueId, page }: { issueId: string; page: { first: number; after?: string | null } }) => {
         const { items, total } = await store.comments(issueId, page.first, page.after ?? null);
@@ -109,10 +134,61 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
     },
 
     Command: {
-      createIssue: async ({ projectId, title, assigneeId }: { projectId: string; title: string; assigneeId?: string | null }, ctx) => {
-        const issue: Issue = { id: id(), projectId, title, state: "open", assigneeId: assigneeId ?? null, version: 1, updatedAt: now() };
+      createIssue: async (
+        { projectId, title, assigneeId, priority, labels, dueOn, description }: { projectId: string; title: string; assigneeId?: string | null; priority: Priority; labels: string[]; dueOn?: string | null; description?: string | null },
+        ctx,
+      ) => {
+        const issue: Issue = {
+          id: id(),
+          projectId,
+          title,
+          state: "open",
+          assigneeId: assigneeId ?? null,
+          priority,
+          labels: tidy(labels),
+          dueOn: dueOn ?? null,
+          description: description ?? null,
+          version: 1,
+          updatedAt: now(),
+        };
         await store.createIssue(issue);
         return ok(issue, { patch: feedChanged, emit: [await did(ctx, projectId, "issue.created", title)] });
+      },
+
+      updateIssue: async ({ id: issueId, changes }: { id: string; changes: IssueChanges }, ctx) => {
+        const issue = await find(issueId);
+        ctx.checkVersion(`Issue:${issue.id}`, issue.version, issue);
+        // only what was sent: an absent field is not a field set to nothing (spec 03 section 2)
+        const applied: IssueChanges = {};
+        const sent = (key: keyof IssueChanges) => key in changes && changes[key] !== undefined;
+        const never = (key: keyof IssueChanges) => {
+          if (changes[key] === null) throw new RayfoldError("invalid_argument", `updateIssue().changes.${key}: cannot be null`);
+        };
+        if (sent("title")) {
+          never("title");
+          applied.title = changes.title!;
+        }
+        if (sent("description")) applied.description = changes.description?.trim() || null;
+        if (sent("priority")) {
+          never("priority");
+          applied.priority = changes.priority!;
+        }
+        if (sent("labels")) {
+          never("labels");
+          applied.labels = tidy(changes.labels!);
+        }
+        if (sent("dueOn")) applied.dueOn = changes.dueOn ?? null;
+        const next: Issue = { ...issue, ...applied, version: issue.version + 1, updatedAt: now() };
+        if (ctx.simulate) return ok(next);
+
+        const won = await store.updateIssue(issue.id, applied, issue.version, next.updatedAt);
+        if (!won) {
+          const current = await find(issueId);
+          ctx.checkVersion(`Issue:${issue.id}`, current.version, current);
+          throw RayfoldError.domain("NotFound", { id: issueId }, `Issue ${issueId} changed while this was running`);
+        }
+        const what = Object.keys(applied).map((k) => describeChange(k as keyof IssueChanges, next)).join(", ");
+        return ok(next, { patch: feedChanged, emit: [await did(ctx, issue.projectId, "issue.edited", `${next.title}: ${what || "nothing"}`)] });
       },
 
       assignIssue: async ({ id: issueId, assigneeId }: { id: string; assigneeId?: string | null }, ctx) => {

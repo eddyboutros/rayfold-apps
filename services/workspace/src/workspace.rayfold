@@ -9,9 +9,14 @@ when the documents service changes a file, that reaches here over the relay and 
 entity Member {
   id: ID
   name: String
+  title: String?
+  email: String?
 }
 
 enum IssueState { open, doing, done }
+
+"""How soon. `urgent` sorts first on every screen; `normal` is what an issue gets unless someone says otherwise."""
+enum Priority { low, normal, high, urgent }
 
 entity Issue @allow(read: viewer != null) {
   id: ID
@@ -19,9 +24,40 @@ entity Issue @allow(read: viewer != null) {
   title: String
   state: IssueState
   assignee: Member?
+  priority: Priority
+  """Free text, as many as the project likes. Filter the list by one."""
+  labels: [String]
+  """The day it is due, if a day was set. Past it and not done is overdue."""
+  dueOn: Date?
+  description: String?
   """Bumped on every change. Send it back as ifVersion so a move cannot land on top of someone else's."""
   version: Int @version
   updatedAt: Instant
+}
+
+"""
+What to change on an issue. A field that is absent stays as it is; one that is sent replaces what was there, and null
+clears the ones that may be empty. That is the protocol's rule for absent arguments (spec 03 §2), so a form sends
+only what its person touched and two people editing different fields at once both land. Every field is nullable
+here because a required one would have to be sent every time; the command refuses null on the three that cannot be
+empty.
+"""
+input IssueChanges {
+  title: String? @range(min: 1, max: 200)
+  description: String? @range(max: 20000)
+  priority: Priority?
+  labels: [String]?
+  dueOn: Date?
+}
+
+"""One person's share of a project's issues, for the people page."""
+object Workload {
+  member: Member
+  open: Int
+  doing: Int
+  done: Int
+  """Not done and past their due day."""
+  overdue: Int
 }
 
 entity Comment @allow(read: viewer != null) {
@@ -94,17 +130,29 @@ event DocumentChanged { documentId: ID, projectId: ID, name: String, version: In
 """Everyone who can be assigned something, for a picker."""
 query members: [Member] @allow(read: viewer != null)
 
+"""How the work is spread over the team, across every project. Ask for it `live` and it follows each hand-over."""
+query workload: [Workload] @allow(read: viewer != null) @cost(base: 4)
+
 query issue(id: ID): Issue? @allow(read: viewer != null)
-query issues(projectId: ID, page: PageArgs = { first: 20 }): Page<Issue> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
+
+"""A project's issues. Each filter narrows; none means all of them."""
+query issues(projectId: ID, state: IssueState?, assigneeId: ID?, label: String?, page: PageArgs = { first: 50 }): Page<Issue> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
 query comments(issueId: ID, page: PageArgs = { first: 50 }): Page<Comment> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
 
 """What has happened on this project, newest first. Ask for it `live` and it stays current by itself."""
 query activity(projectId: ID, page: PageArgs = { first: 20 }): Page<Activity> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
 
-"""Open an issue. Unassigned unless `assigneeId` says otherwise."""
-command createIssue(projectId: ID, title: String @range(min: 1, max: 200), assigneeId: ID?): Issue
+"""Open an issue. Unassigned and of normal priority unless the arguments say otherwise."""
+command createIssue(projectId: ID, title: String @range(min: 1, max: 200), assigneeId: ID?, priority: Priority = normal, labels: [String] = [], dueOn: Date?, description: String?): Issue
   emits ActivityHappened
   @allow(write: viewer != null)
+
+"""Change an issue's fields. Send `ifVersion` as with a move; an edit on top of someone else's is refused."""
+command updateIssue(id: ID, changes: IssueChanges): Issue
+  throws NotFound
+  emits ActivityHappened
+  @allow(write: viewer != null)
+  @simulate
 
 """Hand an issue to someone, or to nobody. Send `ifVersion` as with a move. Whoever it went to is notified."""
 command assignIssue(id: ID, assigneeId: ID?): Issue

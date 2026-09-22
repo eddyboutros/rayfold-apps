@@ -46,8 +46,15 @@ function cookie(header: string | undefined, name: string): string | undefined {
   return undefined;
 }
 
-/** The roster as rows, for a service seeding its `members` table. Names are updated in place when the roster changes. */
+/**
+ * The roster as rows, for a service seeding its `members` table. Names, titles and emails are updated in place when
+ * the roster changes. A service that keeps only names adds the two columns first; the seed writes all three.
+ */
 export function membersSeed(): string {
-  const values = TEAM.map((p) => `('${p.id}', '${p.name.replace(/'/g, "''")}')`).join(", ");
-  return `insert into members (id, name) values ${values} on conflict (id) do update set name = excluded.name;`;
+  const q = (s: string) => `'${s.replace(/'/g, "''")}'`;
+  const values = TEAM.map((p) => `(${q(p.id)}, ${q(p.name)}, ${q(p.title)}, ${q(p.email)})`).join(", ");
+  return `alter table members add column if not exists title text;
+    alter table members add column if not exists email text;
+    insert into members (id, name, title, email) values ${values}
+      on conflict (id) do update set name = excluded.name, title = excluded.title, email = excluded.email;`;
 }
