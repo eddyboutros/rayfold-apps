@@ -71,8 +71,8 @@ export function resolvers({ store, files, uploads, caps, id = () => crypto.rando
     Query: {
       document: ({ id: documentId }: { id: string }) => store.document(documentId),
 
-      documents: async ({ page }: { page: { first: number; after?: string | null } }, ctx) => {
-        const { items, total } = await store.documentsOf((ctx.viewer as Viewer).id, page.first, page.after ?? null);
+      documents: async ({ projectId, page }: { projectId: string; page: { first: number; after?: string | null } }, ctx) => {
+        const { items, total } = await store.documentsOf((ctx.viewer as Viewer).id, projectId, page.first, page.after ?? null);
         return pageOf(items, total, (d) => d.id);
       },
 
@@ -83,13 +83,14 @@ export function resolvers({ store, files, uploads, caps, id = () => crypto.rando
     },
 
     Command: {
-      createDocument: async ({ upload, name }: { upload: string; name: string }, ctx) => {
+      createDocument: async ({ upload, name, projectId }: { upload: string; name: string; projectId: string }, ctx) => {
         const viewer = ctx.viewer as Viewer;
         const { revisionId, size, type } = await keep(upload);
         const at = now();
         const doc: Document = {
           id: id(),
           name,
+          projectId,
           contentType: type ?? "application/octet-stream",
           size,
           url: files.url(revisionId),
@@ -98,7 +99,7 @@ export function resolvers({ store, files, uploads, caps, id = () => crypto.rando
           ownerId: viewer.id,
         };
         await store.create(doc, { id: revisionId, documentId: doc.id, version: 1, size, url: doc.url, at, byId: viewer.id });
-        return ok(doc, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, name: doc.name, version: 1 } }] });
+        return ok(doc, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: 1 } }] });
       },
 
       replaceContent: async ({ id: documentId, upload }: { id: string; upload: string }, ctx) => {
@@ -119,7 +120,7 @@ export function resolvers({ store, files, uploads, caps, id = () => crypto.rando
           ctx.checkVersion(`Document:${doc.id}`, current.version, current);
           throw RayfoldError.domain("NotFound", { id: documentId }, `Document ${documentId} changed while this was running`);
         }
-        return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, name: doc.name, version: next.version } }] });
+        return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: next.version } }] });
       },
 
       renameDocument: async ({ id: documentId, name }: { id: string; name: string }, ctx) => {
@@ -128,7 +129,7 @@ export function resolvers({ store, files, uploads, caps, id = () => crypto.rando
         const next = { ...doc, name, version: doc.version + 1, updatedAt: now() };
         if (ctx.simulate) return ok(next);
         await store.rename(doc.id, name, next.version, next.updatedAt);
-        return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, name: next.name, version: next.version } }] });
+        return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: next.name, version: next.version } }] });
       },
 
       shareDocument: async ({ id: documentId, ttlMs }: { id: string; ttlMs: number }, ctx) => {

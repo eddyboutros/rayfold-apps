@@ -19,6 +19,8 @@ capability token, so that second viewer never existed as an account and cannot b
 entity Document @cache(maxAge: 0s, scope: private) @allow(read: viewer.id == ownerId || viewer.documentId == id) {
   id: ID
   name: String
+  """The project it lives in. Everything a person sees is scoped to one."""
+  projectId: ID
   """Who it belongs to. The policy above reads it; `owner` below is the same person, loaded."""
   ownerId: ID
   contentType: String
@@ -59,14 +61,14 @@ error Forbidden { id: ID }
 """The upload named by a command was never there, or its lifetime ran out before the command arrived."""
 error UploadGone { upload: ID }
 
-event DocumentChanged { documentId: ID, name: String, version: Int }
+event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int }
 
 query document(id: ID): Document? @allow(read: viewer != null)
-query documents(page: PageArgs = { first: 20 }): Page<Document> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
+query documents(projectId: ID, page: PageArgs = { first: 20 }): Page<Document> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
 query revisions(documentId: ID, page: PageArgs = { first: 20 }): Page<Revision> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
 
 """Take an upload and keep it as a document. The upload is consumed: its bytes move, they are not copied and left."""
-command createDocument(upload: ID, name: String): Document
+command createDocument(upload: ID, name: String, projectId: ID): Document
   throws UploadGone
   emits DocumentChanged
   @allow(write: viewer != null)

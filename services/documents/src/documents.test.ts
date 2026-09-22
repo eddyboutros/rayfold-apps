@@ -62,7 +62,7 @@ interface Share {
 }
 
 it("keeps an uploaded file, answers with its url, and serves the bytes from there", async () => {
-  const doc = await client("ada").command<Document>("createDocument", { upload: await upload("ada", text("the first draft")), name: "draft.txt" }, { shape: SHAPE });
+  const doc = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("the first draft")), name: "draft.txt" }, { shape: SHAPE });
 
   expect(doc).toMatchObject({ name: "draft.txt", size: 15, version: 1, owner: { name: "Ada" } });
   expect(JSON.stringify(doc)).not.toContain("the first draft");
@@ -76,7 +76,7 @@ it("keeps an uploaded file, answers with its url, and serves the bytes from ther
 
 it("replaces the bytes, keeps the old revision, and both urls still serve", async () => {
   const ada = client("ada");
-  const first = await ada.command<Document>("createDocument", { upload: await upload("ada", text("one")), name: "draft.txt" }, { shape: SHAPE });
+  const first = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("one")), name: "draft.txt" }, { shape: SHAPE });
   const second = await ada.command<Document>("replaceContent", { id: first.id, upload: await upload("ada", text("two and a half")) }, { shape: SHAPE });
 
   expect(second).toMatchObject({ id: first.id, version: 2, size: 14 });
@@ -93,7 +93,7 @@ it("replaces the bytes, keeps the old revision, and both urls still serve", asyn
 
 it("refuses a replace that would land on top of someone else's, and leaves no file behind", async () => {
   const ada = client("ada");
-  const doc = await ada.command<Document>("createDocument", { upload: await upload("ada", text("one")), name: "draft.txt" }, { shape: SHAPE });
+  const doc = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("one")), name: "draft.txt" }, { shape: SHAPE });
   await ada.command<Document>("replaceContent", { id: doc.id, upload: await upload("ada", text("two")) }, { shape: SHAPE });
 
   const stale = await upload("ada", text("three"));
@@ -113,8 +113,8 @@ it("refuses a replace that would land on top of someone else's, and leaves no fi
 
 it("a share reads that one document and its bytes, and nothing else", async () => {
   const ada = client("ada");
-  const doc = await ada.command<Document>("createDocument", { upload: await upload("ada", text("for the lawyer")), name: "contract.txt" }, { shape: SHAPE });
-  const other = await ada.command<Document>("createDocument", { upload: await upload("ada", text("not for them")), name: "salaries.txt" }, { shape: SHAPE });
+  const doc = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("for the lawyer")), name: "contract.txt" }, { shape: SHAPE });
+  const other = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("not for them")), name: "salaries.txt" }, { shape: SHAPE });
 
   const share = await ada.command<Share>("shareDocument", { id: doc.id }, { shape: "{ documentId token ops }" });
   expect(share.ops).toEqual(["document", "revisions"]);
@@ -130,7 +130,7 @@ it("a share reads that one document and its bytes, and nothing else", async () =
 
 it("a share cannot change anything, and cannot be widened", async () => {
   const ada = client("ada");
-  const doc = await ada.command<Document>("createDocument", { upload: await upload("ada", text("read only")), name: "contract.txt" }, { shape: SHAPE });
+  const doc = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("read only")), name: "contract.txt" }, { shape: SHAPE });
   const share = await ada.command<Share>("shareDocument", { id: doc.id }, { shape: "{ token }" });
   const guest = client(share.token);
 
@@ -145,7 +145,7 @@ it("a share cannot change anything, and cannot be widened", async () => {
 });
 
 it("the url is not a permission", async () => {
-  const doc = await client("ada").command<Document>("createDocument", { upload: await upload("ada", text("private")), name: "draft.txt" }, { shape: SHAPE });
+  const doc = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("private")), name: "draft.txt" }, { shape: SHAPE });
 
   expect((await download(doc.url, "grace")).status).toBe(404);
   expect((await download(doc.url)).status).toBe(401);
@@ -154,7 +154,7 @@ it("the url is not a permission", async () => {
 
 it("takes the bytes with the document when it is deleted", async () => {
   const ada = client("ada");
-  const doc = await ada.command<Document>("createDocument", { upload: await upload("ada", text("temporary")), name: "draft.txt" }, { shape: SHAPE });
+  const doc = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("temporary")), name: "draft.txt" }, { shape: SHAPE });
   expect(await readdir(dirs.files)).toHaveLength(1);
 
   await ada.command("deleteDocument", { id: doc.id }, { shape: "{ id }" });
@@ -164,7 +164,7 @@ it("takes the bytes with the document when it is deleted", async () => {
 });
 
 it("says who it is and what it is doing", async () => {
-  await client("ada").command<Document>("createDocument", { upload: await upload("ada", text("one")), name: "draft.txt" }, { shape: SHAPE });
+  await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("one")), name: "draft.txt" }, { shape: SHAPE });
 
   const stats = await fetch(`${svc.base}/rayfold/stats`, { headers: { authorization: `Bearer ${svc.opsToken}` } });
   expect(stats.status).toBe(200);

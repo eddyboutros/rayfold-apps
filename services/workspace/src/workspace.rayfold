@@ -55,7 +55,7 @@ event CommentAdded { issueId: ID, commentId: ID }
 Raised by the **documents** service, not by this one. Declared here because the relay delivers events by name to
 every service in the fleet, and this service reacts to it: a changed document becomes a line in the feed.
 """
-event DocumentChanged { documentId: ID, name: String, version: Int }
+event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int }
 
 query issue(id: ID): Issue? @allow(read: viewer != null)
 query issues(projectId: ID, page: PageArgs = { first: 20 }): Page<Issue> @allow(read: viewer != null) @cost(base: 1, perItem: 1)

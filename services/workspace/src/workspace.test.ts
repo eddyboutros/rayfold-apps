@@ -11,7 +11,7 @@ let svc: TestService;
 const PROJECT = "p1";
 
 beforeAll(async () => {
-  svc = await startTestService("workspace", { DOCUMENTS_PROJECT: PROJECT });
+  svc = await startTestService("workspace");
 });
 afterAll(() => svc?.stop());
 beforeEach(() => svc.reset());

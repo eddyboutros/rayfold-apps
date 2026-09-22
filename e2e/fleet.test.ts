@@ -23,7 +23,7 @@ beforeAll(async () => {
   dirs = { files: join(root, "files"), uploads: join(root, "uploads") };
   // started one after the other, as a deploy starts them: each reads its own configuration and opens its own port
   documents = await startTestService("documents", { FILES_DIR: dirs.files, UPLOADS_DIR: dirs.uploads });
-  workspace = await startTestService("workspace", { DOCUMENTS_PROJECT: PROJECT });
+  workspace = await startTestService("workspace");
 });
 
 afterAll(async () => {
@@ -60,7 +60,7 @@ interface Feed {
 }
 
 it("a document kept in one service shows up on the other service's feed", async () => {
-  const doc = await documents.client("ada").command<Doc>("createDocument", { upload: await upload(text("the contract")), name: "contract.txt" }, { shape: "{ id version }" });
+  const doc = await documents.client("ada").command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("the contract")), name: "contract.txt" }, { shape: "{ id version }" });
 
   const feed = await until(
     "the document to reach the workspace feed",
@@ -95,7 +95,7 @@ it("a live query on the feed updates when the other service changes something", 
     expect((await lines.wait("the live query's first answer")).items).toEqual([]);
 
     // a completely separate service, on its own port, with its own database tables
-    const doc = await documents.client("ada").command<Doc>("createDocument", { upload: await upload(text("a plan")), name: "plan.txt" }, { shape: "{ id version }" });
+    const doc = await documents.client("ada").command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("a plan")), name: "plan.txt" }, { shape: "{ id version }" });
 
     const updated = await until("the live query to hear the other service", async () => {
       const next = await lines.wait("a feed update", 1_000).catch(() => undefined);
@@ -111,7 +111,7 @@ it("a live query on the feed updates when the other service changes something", 
 
 it("replacing a document adds a second line, and the feed keeps both in order", async () => {
   const ada = documents.client("ada");
-  const doc = await ada.command<Doc>("createDocument", { upload: await upload(text("draft one")), name: "plan.txt" }, { shape: "{ id version }" });
+  const doc = await ada.command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("draft one")), name: "plan.txt" }, { shape: "{ id version }" });
   await ada.command<Doc>("replaceContent", { id: doc.id, upload: await upload(text("draft two")) }, { shape: "{ id version }" });
 
   const feed = await until(
@@ -143,7 +143,7 @@ it("the workspace's own work and the other service's sit on one feed, and an ope
     await ada.command("addComment", { issueId: issue.id, body: "waiting on the file" }, { shape: "{ id }" });
     expect((await seen.wait("the feed to hear the comment")).items.map((i) => i.kind)).toEqual(["comment.added", "issue.created"]);
 
-    await documents.client("ada").command<Doc>("createDocument", { upload: await upload(text("the contract")), name: "contract.txt" }, { shape: "{ id }" });
+    await documents.client("ada").command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("the contract")), name: "contract.txt" }, { shape: "{ id }" });
     const all = await until("the feed to hear the other service", async () => {
       const next = await seen.wait("a feed update", 1_000).catch(() => undefined);
       return next?.items.length === 3 ? next : undefined;
@@ -174,10 +174,10 @@ it("each service answers for itself, and says which it is", async () => {
 
 it("two instances of a service react to one event and write one row between them", async () => {
   // as a deploy runs it: a second instance of the workspace, same database, same relay
-  const replica = await startTestService("workspace", { DOCUMENTS_PROJECT: PROJECT }, 2);
+  const replica = await startTestService("workspace", {}, 2);
 
   try {
-    const doc = await documents.client("ada").command<Doc>("createDocument", { upload: await upload(text("one copy")), name: "once.txt" }, { shape: "{ id version }" });
+    const doc = await documents.client("ada").command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("one copy")), name: "once.txt" }, { shape: "{ id version }" });
 
     // both instances hear it and both react; only one row may exist, or the feed shows everything twice for
     // every replica anyone deploys

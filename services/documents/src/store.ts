@@ -15,6 +15,7 @@ export interface Member {
 export interface Document {
   id: string;
   name: string;
+  projectId: string;
   contentType: string;
   size: number;
   url: string;
@@ -50,7 +51,9 @@ export const SCHEMA = `
     updated_at bigint not null,
     owner_id text not null references members(id)
   );
-  create index if not exists documents_owner on documents (owner_id, id);
+  -- added after the first deploy: rows from before it belong to the first project
+  alter table documents add column if not exists project_id text not null default 'p1';
+  create index if not exists documents_owner on documents (owner_id, project_id, id);
 
   create table if not exists revisions (
     id text primary key,
@@ -73,6 +76,7 @@ export const SEED = `
 const toDocument = (r: Record<string, unknown>): Document => ({
   id: r["id"] as string,
   name: r["name"] as string,
+  projectId: r["project_id"] as string,
   contentType: r["content_type"] as string,
   // bigint arrives as text from pg, because not every bigint fits a double; these do, and the schema says Int
   size: Number(r["size"]),
@@ -105,12 +109,12 @@ export class DocumentStore {
     return rows[0] ? toDocument(rows[0]) : null;
   }
 
-  async documentsOf(ownerId: string, first: number, after: string | null): Promise<{ items: Document[]; total: number }> {
+  async documentsOf(ownerId: string, projectId: string, first: number, after: string | null): Promise<{ items: Document[]; total: number }> {
     const { rows } = await this.sql.query(
-      "select * from documents where owner_id = $1 and ($2::text is null or id > $2) order by id limit $3",
-      [ownerId, after, first],
+      "select * from documents where owner_id = $1 and project_id = $2 and ($3::text is null or id > $3) order by id limit $4",
+      [ownerId, projectId, after, first],
     );
-    const { rows: counted } = await this.sql.query("select count(*)::int as n from documents where owner_id = $1", [ownerId]);
+    const { rows: counted } = await this.sql.query("select count(*)::int as n from documents where owner_id = $1 and project_id = $2", [ownerId, projectId]);
     return { items: rows.map(toDocument), total: (counted[0]?.["n"] as number) ?? 0 };
   }
 
@@ -153,8 +157,8 @@ export class DocumentStore {
     try {
       await client.query("begin");
       await client.query(
-        "insert into documents (id, name, content_type, size, url, version, updated_at, owner_id) values ($1,$2,$3,$4,$5,$6,$7,$8)",
-        [doc.id, doc.name, doc.contentType, doc.size, doc.url, doc.version, doc.updatedAt, doc.ownerId],
+        "insert into documents (id, name, project_id, content_type, size, url, version, updated_at, owner_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        [doc.id, doc.name, doc.projectId, doc.contentType, doc.size, doc.url, doc.version, doc.updatedAt, doc.ownerId],
       );
       await client.query("insert into revisions (id, document_id, version, size, url, at, by_id) values ($1,$2,$3,$4,$5,$6,$7)", [
         revision.id,

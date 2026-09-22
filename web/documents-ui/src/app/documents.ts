@@ -103,8 +103,10 @@ export class Documents {
   readonly sharing = signal<string | null>(null);
   readonly shared = signal<string | null>(null);
 
-  readonly page = injectQuery<{ items: Doc[] }>("documents", {}, {
+  // scoped to the project, and read reactively: switching projects re-runs it and ends the old one
+  readonly page = injectQuery<{ items: Doc[] }>("documents", () => ({ projectId: this.projectId() }), {
     shape: "{ items { id name contentType size url version updatedAt } }",
+    enabled: () => this.projectId() !== "",
   });
 
   readonly items = computed(() => this.page.data()?.items ?? []);
@@ -152,7 +154,7 @@ export class Documents {
     try {
       // the bytes go on their own route; the command only names what arrived
       const kept = await this.client.upload(file);
-      await this.create.run({ upload: kept.id, name: file.name });
+      await this.create.run({ upload: kept.id, name: file.name, projectId: this.projectId() });
       await this.page.refetch();
     } catch (e: unknown) {
       this.failed.set(e instanceof Error ? e.message : String(e));

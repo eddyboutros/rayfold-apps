@@ -11,14 +11,6 @@ import type { RayfoldServer } from "@rayfold/server";
 import { WorkspaceStore } from "./store.ts";
 import { resolvers, type Viewer } from "./resolvers.ts";
 
-/**
- * Which project a document belongs to.
- *
- * A real fleet asks the documents service, or carries the project on the event. This is the seam where that lookup
- * goes; a fixed answer keeps the example about the relay rather than about service discovery.
- */
-const PROJECT_OF_DOCUMENTS = process.env["DOCUMENTS_PROJECT"] ?? "p1";
-
 function whoIs(authorization: string | undefined): Viewer | null {
   if (authorization === "Bearer ada") return { id: "u1", name: "Ada" };
   if (authorization === "Bearer grace") return { id: "u2", name: "Grace" };
@@ -38,12 +30,14 @@ const service = await startService({
     // raised by the documents service, delivered here by the relay. the bus delivers by name, so hearing another
     // service's event costs one subscription and no coupling beyond agreeing what the event is called.
     server.events.on("DocumentChanged", (payload) => {
-      const { documentId, name, version } = payload as { documentId: string; name: string; version: number };
+      // the event carries the project, so this service never asks the other which one: that is the whole of what
+      // one service knows about another, and it is enough
+      const { documentId, projectId, name, version } = payload as { documentId: string; projectId: string; name: string; version: number };
       const line = {
         // derived from what caused it, not random: this event reaches every instance of this service, and they
         // must write one row between them rather than one each
         id: `documents:${documentId}:${version}`,
-        projectId: PROJECT_OF_DOCUMENTS,
+        projectId,
         source: "documents",
         kind: version === 1 ? "document.added" : "document.replaced",
         // the name is what a person reads; the id stays at the end for anyone tracing it
