@@ -34,6 +34,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      # each schema against its lockfile: a breaking change to a contract fails the build, not a customer (spec 11)
+      - run: npm run schema:check
       # a service is tested the way it is deployed: its own main.ts, its own migration, a real database
       - run: npm test
 

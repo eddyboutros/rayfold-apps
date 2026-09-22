@@ -3,6 +3,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RayfoldClient, createFetchTransport, type RayfoldClientError } from "@rayfold/client";
+import { Capabilities } from "@rayfold/server";
 import { startTestService, type TestService } from "../../../e2e/harness.ts";
 import { startStandInConsole, type StandInConsole } from "../../../e2e/stand-in-console.ts";
 import { until } from "../../../e2e/wait.ts";
@@ -273,6 +274,91 @@ it("a browser's session cookie reads the bytes without a header, which is how a 
   expect(res.status).toBe(200);
   expect(await res.text()).toBe("in a new tab");
   expect((await fetch(`${svc.base}${doc.url}`, { headers: { cookie: "keel_session=nobody" } })).status).toBe(401);
+});
+
+it("the same operations on REST routes: ETag from the version, If-Match to change, problems as RFC 9457, a replayed DELETE", async () => {
+  const ada = client("ada");
+  const doc = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("rest")), name: "rest.txt" }, { shape: SHAPE });
+  const as = (who: string, extra: Record<string, string> = {}) => ({ authorization: `Bearer ${who}`, ...extra });
+
+  // GET: the default view with an ETag; the same ETag back is a 304 with nothing in it
+  const got = await fetch(`${svc.base}/documents/${doc.id}`, { headers: as("grace") });
+  expect(got.status).toBe(200);
+  const etag = got.headers.get("etag")!;
+  expect(etag).toMatch(/^"/);
+  expect(await got.json()).toMatchObject({ id: doc.id, name: "rest.txt", version: 1 });
+  expect((await fetch(`${svc.base}/documents/${doc.id}`, { headers: as("grace", { "if-none-match": etag }) })).status).toBe(304);
+
+  // PATCH with If-Match is a conditional update: the fields sent change, the rest stays, the ETag moves on
+  const patched = await fetch(`${svc.base}/documents/${doc.id}`, { method: "PATCH", headers: as("ada", { "content-type": "application/json", "if-match": '"1"' }), body: JSON.stringify({ folder: "contracts", tags: ["Legal"] }) });
+  expect(patched.status, await patched.clone().text()).toBe(200);
+  expect(patched.headers.get("etag")).toBe('"2"');
+  expect(await patched.json()).toMatchObject({ name: "rest.txt", folder: "contracts", tags: ["legal"], version: 2 });
+  // a stale If-Match is a 412 problem that carries the document as it is now
+  const stale = await fetch(`${svc.base}/documents/${doc.id}`, { method: "PATCH", headers: as("ada", { "content-type": "application/json", "if-match": '"1"' }), body: JSON.stringify({ name: "late.txt" }) });
+  expect(stale.status).toBe(412);
+  expect(stale.headers.get("content-type")).toContain("application/problem+json");
+  const conflict = (await stale.json()) as { title: string; data: { current: { version: number; name: string } } };
+  expect(conflict.title).toBe("VersionConflict");
+  expect(conflict.data.current).toMatchObject({ version: 2, name: "rest.txt" });
+  // a declared error is a problem named after itself
+  const notYours = await fetch(`${svc.base}/documents/${doc.id}`, { method: "PATCH", headers: as("grace", { "content-type": "application/json", "if-match": '"2"' }), body: JSON.stringify({ name: "mine.txt" }) });
+  expect(notYours.status).toBe(422);
+  expect(await notYours.json()).toMatchObject({ title: "Forbidden", code: "domain", data: { id: doc.id } });
+  // a nullable query's null is an answer, not a missing route
+  const none = await fetch(`${svc.base}/documents/nope`, { headers: as("ada") });
+  expect(none.status).toBe(200);
+  expect(await none.json()).toBeNull();
+
+  // QUERY: a page, by body, and the same policy as the batch
+  const listed = await fetch(`${svc.base}/documents`, { method: "QUERY", headers: as("grace", { "content-type": "application/json" }), body: JSON.stringify({ projectId: "p1", folder: "contracts" }) });
+  expect(listed.status, await listed.clone().text()).toBe(200);
+  expect(((await listed.json()) as { items: Array<{ name: string }> }).items.map((d) => d.name)).toEqual(["rest.txt"]);
+
+  // DELETE with an Idempotency-Key: the retry is answered with the first success, not a 404
+  const key = crypto.randomUUID();
+  const gone = await fetch(`${svc.base}/documents/${doc.id}`, { method: "DELETE", headers: as("ada", { "idempotency-key": key }) });
+  expect(gone.status).toBe(200);
+  const again = await fetch(`${svc.base}/documents/${doc.id}`, { method: "DELETE", headers: as("ada", { "idempotency-key": key }) });
+  expect(again.status).toBe(200);
+  expect(again.headers.get("idempotent-replayed")).toBe("true");
+  expect(await (await fetch(`${svc.base}/documents/${doc.id}`, { headers: as("ada") })).json()).toBeNull();
+
+  // and the contract is published: every route above is in the OpenAPI document the service generates
+  const openapi = (await (await fetch(`${svc.base}/rayfold/openapi.json`)).json()) as { paths: Record<string, Record<string, unknown>> };
+  expect(Object.keys(openapi.paths["/documents/{id}"] ?? {}).sort()).toEqual(["delete", "get", "patch"]);
+  expect(Object.keys(openapi.paths["/documents"] ?? {})).toEqual(["query"]);
+});
+
+it("updateDocument changes what it is sent and nothing else; renameDocument still works until its sunset", async () => {
+  const ada = client("ada");
+  const F = "{ id name folder tags version }";
+  const doc = await ada.command<Document & { folder: string | null; tags: string[] }>("createDocument", { projectId: "p1", upload: await upload("ada", text("x")), name: "a.txt" }, { shape: F });
+  const filed = await ada.command<Document & { folder: string | null; tags: string[] }>("updateDocument", { id: doc.id, changes: { folder: "plans", tags: ["Q4"] } }, { shape: F, ifVersion: 1 });
+  expect(filed).toMatchObject({ name: "a.txt", folder: "plans", tags: ["q4"], version: 2 });
+  const renamed = await ada.command<Document & { folder: string | null; tags: string[] }>("updateDocument", { id: doc.id, changes: { name: "b.txt" } }, { shape: F, ifVersion: 2 });
+  expect(renamed).toMatchObject({ name: "b.txt", folder: "plans", tags: ["q4"], version: 3 });
+  // read back: the columns not named are as they were
+  expect(await ada.query(`document`, { id: doc.id }, { shape: F })).toMatchObject({ name: "b.txt", folder: "plans", tags: ["q4"], version: 3 });
+  // null clears a folder, and cannot clear a name
+  expect(await ada.command("updateDocument", { id: doc.id, changes: { folder: null } }, { shape: F, ifVersion: 3 })).toMatchObject({ folder: null, version: 4 });
+  const noName = await ada.command("updateDocument", { id: doc.id, changes: { name: null } }, { shape: F, ifVersion: 4 }).then(() => null, (e: RayfoldClientError) => e);
+  expect(noName?.code).toBe("invalid_argument");
+  // the deprecated command is still the same command: a client that has not moved yet is not broken
+  expect(await ada.command("renameDocument", { id: doc.id, name: "c.txt" }, { shape: F, ifVersion: 4 })).toMatchObject({ name: "c.txt", version: 5 });
+});
+
+it("a share may never delete, even with a token widened to name deleteDocument: the schema's deny is the second gate", async () => {
+  const ada = client("ada");
+  const doc = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("kept")), name: "kept.txt" }, { shape: SHAPE });
+  // a token this service would never mint: the secret is the test's, the ops list is wider than any share's
+  const widened = new Capabilities({ secret: "a-test-secret-of-sufficient-length" }).mint({ id: `share:${doc.id}`, documentId: doc.id }, { ops: ["document", "deleteDocument"], ttlMs: 60_000, iss: "documents" });
+  const refused = await client(widened).command("deleteDocument", { id: doc.id }, { shape: "{ id }" }).then(() => null, (e: RayfoldClientError) => e);
+  expect(refused?.code).toBe("permission_denied");
+  expect(await client(widened).query<Document>("document", { id: doc.id }, { shape: "{ name }" })).toMatchObject({ name: "kept.txt" }); // the token itself works
+  // guard: the owner, whom the deny does not name, deletes
+  await ada.command("deleteDocument", { id: doc.id }, { shape: "{ id }" });
+  expect(await ada.query("document", { id: doc.id }, { shape: "{ id }" })).toBeNull();
 });
 
 it("takes the bytes with the document when it is deleted", async () => {

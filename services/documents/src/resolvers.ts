@@ -239,6 +239,29 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
         return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: next.version, byId: viewer.id } }] });
       },
 
+      updateDocument: async ({ id: documentId, changes }: { id: string; changes: { name?: string | null; folder?: string | null; tags?: string[] | null } }, ctx) => {
+        const viewer = ctx.viewer as Viewer;
+        const doc = mine(await find(documentId), viewer);
+        ctx.checkVersion(`Document:${doc.id}`, doc.version, doc);
+        // only what was sent (spec 03 section 2): a name cannot be cleared, a folder can
+        if (changes.name === null || changes.tags === null) throw new RayfoldError("invalid_argument", "updateDocument().changes: name and tags cannot be null");
+        const next: Document = {
+          ...doc,
+          ...("name" in changes && changes.name !== undefined ? { name: changes.name } : {}),
+          ...("folder" in changes && changes.folder !== undefined ? { folder: folderOf(changes.folder) } : {}),
+          ...("tags" in changes && changes.tags !== undefined ? { tags: tidy(changes.tags) } : {}),
+          version: doc.version + 1,
+          updatedAt: now(),
+        };
+        if (ctx.simulate) return ok(next);
+        if (!(await store.update(next, doc.version))) {
+          const current = await find(documentId);
+          ctx.checkVersion(`Document:${doc.id}`, current.version, current);
+          throw RayfoldError.domain("NotFound", { id: documentId }, `Document ${documentId} changed while this was running`);
+        }
+        return ok(next, { patch: [{ invOp: ["documents", "folders"] }], emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: next.name, version: next.version, byId: viewer.id } }] });
+      },
+
       renameDocument: async ({ id: documentId, name }: { id: string; name: string }, ctx) => {
         const viewer = ctx.viewer as Viewer;
         const doc = mine(await find(documentId), viewer);

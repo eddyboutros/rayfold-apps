@@ -84,6 +84,32 @@ correct; the clause is what keeps the losing instances quiet instead of raising 
 This is the kind of thing that only appears with more than one instance running, which is why there is a test that
 starts two.
 
+## The contract
+
+Each service's `.rayfold` file is its API, its REST routes, its OpenAPI document and the rule for changing it.
+
+- **REST routes.** An operation annotated `@http` is served on a method and a path as well as in a batch, with the
+  same validation, policies, typed errors and idempotency keys. `GET` answers with an `ETag`, `PATCH` takes
+  `If-Match` and answers `412` with the current row when it is stale, `DELETE` with an `Idempotency-Key` replays its
+  first answer on a retry, and every error is an RFC 9457 problem. `GET /api/<service>/rayfold/openapi.json` is the
+  document generated from the same source.
+
+  ```sh
+  curl -H "authorization: Bearer ada" http://localhost:4200/api/documents/documents/<id>
+  curl -X PATCH -H "authorization: Bearer ada" -H 'if-match: "1"' -H "content-type: application/json" \
+       -d '{"folder":"contracts"}' http://localhost:4200/api/documents/documents/<id>
+  ```
+
+- **Named views.** `view Product.card = { ...Product.default category summary }`: what a caller gets with no shape,
+  and a name a shape can spread. Removing one is a breaking change.
+- **Denials.** `@deny` is evaluated after `@allow`, a second gate: a share may never delete a document, however wide
+  its token.
+- **Cost budgets.** Every op has a static cost from its shape and page sizes; a batch over `COST_BUDGET` (default
+  1000) is refused before it runs.
+- **Evolution.** `renameDocument` is `@deprecated` with a sunset and a replacement, `updateDocument`. Each service
+  has a `rayfold.lock.json`, and `npm run schema:check` in CI refuses a breaking change before its sunset. After a
+  compatible change, `npm run schema:lock` records the new hash.
+
 ## The platform library
 
 `@apps/service-kit` is where the fleet decisions live, because each one is invisible until an incident:

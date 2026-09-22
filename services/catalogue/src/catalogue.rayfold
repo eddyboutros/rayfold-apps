@@ -99,6 +99,16 @@ entity File implements Item @cache(maxAge: 60s, scope: private) {
   updatedAt: Instant
 }
 
+"""
+Named views: what a product is when nobody says otherwise, and the card a list shows. A shape spreads one with
+`...Product.card`, and a caller that sends no shape gets `default`. Renaming or removing one is a breaking change
+that `rayfold check` refuses.
+"""
+view Product.default = { id name sku price availability updatedAt }
+view Product.card = { ...Product.default category summary }
+view Person.default = { id name title department email location updatedAt }
+view Person.card = { ...Person.default articles { id slug name } }
+
 """What a search finds. A shape names what it wants of each kind: `{ ...on Product { sku } ...on Person { title } }`."""
 union Hit = Product | Person | Article | File
 
@@ -114,13 +124,14 @@ query search(q: String @range(min: 1, max: 200), page: PageArgs = { first: 20 })
 query items(kind: Kind?, page: PageArgs = { first: 12 }): Page<Item>
   @page(offset) @allow(read: viewer != null) @cost(base: 2, perItem: 1)
 
-query article(slug: String): Article? @allow(read: viewer != null)
+query article(slug: String): Article? @allow(read: viewer != null) @http(method: GET, path: "/articles/{slug}")
 """Every earlier version of an article, newest first. The current one is the article itself."""
 query articleRevisions(id: ID, page: PageArgs = { first: 20 }): Page<ArticleRevision> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
-query product(id: ID): Product? @allow(read: viewer != null)
-query person(id: ID): Person? @allow(read: viewer != null)
+query product(id: ID): Product? @allow(read: viewer != null) @http(method: GET, path: "/products/{id}")
+query person(id: ID): Person? @allow(read: viewer != null) @http(method: GET, path: "/people/{id}")
 
 """Write or rewrite an article. With `id`, an edit — send `ifVersion`; without, a new page under a fresh slug."""
 command writeArticle(id: ID?, name: String @range(min: 1, max: 160), summary: String @range(max: 300), body: String @range(min: 1, max: 50000), tags: [String] = []): Article
   throws NotFound
   @allow(write: viewer != null) @simulate
+  @http(method: POST, path: "/articles", body: "*", location: "/articles/{slug}")

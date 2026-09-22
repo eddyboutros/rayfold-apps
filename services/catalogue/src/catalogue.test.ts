@@ -34,7 +34,7 @@ beforeAll(async () => {
       return `http://127.0.0.1:${port}${path}`;
     },
   });
-  svc = await startTestService("catalogue", { CONSOLE_URL: platform.url, APP_ENVIRONMENT: "test" });
+  svc = await startTestService("catalogue", { CONSOLE_URL: platform.url, APP_ENVIRONMENT: "test", COST_BUDGET: "150" });
   // the catalogue is reference data and is not emptied between runs, so what a test writes it removes itself
   await svc.sql.query("delete from articles where slug like 'sandbox-reset-how-it-works%'"); // its revisions go with it
   await svc.sql.query("delete from files");
@@ -265,6 +265,40 @@ it("a document that is gone by the time its step runs has nothing to index: the 
     ["notify", "ready"], // told, so it can say there was nothing to index
   ]);
   expect(stepsOf(run.id)[0]).toMatchObject({ attempts: 1, result: { characters: 0 } });
+});
+
+it("named views: no shape gets the default, a spread gets the card, and the same reads on a REST route with its cache headers", async () => {
+  const plain = await ada().query<Record<string, unknown>>("product", { id: "pr-invoicing" });
+  expect(Object.keys(plain).sort()).toEqual(["$type", "availability", "id", "name", "price", "sku", "updatedAt"]);
+  const card = await ada().query<Record<string, unknown>>("product", { id: "pr-invoicing" }, { shape: "{ ...Product.card }" });
+  expect(Object.keys(card).sort()).toEqual(["$type", "availability", "category", "id", "name", "price", "sku", "summary", "updatedAt"]);
+  const person = await ada().query<{ articles: Array<{ slug: string }> }>("person", { id: "u12" }, { shape: "{ ...Person.card }" });
+  expect(person.articles.map((a) => a.slug)).toContain("rollout-playbook");
+
+  const got = await fetch(`${svc.base}/products/pr-invoicing`, { headers: { authorization: "Bearer ada" } });
+  expect(got.status).toBe(200);
+  // @cache(maxAge: 60s, scope: public) on the entity is the route's Cache-Control
+  expect(got.headers.get("cache-control")).toContain("max-age=60");
+  expect(Object.keys((await got.json()) as object).sort()).toEqual(["$type", "availability", "id", "name", "price", "sku", "updatedAt"]);
+  expect(await (await fetch(`${svc.base}/products/nope`, { headers: { authorization: "Bearer ada" } })).json()).toBeNull(); // a nullable query's null is an answer
+
+  // POST creates, answers 201 with where it is, and needs its key
+  const posted = await fetch(`${svc.base}/articles`, { method: "POST", headers: { authorization: "Bearer ada", "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ name: "Sandbox reset: how it works", summary: "", body: "posted", tags: [] }) });
+  expect(posted.status, await posted.clone().text()).toBe(201);
+  expect(posted.headers.get("location")).toMatch(/^\/articles\/sandbox-reset-how-it-works/);
+  const unkeyed = await fetch(`${svc.base}/articles`, { method: "POST", headers: { authorization: "Bearer ada", "content-type": "application/json" }, body: JSON.stringify({ name: "x", summary: "", body: "y", tags: [] }) });
+  expect(unkeyed.status).toBe(400);
+  expect(unkeyed.headers.get("content-type")).toContain("application/problem+json");
+});
+
+it("a batch over the cost budget is refused before it runs, with the cost and the budget", async () => {
+  // the estimate caps a page at a hundred rows, so the budget is set under what one such page costs
+  const big = await ada().query("items", { kind: "product", page: { first: 500 } }, { shape: "{ items { id name } }" }).then(() => null, (e: RayfoldClientError) => e);
+  expect(big?.code).toBe("resource_exhausted");
+  expect(big?.data).toMatchObject({ budget: 150 });
+  expect((big?.data as { cost: number }).cost).toBeGreaterThan(150);
+  // guard: the same page at a size the budget allows
+  expect((await ada().query<Page<Hit>>("items", { kind: "product", page: { first: 12 } }, { shape: "{ items { id } }" })).items.length).toBeGreaterThan(0);
 });
 
 it("nobody may search, and a search needs a phrase", async () => {

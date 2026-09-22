@@ -1,0 +1,2142 @@
+{
+  "rayfold": "0.1",
+  "hash": "4491d3daf65b4803bc5d138013f212ad0c1959b3c5d0638ef248c9b45b0f446b",
+  "ir": {
+    "rayfold": "0.1",
+    "types": {
+      "ID": {
+        "kind": "scalar",
+        "name": "ID",
+        "annotations": [],
+        "builtin": true
+      },
+      "String": {
+        "kind": "scalar",
+        "name": "String",
+        "annotations": [],
+        "builtin": true
+      },
+      "Int": {
+        "kind": "scalar",
+        "name": "Int",
+        "annotations": [],
+        "builtin": true
+      },
+      "Long": {
+        "kind": "scalar",
+        "name": "Long",
+        "annotations": [],
+        "builtin": true
+      },
+      "Float": {
+        "kind": "scalar",
+        "name": "Float",
+        "annotations": [],
+        "builtin": true
+      },
+      "Boolean": {
+        "kind": "scalar",
+        "name": "Boolean",
+        "annotations": [],
+        "builtin": true
+      },
+      "Decimal": {
+        "kind": "scalar",
+        "name": "Decimal",
+        "annotations": [],
+        "builtin": true
+      },
+      "Instant": {
+        "kind": "scalar",
+        "name": "Instant",
+        "annotations": [],
+        "builtin": true
+      },
+      "Date": {
+        "kind": "scalar",
+        "name": "Date",
+        "annotations": [],
+        "builtin": true
+      },
+      "Duration": {
+        "kind": "scalar",
+        "name": "Duration",
+        "annotations": [],
+        "builtin": true
+      },
+      "Bytes": {
+        "kind": "scalar",
+        "name": "Bytes",
+        "annotations": [],
+        "builtin": true
+      },
+      "JSON": {
+        "kind": "scalar",
+        "name": "JSON",
+        "annotations": [],
+        "builtin": true
+      },
+      "Page": {
+        "kind": "object",
+        "name": "Page",
+        "builtin": true,
+        "typeParams": [
+          "T"
+        ],
+        "annotations": [],
+        "fields": [
+          {
+            "name": "items",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "T",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "cursor",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "hasMore",
+            "type": {
+              "kind": "named",
+              "name": "Boolean",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "total",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          }
+        ]
+      },
+      "PageArgs": {
+        "kind": "input",
+        "name": "PageArgs",
+        "builtin": true,
+        "annotations": [],
+        "fields": [
+          {
+            "name": "first",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "default": 20,
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "after",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "offset",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          }
+        ]
+      },
+      "Member": {
+        "kind": "entity",
+        "name": "Member",
+        "annotations": [],
+        "description": "A document store: upload a file, replace it, keep every revision.\n\nThe bytes never travel in a batch and never sit in a row. They arrive on the upload route, the command moves them\ninto the store's own directory, and everything after that names a document by its id and reads its bytes from `url`.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          }
+        ],
+        "implements": []
+      },
+      "Document": {
+        "kind": "entity",
+        "name": "Document",
+        "annotations": [
+          {
+            "name": "cache",
+            "args": {
+              "maxAge": {
+                "$duration": 0
+              },
+              "scope": {
+                "$ident": "private"
+              }
+            }
+          },
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "||",
+                  "l": {
+                    "k": "bin",
+                    "op": "==",
+                    "l": {
+                      "k": "path",
+                      "root": "viewer",
+                      "path": [
+                        "documentId"
+                      ]
+                    },
+                    "r": {
+                      "k": "lit",
+                      "v": null
+                    }
+                  },
+                  "r": {
+                    "k": "bin",
+                    "op": "==",
+                    "l": {
+                      "k": "path",
+                      "root": "viewer",
+                      "path": [
+                        "documentId"
+                      ]
+                    },
+                    "r": {
+                      "k": "path",
+                      "root": "this",
+                      "path": [
+                        "id"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "A file someone keeps here. `url` is where its bytes are; nothing else carries them.\n\nWho may read it is one expression: anyone on the team, or the holder of a share for this document and no other. A\nshare is a capability token whose viewer carries `documentId` and nothing else, so that second viewer never existed\nas an account and cannot be anything but this. Changing a document is its owner's alone; see the commands.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3,
+            "description": "The project it lives in. Everything a person sees is scoped to one."
+          },
+          {
+            "name": "ownerId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4,
+            "description": "Who it belongs to: the only person who may replace, rename, share or delete it. `owner` below is the same person, loaded."
+          },
+          {
+            "name": "contentType",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "size",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6,
+            "description": "Bytes of the current revision."
+          },
+          {
+            "name": "url",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7,
+            "description": "Where to read the bytes. Serve them from wherever you keep them; this store serves them itself."
+          },
+          {
+            "name": "version",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "version",
+                "args": {}
+              }
+            ],
+            "ordinal": 8,
+            "description": "Bumped on every change. Send it back as ifVersion (or If-Match) so a replace cannot lose someone else's."
+          },
+          {
+            "name": "updatedAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 9
+          },
+          {
+            "name": "owner",
+            "type": {
+              "kind": "named",
+              "name": "Member",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 10
+          },
+          {
+            "name": "folder",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 11,
+            "description": "Where it is filed, as a path like `contracts/2026`; null is the project's root."
+          },
+          {
+            "name": "tags",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 12,
+            "description": "Free words the team puts on it. Filter the list by one."
+          }
+        ],
+        "implements": []
+      },
+      "Note": {
+        "kind": "entity",
+        "name": "Note",
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "==",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": [
+                      "documentId"
+                    ]
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "A remark on a document, by someone on the team. A share's holder sees none: a link reads the file, not the conversation about it.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "by",
+            "type": {
+              "kind": "named",
+              "name": "Member",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ],
+        "implements": []
+      },
+      "Folder": {
+        "kind": "object",
+        "name": "Folder",
+        "annotations": [],
+        "description": "A folder a project's documents are filed in, and how many are in it.",
+        "fields": [
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "count",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          }
+        ]
+      },
+      "Revision": {
+        "kind": "entity",
+        "name": "Revision",
+        "annotations": [],
+        "description": "What the document was before. Every replace keeps one, so nothing is overwritten in place.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "version",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "size",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "url",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "by",
+            "type": {
+              "kind": "named",
+              "name": "Member",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7
+          }
+        ],
+        "implements": []
+      },
+      "Share": {
+        "kind": "entity",
+        "name": "Share",
+        "annotations": [],
+        "description": "A link to one document, for someone who has no account here.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "token",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3,
+            "description": "The capability token. Hand this to whoever the document is for; it carries its own permission."
+          },
+          {
+            "name": "expiresAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "ops",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5,
+            "description": "What the holder may do. Reading only, for now."
+          }
+        ],
+        "implements": []
+      },
+      "NotFound": {
+        "kind": "error",
+        "name": "NotFound",
+        "annotations": [],
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          }
+        ]
+      },
+      "Forbidden": {
+        "kind": "error",
+        "name": "Forbidden",
+        "annotations": [],
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          }
+        ]
+      },
+      "UploadGone": {
+        "kind": "error",
+        "name": "UploadGone",
+        "annotations": [],
+        "description": "The upload named by a command was never there, or its lifetime ran out before the command arrived.",
+        "fields": [
+          {
+            "name": "upload",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          }
+        ]
+      },
+      "UploadTooLarge": {
+        "kind": "error",
+        "name": "UploadTooLarge",
+        "annotations": [],
+        "description": "The bytes are over the limit the platform sets for this service. Nothing was kept.",
+        "fields": [
+          {
+            "name": "size",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "limit",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          }
+        ]
+      },
+      "DocumentChanged": {
+        "kind": "event",
+        "name": "DocumentChanged",
+        "annotations": [],
+        "description": "Raised on every change, with who made it, so another service can say so without asking this one.",
+        "fields": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "version",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ]
+      },
+      "DocumentFiled": {
+        "kind": "event",
+        "name": "DocumentFiled",
+        "annotations": [],
+        "description": "Raised when a document is filed somewhere else. `folder` null is the root.",
+        "fields": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "folder",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ]
+      },
+      "DocumentTagged": {
+        "kind": "event",
+        "name": "DocumentTagged",
+        "annotations": [],
+        "fields": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "tags",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ]
+      },
+      "DocumentNoted": {
+        "kind": "event",
+        "name": "DocumentNoted",
+        "annotations": [],
+        "description": "Raised when someone remarks on a document, with the start of what they said.",
+        "fields": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "excerpt",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ]
+      },
+      "DocumentChanges": {
+        "kind": "input",
+        "name": "DocumentChanges",
+        "annotations": [],
+        "description": "What updateDocument may change: a field that is absent stays as it is. `folder` null files it at the root.",
+        "fields": [
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 200
+                }
+              }
+            ],
+            "ordinal": 1
+          },
+          {
+            "name": "folder",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "max": 200
+                }
+              }
+            ],
+            "ordinal": 2
+          },
+          {
+            "name": "tags",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          }
+        ]
+      }
+    },
+    "ops": {
+      "me": {
+        "kind": "query",
+        "name": "me",
+        "args": [],
+        "returns": {
+          "kind": "named",
+          "name": "Member",
+          "nullable": true
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Who is asking, as this service knows them. A share's holder is nobody here: a link is not an account."
+      },
+      "document": {
+        "kind": "query",
+        "name": "document",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Document",
+          "nullable": true
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "http",
+            "args": {
+              "method": {
+                "$ident": "GET"
+              },
+              "path": "/documents/{id}"
+            }
+          }
+        ]
+      },
+      "shared": {
+        "kind": "query",
+        "name": "shared",
+        "args": [],
+        "returns": {
+          "kind": "named",
+          "name": "Document",
+          "nullable": true
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": [
+                      "documentId"
+                    ]
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "The one document a share's token is for. Nobody else has one, so for anyone signed in this is null."
+      },
+      "documents": {
+        "kind": "query",
+        "name": "documents",
+        "args": [
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "folder",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "annotations": []
+          },
+          {
+            "name": "tag",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "annotations": []
+          },
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 20
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "Document",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 1,
+              "perItem": 1
+            }
+          },
+          {
+            "name": "http",
+            "args": {
+              "method": {
+                "$ident": "QUERY"
+              },
+              "path": "/documents",
+              "body": "*"
+            }
+          }
+        ],
+        "description": "Everything on a project, newest first. A project's files are the team's, not the uploader's. Each filter narrows."
+      },
+      "folders": {
+        "kind": "query",
+        "name": "folders",
+        "args": [
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "list",
+          "of": {
+            "kind": "named",
+            "name": "Folder",
+            "nullable": false
+          },
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "The folders a project's documents are filed in, with what each holds. The root is not a folder."
+      },
+      "revisions": {
+        "kind": "query",
+        "name": "revisions",
+        "args": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 20
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "Revision",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 1,
+              "perItem": 1
+            }
+          }
+        ]
+      },
+      "notes": {
+        "kind": "query",
+        "name": "notes",
+        "args": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 50
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "Note",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "==",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": [
+                      "documentId"
+                    ]
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 1,
+              "perItem": 1
+            }
+          }
+        ],
+        "description": "What the team has said about a document, oldest first. Not for a share: a link reads the file, not the talk about it."
+      },
+      "createDocument": {
+        "kind": "command",
+        "name": "createDocument",
+        "args": [
+          {
+            "name": "upload",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Document",
+          "nullable": false
+        },
+        "throws": [
+          "UploadGone",
+          "UploadTooLarge"
+        ],
+        "emits": [
+          "DocumentChanged"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Take an upload and keep it as a document. The upload is consumed: its bytes move, they are not copied and left."
+      },
+      "replaceContent": {
+        "kind": "command",
+        "name": "replaceContent",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "upload",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Document",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound",
+          "Forbidden",
+          "UploadGone",
+          "UploadTooLarge"
+        ],
+        "emits": [
+          "DocumentChanged"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Replace a document's bytes, keeping the old ones as a revision. Send `ifVersion` with the version you read, and a\nreplace that would land on top of someone else's is refused with `version_conflict` instead."
+      },
+      "updateDocument": {
+        "kind": "command",
+        "name": "updateDocument",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "changes",
+            "type": {
+              "kind": "named",
+              "name": "DocumentChanges",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Document",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound",
+          "Forbidden"
+        ],
+        "emits": [
+          "DocumentChanged"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "simulate",
+            "args": {}
+          },
+          {
+            "name": "http",
+            "args": {
+              "method": {
+                "$ident": "PATCH"
+              },
+              "path": "/documents/{id}",
+              "body": {
+                "$ident": "changes"
+              }
+            }
+          }
+        ],
+        "description": "Change a document's name, folder or tags, whichever are sent; the owner's to do, with `ifVersion` (or `If-Match` on\nthe route). Replaces renameDocument, moveDocument and tagDocument for anything but the events they raise: those\nthree stay until their sunset, and this one raises DocumentChanged."
+      },
+      "renameDocument": {
+        "kind": "command",
+        "name": "renameDocument",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Document",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound",
+          "Forbidden"
+        ],
+        "emits": [
+          "DocumentChanged"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "simulate",
+            "args": {}
+          },
+          {
+            "name": "deprecated",
+            "args": {
+              "reason": "one command changes every field of a document now",
+              "sunset": "2027-03-31",
+              "replacement": "updateDocument"
+            }
+          }
+        ]
+      },
+      "moveDocument": {
+        "kind": "command",
+        "name": "moveDocument",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "folder",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "max": 200
+                }
+              }
+            ]
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Document",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound",
+          "Forbidden"
+        ],
+        "emits": [
+          "DocumentFiled"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "simulate",
+            "args": {}
+          }
+        ],
+        "description": "File a document in a folder, or at the root with null. The owner's to do; send `ifVersion`."
+      },
+      "tagDocument": {
+        "kind": "command",
+        "name": "tagDocument",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "tags",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Document",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound"
+        ],
+        "emits": [
+          "DocumentTagged"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "simulate",
+            "args": {}
+          }
+        ],
+        "description": "Put words on a document. Anyone on the team may: tags are the team's, not the owner's. Send `ifVersion`."
+      },
+      "addNote": {
+        "kind": "command",
+        "name": "addNote",
+        "args": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 4000
+                }
+              }
+            ]
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Note",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound"
+        ],
+        "emits": [
+          "DocumentNoted"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "==",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": [
+                      "documentId"
+                    ]
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Say something about a document. Everyone on the team reads it; the project's feed says it happened."
+      },
+      "shareDocument": {
+        "kind": "command",
+        "name": "shareDocument",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "ttlMs",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1000,
+                  "max": 3600000
+                }
+              }
+            ],
+            "default": 3600000
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Share",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound",
+          "Forbidden"
+        ],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Hand someone a link to one document. What comes back is a capability token: it speaks for a viewer that can read\nthis document and nothing else, it may call only the operations it names, and it stops working when it expires.\nNo account is created, nothing is stored, and it cannot be widened by whoever holds it."
+      },
+      "deleteDocument": {
+        "kind": "command",
+        "name": "deleteDocument",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Document",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound",
+          "Forbidden"
+        ],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "deny",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": [
+                      "documentId"
+                    ]
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "http",
+            "args": {
+              "method": {
+                "$ident": "DELETE"
+              },
+              "path": "/documents/{id}"
+            }
+          }
+        ],
+        "description": "Deletes the document, its revisions and their bytes. A share may never, whatever operations its token names: the\ntoken's list is the first gate, and this denial is the second, so widening a token is not enough."
+      }
+    },
+    "views": {}
+  },
+  "lockedAt": "2026-09-22T22:50:34.691Z"
+}

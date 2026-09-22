@@ -1,0 +1,1661 @@
+{
+  "rayfold": "0.1",
+  "hash": "8a4575132697a8307bd07c0adad7e2bd17c4d988fb6376958aaf2800cddd76ee",
+  "ir": {
+    "rayfold": "0.1",
+    "types": {
+      "ID": {
+        "kind": "scalar",
+        "name": "ID",
+        "annotations": [],
+        "builtin": true
+      },
+      "String": {
+        "kind": "scalar",
+        "name": "String",
+        "annotations": [],
+        "builtin": true
+      },
+      "Int": {
+        "kind": "scalar",
+        "name": "Int",
+        "annotations": [],
+        "builtin": true
+      },
+      "Long": {
+        "kind": "scalar",
+        "name": "Long",
+        "annotations": [],
+        "builtin": true
+      },
+      "Float": {
+        "kind": "scalar",
+        "name": "Float",
+        "annotations": [],
+        "builtin": true
+      },
+      "Boolean": {
+        "kind": "scalar",
+        "name": "Boolean",
+        "annotations": [],
+        "builtin": true
+      },
+      "Decimal": {
+        "kind": "scalar",
+        "name": "Decimal",
+        "annotations": [],
+        "builtin": true
+      },
+      "Instant": {
+        "kind": "scalar",
+        "name": "Instant",
+        "annotations": [],
+        "builtin": true
+      },
+      "Date": {
+        "kind": "scalar",
+        "name": "Date",
+        "annotations": [],
+        "builtin": true
+      },
+      "Duration": {
+        "kind": "scalar",
+        "name": "Duration",
+        "annotations": [],
+        "builtin": true
+      },
+      "Bytes": {
+        "kind": "scalar",
+        "name": "Bytes",
+        "annotations": [],
+        "builtin": true
+      },
+      "JSON": {
+        "kind": "scalar",
+        "name": "JSON",
+        "annotations": [],
+        "builtin": true
+      },
+      "Page": {
+        "kind": "object",
+        "name": "Page",
+        "builtin": true,
+        "typeParams": [
+          "T"
+        ],
+        "annotations": [],
+        "fields": [
+          {
+            "name": "items",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "T",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "cursor",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "hasMore",
+            "type": {
+              "kind": "named",
+              "name": "Boolean",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "total",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          }
+        ]
+      },
+      "PageArgs": {
+        "kind": "input",
+        "name": "PageArgs",
+        "builtin": true,
+        "annotations": [],
+        "fields": [
+          {
+            "name": "first",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "default": 20,
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "after",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "offset",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          }
+        ]
+      },
+      "Item": {
+        "kind": "object",
+        "name": "Item",
+        "annotations": [
+          {
+            "name": "interface",
+            "args": {}
+          }
+        ],
+        "description": "What every catalogue entry has in common, so one list can hold any of them.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "updatedAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          }
+        ],
+        "interface": true
+      },
+      "Availability": {
+        "kind": "enum",
+        "name": "Availability",
+        "annotations": [],
+        "values": [
+          {
+            "name": "available",
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "limited",
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "waitlist",
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "retired",
+            "annotations": [],
+            "ordinal": 4
+          }
+        ]
+      },
+      "Product": {
+        "kind": "entity",
+        "name": "Product",
+        "annotations": [
+          {
+            "name": "cache",
+            "args": {
+              "maxAge": {
+                "$duration": 60000
+              },
+              "scope": {
+                "$ident": "public"
+              }
+            }
+          }
+        ],
+        "description": "Something the company sells. Prices are in cents, as the billing system keeps them.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "sku",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "summary",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "category",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "price",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "unit",
+                "args": {
+                  "value": "EUR cents"
+                }
+              }
+            ],
+            "ordinal": 6,
+            "description": "Cents, so a price is an integer everywhere and rounds nowhere."
+          },
+          {
+            "name": "availability",
+            "type": {
+              "kind": "named",
+              "name": "Availability",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7
+          },
+          {
+            "name": "updatedAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 8
+          },
+          {
+            "name": "related",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "Product",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "cost",
+                "args": {
+                  "base": 2
+                }
+              }
+            ],
+            "ordinal": 9,
+            "description": "The others in its category, newest first: what a buyer of this one also looks at. Loaded once for a whole page."
+          }
+        ],
+        "implements": [
+          "Item"
+        ]
+      },
+      "Person": {
+        "kind": "entity",
+        "name": "Person",
+        "annotations": [
+          {
+            "name": "cache",
+            "args": {
+              "maxAge": {
+                "$duration": 300000
+              },
+              "scope": {
+                "$ident": "public"
+              }
+            }
+          }
+        ],
+        "description": "Someone who works here. The directory, as the identity provider and HR agree on it.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "title",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "department",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "email",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "location",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "updatedAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7
+          },
+          {
+            "name": "articles",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "Article",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "cost",
+                "args": {
+                  "base": 2
+                }
+              }
+            ],
+            "ordinal": 8,
+            "description": "What they have written, newest first."
+          },
+          {
+            "name": "colleagues",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "Person",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "cost",
+                "args": {
+                  "base": 2
+                }
+              }
+            ],
+            "ordinal": 9,
+            "description": "The rest of their department."
+          }
+        ],
+        "implements": [
+          "Item"
+        ]
+      },
+      "Article": {
+        "kind": "entity",
+        "name": "Article",
+        "annotations": [
+          {
+            "name": "cache",
+            "args": {
+              "maxAge": {
+                "$duration": 60000
+              },
+              "scope": {
+                "$ident": "public"
+              }
+            }
+          }
+        ],
+        "description": "A page of the knowledge base: a runbook, a policy, a note someone took the trouble to write down.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "slug",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "summary",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "tags",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "author",
+            "type": {
+              "kind": "named",
+              "name": "Person",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "lazy",
+                "args": {}
+              }
+            ],
+            "ordinal": 7,
+            "description": "The full text. Long, and not needed on a list, so it arrives in a later frame unless the shape asks for it eagerly."
+          },
+          {
+            "name": "version",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "version",
+                "args": {}
+              }
+            ],
+            "ordinal": 8,
+            "description": "Bumped on every edit. Send it back as ifVersion so an edit cannot land on top of someone else's."
+          },
+          {
+            "name": "updatedAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 9
+          },
+          {
+            "name": "editor",
+            "type": {
+              "kind": "named",
+              "name": "Person",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 10,
+            "description": "Who wrote the current version: the author until someone edits it."
+          }
+        ],
+        "implements": [
+          "Item"
+        ]
+      },
+      "ArticleRevision": {
+        "kind": "entity",
+        "name": "ArticleRevision",
+        "annotations": [
+          {
+            "name": "cache",
+            "args": {
+              "maxAge": {
+                "$duration": 60000
+              },
+              "scope": {
+                "$ident": "public"
+              }
+            }
+          }
+        ],
+        "description": "What an article was before an edit. One is kept on every edit, so nothing is rewritten in place and any version\ncan be read again or put back. `version` is the number the article had when this was its text.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "articleId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "version",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "summary",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "tags",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "lazy",
+                "args": {}
+              }
+            ],
+            "ordinal": 7,
+            "description": "The text as it was. Long, and not needed on a list, so it arrives when a shape asks for it."
+          },
+          {
+            "name": "editor",
+            "type": {
+              "kind": "named",
+              "name": "Person",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 8,
+            "description": "Who wrote that version."
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 9
+          }
+        ],
+        "implements": []
+      },
+      "File": {
+        "kind": "entity",
+        "name": "File",
+        "annotations": [
+          {
+            "name": "cache",
+            "args": {
+              "maxAge": {
+                "$duration": 60000
+              },
+              "scope": {
+                "$ident": "private"
+              }
+            }
+          }
+        ],
+        "description": "A file someone kept in the documents service, as far as its text is searchable here. The bytes stay there; `url` is\nwhere they are, and the documents service decides who may read them. The text arrives through the platform's queue:\nkeeping a document puts an extract-text job on it, and this service takes the job.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "contentType",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "size",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "unit",
+                "args": {
+                  "value": "bytes"
+                }
+              }
+            ],
+            "ordinal": 5
+          },
+          {
+            "name": "url",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6,
+            "description": "The document's path in the documents service. A page reaches it under that service's base."
+          },
+          {
+            "name": "excerpt",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7,
+            "description": "The first lines of the text, for a result to show."
+          },
+          {
+            "name": "version",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 8,
+            "description": "The document's version this text was taken from."
+          },
+          {
+            "name": "updatedAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 9
+          }
+        ],
+        "implements": [
+          "Item"
+        ]
+      },
+      "Hit": {
+        "kind": "union",
+        "name": "Hit",
+        "annotations": [],
+        "members": [
+          "Product",
+          "Person",
+          "Article",
+          "File"
+        ],
+        "description": "What a search finds. A shape names what it wants of each kind: `{ ...on Product { sku } ...on Person { title } }`."
+      },
+      "Kind": {
+        "kind": "enum",
+        "name": "Kind",
+        "annotations": [],
+        "values": [
+          {
+            "name": "product",
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "person",
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "article",
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "file",
+            "annotations": [],
+            "ordinal": 4
+          }
+        ]
+      },
+      "NotFound": {
+        "kind": "error",
+        "name": "NotFound",
+        "annotations": [],
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          }
+        ]
+      }
+    },
+    "ops": {
+      "search": {
+        "kind": "query",
+        "name": "search",
+        "args": [
+          {
+            "name": "q",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 200
+                }
+              }
+            ]
+          },
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 20
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "Hit",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 5,
+              "perItem": 2
+            }
+          },
+          {
+            "name": "live",
+            "args": {
+              "value": false
+            }
+          }
+        ],
+        "description": "Everything matching a phrase, whatever kind of thing it is, best match first."
+      },
+      "items": {
+        "kind": "query",
+        "name": "items",
+        "args": [
+          {
+            "name": "kind",
+            "type": {
+              "kind": "named",
+              "name": "Kind",
+              "nullable": true
+            },
+            "annotations": []
+          },
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 12
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "Item",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "page",
+            "args": {
+              "value": {
+                "$ident": "offset"
+              }
+            }
+          },
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 2,
+              "perItem": 1
+            }
+          }
+        ],
+        "description": "Leaf through the catalogue: one kind, or all of them, most recently changed first. Numbered pages."
+      },
+      "article": {
+        "kind": "query",
+        "name": "article",
+        "args": [
+          {
+            "name": "slug",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Article",
+          "nullable": true
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "http",
+            "args": {
+              "method": {
+                "$ident": "GET"
+              },
+              "path": "/articles/{slug}"
+            }
+          }
+        ]
+      },
+      "articleRevisions": {
+        "kind": "query",
+        "name": "articleRevisions",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 20
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "ArticleRevision",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 1,
+              "perItem": 1
+            }
+          }
+        ],
+        "description": "Every earlier version of an article, newest first. The current one is the article itself."
+      },
+      "product": {
+        "kind": "query",
+        "name": "product",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Product",
+          "nullable": true
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "http",
+            "args": {
+              "method": {
+                "$ident": "GET"
+              },
+              "path": "/products/{id}"
+            }
+          }
+        ]
+      },
+      "person": {
+        "kind": "query",
+        "name": "person",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Person",
+          "nullable": true
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "http",
+            "args": {
+              "method": {
+                "$ident": "GET"
+              },
+              "path": "/people/{id}"
+            }
+          }
+        ]
+      },
+      "writeArticle": {
+        "kind": "command",
+        "name": "writeArticle",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": true
+            },
+            "annotations": []
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 160
+                }
+              }
+            ]
+          },
+          {
+            "name": "summary",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "max": 300
+                }
+              }
+            ]
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 50000
+                }
+              }
+            ]
+          },
+          {
+            "name": "tags",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "annotations": [],
+            "default": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Article",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound"
+        ],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "simulate",
+            "args": {}
+          },
+          {
+            "name": "http",
+            "args": {
+              "method": {
+                "$ident": "POST"
+              },
+              "path": "/articles",
+              "body": "*",
+              "location": "/articles/{slug}"
+            }
+          }
+        ],
+        "description": "Write or rewrite an article. With `id`, an edit — send `ifVersion`; without, a new page under a fresh slug."
+      }
+    },
+    "views": {
+      "Product.default": {
+        "type": "Product",
+        "name": "default",
+        "shape": {
+          "items": [
+            {
+              "kind": "field",
+              "name": "id"
+            },
+            {
+              "kind": "field",
+              "name": "name"
+            },
+            {
+              "kind": "field",
+              "name": "sku"
+            },
+            {
+              "kind": "field",
+              "name": "price"
+            },
+            {
+              "kind": "field",
+              "name": "availability"
+            },
+            {
+              "kind": "field",
+              "name": "updatedAt"
+            }
+          ]
+        }
+      },
+      "Product.card": {
+        "type": "Product",
+        "name": "card",
+        "shape": {
+          "items": [
+            {
+              "kind": "spread",
+              "type": "Product",
+              "view": "default"
+            },
+            {
+              "kind": "field",
+              "name": "category"
+            },
+            {
+              "kind": "field",
+              "name": "summary"
+            }
+          ]
+        }
+      },
+      "Person.default": {
+        "type": "Person",
+        "name": "default",
+        "shape": {
+          "items": [
+            {
+              "kind": "field",
+              "name": "id"
+            },
+            {
+              "kind": "field",
+              "name": "name"
+            },
+            {
+              "kind": "field",
+              "name": "title"
+            },
+            {
+              "kind": "field",
+              "name": "department"
+            },
+            {
+              "kind": "field",
+              "name": "email"
+            },
+            {
+              "kind": "field",
+              "name": "location"
+            },
+            {
+              "kind": "field",
+              "name": "updatedAt"
+            }
+          ]
+        }
+      },
+      "Person.card": {
+        "type": "Person",
+        "name": "card",
+        "shape": {
+          "items": [
+            {
+              "kind": "spread",
+              "type": "Person",
+              "view": "default"
+            },
+            {
+              "kind": "field",
+              "name": "articles",
+              "shape": {
+                "items": [
+                  {
+                    "kind": "field",
+                    "name": "id"
+                  },
+                  {
+                    "kind": "field",
+                    "name": "slug"
+                  },
+                  {
+                    "kind": "field",
+                    "name": "name"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "lockedAt": "2026-09-22T22:50:38.793Z"
+}

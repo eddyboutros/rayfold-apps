@@ -280,6 +280,15 @@ export class DocumentStore {
     await this.sql.query("update documents set name = $2, version = $3, updated_at = $4 where id = $1", [id, name, version, updatedAt]);
   }
 
+  /** Name, folder and tags together, only while the version is what the caller read. */
+  async update(doc: Document, fromVersion: number): Promise<boolean> {
+    const { rowCount } = await this.sql.query(
+      "update documents set name = $2, folder = $3, tags = $4, version = $5, updated_at = $6 where id = $1 and version = $7",
+      [doc.id, doc.name, doc.folder, doc.tags, doc.version, doc.updatedAt, fromVersion],
+    );
+    return !!rowCount;
+  }
+
   /** Lands only while the version is what the caller read, like a replace. */
   async file(id: string, folder: string | null, fromVersion: number, updatedAt: number): Promise<boolean> {
     const { rowCount } = await this.sql.query("update documents set folder = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4", [id, folder, updatedAt, fromVersion]);

@@ -1,0 +1,2755 @@
+{
+  "rayfold": "0.1",
+  "hash": "9971c5ab51165976db73d8de1a3c57b9cc6726e5f1fb60ab60f9938c8cda8485",
+  "ir": {
+    "rayfold": "0.1",
+    "types": {
+      "ID": {
+        "kind": "scalar",
+        "name": "ID",
+        "annotations": [],
+        "builtin": true
+      },
+      "String": {
+        "kind": "scalar",
+        "name": "String",
+        "annotations": [],
+        "builtin": true
+      },
+      "Int": {
+        "kind": "scalar",
+        "name": "Int",
+        "annotations": [],
+        "builtin": true
+      },
+      "Long": {
+        "kind": "scalar",
+        "name": "Long",
+        "annotations": [],
+        "builtin": true
+      },
+      "Float": {
+        "kind": "scalar",
+        "name": "Float",
+        "annotations": [],
+        "builtin": true
+      },
+      "Boolean": {
+        "kind": "scalar",
+        "name": "Boolean",
+        "annotations": [],
+        "builtin": true
+      },
+      "Decimal": {
+        "kind": "scalar",
+        "name": "Decimal",
+        "annotations": [],
+        "builtin": true
+      },
+      "Instant": {
+        "kind": "scalar",
+        "name": "Instant",
+        "annotations": [],
+        "builtin": true
+      },
+      "Date": {
+        "kind": "scalar",
+        "name": "Date",
+        "annotations": [],
+        "builtin": true
+      },
+      "Duration": {
+        "kind": "scalar",
+        "name": "Duration",
+        "annotations": [],
+        "builtin": true
+      },
+      "Bytes": {
+        "kind": "scalar",
+        "name": "Bytes",
+        "annotations": [],
+        "builtin": true
+      },
+      "JSON": {
+        "kind": "scalar",
+        "name": "JSON",
+        "annotations": [],
+        "builtin": true
+      },
+      "Page": {
+        "kind": "object",
+        "name": "Page",
+        "builtin": true,
+        "typeParams": [
+          "T"
+        ],
+        "annotations": [],
+        "fields": [
+          {
+            "name": "items",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "T",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "cursor",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "hasMore",
+            "type": {
+              "kind": "named",
+              "name": "Boolean",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "total",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          }
+        ]
+      },
+      "PageArgs": {
+        "kind": "input",
+        "name": "PageArgs",
+        "builtin": true,
+        "annotations": [],
+        "fields": [
+          {
+            "name": "first",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "default": 20,
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "after",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "offset",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          }
+        ]
+      },
+      "Member": {
+        "kind": "entity",
+        "name": "Member",
+        "annotations": [],
+        "description": "The workspace: issues, the conversation on them, and everything that has happened on a project.\n\nIt is also where the fleet becomes visible to a person. The activity feed is not only this service's own work —\nwhen the documents service changes a file, that reaches here over the relay and shows up in the feed, which is why\n`DocumentChanged` is declared below without this service ever raising it.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "title",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "email",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          }
+        ],
+        "implements": []
+      },
+      "IssueState": {
+        "kind": "enum",
+        "name": "IssueState",
+        "annotations": [],
+        "values": [
+          {
+            "name": "open",
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "doing",
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "done",
+            "annotations": [],
+            "ordinal": 3
+          }
+        ]
+      },
+      "Priority": {
+        "kind": "enum",
+        "name": "Priority",
+        "annotations": [],
+        "values": [
+          {
+            "name": "low",
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "normal",
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "high",
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "urgent",
+            "annotations": [],
+            "ordinal": 4
+          }
+        ],
+        "description": "How soon. `urgent` sorts first on every screen; `normal` is what an issue gets unless someone says otherwise."
+      },
+      "Issue": {
+        "kind": "entity",
+        "name": "Issue",
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "title",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "state",
+            "type": {
+              "kind": "named",
+              "name": "IssueState",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "assignee",
+            "type": {
+              "kind": "named",
+              "name": "Member",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "priority",
+            "type": {
+              "kind": "named",
+              "name": "Priority",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "labels",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7,
+            "description": "Free text, as many as the project likes. Filter the list by one."
+          },
+          {
+            "name": "dueOn",
+            "type": {
+              "kind": "named",
+              "name": "Date",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 8,
+            "description": "The day it is due, if a day was set. Past it and not done is overdue."
+          },
+          {
+            "name": "description",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 9
+          },
+          {
+            "name": "version",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "version",
+                "args": {}
+              }
+            ],
+            "ordinal": 10,
+            "description": "Bumped on every change. Send it back as ifVersion so a move cannot land on top of someone else's."
+          },
+          {
+            "name": "updatedAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 11
+          }
+        ],
+        "implements": []
+      },
+      "IssueChanges": {
+        "kind": "input",
+        "name": "IssueChanges",
+        "annotations": [],
+        "description": "What to change on an issue. A field that is absent stays as it is; one that is sent replaces what was there, and null\nclears the ones that may be empty. That is the protocol's rule for absent arguments (spec 03 §2), so a form sends\nonly what its person touched and two people editing different fields at once both land. Every field is nullable\nhere because a required one would have to be sent every time; the command refuses null on the three that cannot be\nempty.",
+        "fields": [
+          {
+            "name": "title",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 200
+                }
+              }
+            ],
+            "ordinal": 1
+          },
+          {
+            "name": "description",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "max": 20000
+                }
+              }
+            ],
+            "ordinal": 2
+          },
+          {
+            "name": "priority",
+            "type": {
+              "kind": "named",
+              "name": "Priority",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "labels",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "dueOn",
+            "type": {
+              "kind": "named",
+              "name": "Date",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ]
+      },
+      "Workload": {
+        "kind": "object",
+        "name": "Workload",
+        "annotations": [],
+        "description": "One person's share of a project's issues, for the people page.",
+        "fields": [
+          {
+            "name": "member",
+            "type": {
+              "kind": "named",
+              "name": "Member",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "open",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "doing",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "done",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "overdue",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5,
+            "description": "Not done and past their due day."
+          }
+        ]
+      },
+      "Comment": {
+        "kind": "entity",
+        "name": "Comment",
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "issueId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "by",
+            "type": {
+              "kind": "named",
+              "name": "Member",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ],
+        "implements": []
+      },
+      "Activity": {
+        "kind": "entity",
+        "name": "Activity",
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "One line of what has happened on a project, whichever service it happened in.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "source",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3,
+            "description": "Which service this came from: `workspace`, or `documents` when it arrived over the relay."
+          },
+          {
+            "name": "kind",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "text",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "by",
+            "type": {
+              "kind": "named",
+              "name": "Member",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7,
+            "description": "Who did it. Absent when the line came from something no person did."
+          }
+        ],
+        "implements": []
+      },
+      "Message": {
+        "kind": "entity",
+        "name": "Message",
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "A line in a project's chat: what someone said, when. The conversation nobody files an issue for.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "by",
+            "type": {
+              "kind": "named",
+              "name": "Member",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ],
+        "implements": []
+      },
+      "Notification": {
+        "kind": "entity",
+        "name": "Notification",
+        "annotations": [
+          {
+            "name": "cache",
+            "args": {
+              "maxAge": {
+                "$duration": 0
+              },
+              "scope": {
+                "$ident": "private"
+              }
+            }
+          },
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "==",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": [
+                      "id"
+                    ]
+                  },
+                  "r": {
+                    "k": "path",
+                    "root": "this",
+                    "path": [
+                      "recipientId"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Something that happened to you: an issue handed over, a reply on one you hold, a file of yours made searchable.\nYours alone: the policy reads the recipient, so a notification is never seen by anyone else.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "recipientId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "kind",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3,
+            "description": "issue.assigned, comment.added, document.indexed."
+          },
+          {
+            "name": "text",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "issueId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7
+          },
+          {
+            "name": "readAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 8,
+            "description": "Null until it has been read."
+          }
+        ],
+        "implements": []
+      },
+      "NotFound": {
+        "kind": "error",
+        "name": "NotFound",
+        "annotations": [],
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          }
+        ]
+      },
+      "Said": {
+        "kind": "event",
+        "name": "Said",
+        "annotations": [],
+        "description": "Raised when a message is said, so an open chat hears it as it happens.",
+        "fields": [
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "messageId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "byName",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          }
+        ]
+      },
+      "Notified": {
+        "kind": "event",
+        "name": "Notified",
+        "annotations": [],
+        "description": "Raised when a notification is written, carried to the one person it is for.",
+        "fields": [
+          {
+            "name": "recipientId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "notificationId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "kind",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "text",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "issueId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7
+          }
+        ]
+      },
+      "ActivityHappened": {
+        "kind": "event",
+        "name": "ActivityHappened",
+        "annotations": [],
+        "description": "Raised here when anything lands on a project's feed, so a stream can carry it without polling the table.",
+        "fields": [
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "source",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "kind",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "text",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ]
+      },
+      "IssueMoved": {
+        "kind": "event",
+        "name": "IssueMoved",
+        "annotations": [],
+        "fields": [
+          {
+            "name": "issueId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "from",
+            "type": {
+              "kind": "named",
+              "name": "IssueState",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "to",
+            "type": {
+              "kind": "named",
+              "name": "IssueState",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          }
+        ]
+      },
+      "CommentAdded": {
+        "kind": "event",
+        "name": "CommentAdded",
+        "annotations": [],
+        "fields": [
+          {
+            "name": "issueId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "commentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          }
+        ]
+      },
+      "DocumentChanged": {
+        "kind": "event",
+        "name": "DocumentChanged",
+        "annotations": [],
+        "description": "Raised by the **documents** service, not by this one. Declared here because the relay delivers events by name to\nevery service in the fleet, and this service reacts to it: a changed document becomes a line in the feed.",
+        "fields": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "version",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ]
+      },
+      "DocumentFiled": {
+        "kind": "event",
+        "name": "DocumentFiled",
+        "annotations": [],
+        "description": "Three more of the documents service's, heard the same way: filed, tagged, and remarked on.",
+        "fields": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "folder",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ]
+      },
+      "DocumentTagged": {
+        "kind": "event",
+        "name": "DocumentTagged",
+        "annotations": [],
+        "fields": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "tags",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ]
+      },
+      "DocumentNoted": {
+        "kind": "event",
+        "name": "DocumentNoted",
+        "annotations": [],
+        "fields": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "excerpt",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          }
+        ]
+      }
+    },
+    "ops": {
+      "members": {
+        "kind": "query",
+        "name": "members",
+        "args": [],
+        "returns": {
+          "kind": "list",
+          "of": {
+            "kind": "named",
+            "name": "Member",
+            "nullable": false
+          },
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Everyone who can be assigned something, for a picker."
+      },
+      "me": {
+        "kind": "query",
+        "name": "me",
+        "args": [],
+        "returns": {
+          "kind": "named",
+          "name": "Member",
+          "nullable": true
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Who is asking, as this service knows them: the session made a person, and this is that person's row."
+      },
+      "workload": {
+        "kind": "query",
+        "name": "workload",
+        "args": [],
+        "returns": {
+          "kind": "list",
+          "of": {
+            "kind": "named",
+            "name": "Workload",
+            "nullable": false
+          },
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 4
+            }
+          }
+        ],
+        "description": "How the work is spread over the team, across every project. Ask for it `live` and it follows each hand-over."
+      },
+      "issue": {
+        "kind": "query",
+        "name": "issue",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Issue",
+          "nullable": true
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "issues": {
+        "kind": "query",
+        "name": "issues",
+        "args": [
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "state",
+            "type": {
+              "kind": "named",
+              "name": "IssueState",
+              "nullable": true
+            },
+            "annotations": []
+          },
+          {
+            "name": "assigneeId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": true
+            },
+            "annotations": []
+          },
+          {
+            "name": "label",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "annotations": []
+          },
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 50
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "Issue",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 1,
+              "perItem": 1
+            }
+          }
+        ],
+        "description": "A project's issues. Each filter narrows; none means all of them."
+      },
+      "comments": {
+        "kind": "query",
+        "name": "comments",
+        "args": [
+          {
+            "name": "issueId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 50
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "Comment",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 1,
+              "perItem": 1
+            }
+          }
+        ]
+      },
+      "activity": {
+        "kind": "query",
+        "name": "activity",
+        "args": [
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 20
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "Activity",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 1,
+              "perItem": 1
+            }
+          }
+        ],
+        "description": "What has happened on this project, newest first. Ask for it `live` and it stays current by itself."
+      },
+      "createIssue": {
+        "kind": "command",
+        "name": "createIssue",
+        "args": [
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "title",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 200
+                }
+              }
+            ]
+          },
+          {
+            "name": "assigneeId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": true
+            },
+            "annotations": []
+          },
+          {
+            "name": "priority",
+            "type": {
+              "kind": "named",
+              "name": "Priority",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": "normal"
+          },
+          {
+            "name": "labels",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "annotations": [],
+            "default": []
+          },
+          {
+            "name": "dueOn",
+            "type": {
+              "kind": "named",
+              "name": "Date",
+              "nullable": true
+            },
+            "annotations": []
+          },
+          {
+            "name": "description",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Issue",
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [
+          "ActivityHappened"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Open an issue. Unassigned and of normal priority unless the arguments say otherwise."
+      },
+      "updateIssue": {
+        "kind": "command",
+        "name": "updateIssue",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "changes",
+            "type": {
+              "kind": "named",
+              "name": "IssueChanges",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Issue",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound"
+        ],
+        "emits": [
+          "ActivityHappened"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "simulate",
+            "args": {}
+          }
+        ],
+        "description": "Change an issue's fields. Send `ifVersion` as with a move; an edit on top of someone else's is refused."
+      },
+      "assignIssue": {
+        "kind": "command",
+        "name": "assignIssue",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "assigneeId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": true
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Issue",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound"
+        ],
+        "emits": [
+          "ActivityHappened",
+          "Notified"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "simulate",
+            "args": {}
+          }
+        ],
+        "description": "Hand an issue to someone, or to nobody. Send `ifVersion` as with a move. Whoever it went to is notified."
+      },
+      "moveIssue": {
+        "kind": "command",
+        "name": "moveIssue",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "to",
+            "type": {
+              "kind": "named",
+              "name": "IssueState",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Issue",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound"
+        ],
+        "emits": [
+          "IssueMoved",
+          "ActivityHappened"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "simulate",
+            "args": {}
+          }
+        ],
+        "description": "Move an issue. Send `ifVersion` with the version you read and a move that would overwrite someone else's is refused."
+      },
+      "addComment": {
+        "kind": "command",
+        "name": "addComment",
+        "args": [
+          {
+            "name": "issueId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 4000
+                }
+              }
+            ]
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Comment",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound"
+        ],
+        "emits": [
+          "CommentAdded",
+          "ActivityHappened",
+          "Notified"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Reply on an issue. Whoever holds the issue is notified, unless the reply is theirs."
+      },
+      "activityFeed": {
+        "kind": "stream",
+        "name": "activityFeed",
+        "args": [
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "ActivityHappened",
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Every line as it lands, without polling. Carries what other services did, too."
+      },
+      "messages": {
+        "kind": "query",
+        "name": "messages",
+        "args": [
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 50
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "Message",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 1,
+              "perItem": 1
+            }
+          }
+        ],
+        "description": "A project's chat so far, newest last."
+      },
+      "say": {
+        "kind": "command",
+        "name": "say",
+        "args": [
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 2000
+                }
+              }
+            ]
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Message",
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [
+          "Said"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Say something in a project's chat. Everyone with the chat open hears it through the stream."
+      },
+      "chat": {
+        "kind": "stream",
+        "name": "chat",
+        "args": [
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Said",
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Each message as it is said, in order: what a chat is, rather than a list that re-runs."
+      },
+      "notifications": {
+        "kind": "query",
+        "name": "notifications",
+        "args": [
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 30
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "Notification",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "cost",
+            "args": {
+              "base": 1,
+              "perItem": 1
+            }
+          }
+        ],
+        "description": "Your notifications, newest first."
+      },
+      "unread": {
+        "kind": "query",
+        "name": "unread",
+        "args": [],
+        "returns": {
+          "kind": "named",
+          "name": "Int",
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "How many of yours are unread. Live, so a badge is right without asking again."
+      },
+      "notified": {
+        "kind": "stream",
+        "name": "notified",
+        "args": [],
+        "returns": {
+          "kind": "named",
+          "name": "Notified",
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Each notification for you, as it is written."
+      },
+      "markRead": {
+        "kind": "command",
+        "name": "markRead",
+        "args": [
+          {
+            "name": "upTo",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Int",
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "idempotent",
+            "args": {
+              "value": false
+            }
+          },
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Marks everything of yours up to a moment as read, and says how many that was. Doing it twice is the same as once by\nits nature, so it takes no idempotency key — and refuses one, which is what @idempotent(false) means."
+      }
+    },
+    "views": {}
+  },
+  "lockedAt": "2026-09-22T22:50:36.779Z"
+}

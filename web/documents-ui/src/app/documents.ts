@@ -266,7 +266,7 @@ export class Documents {
   readonly tagList = computed(() => [...new Set((this.all.data()?.items ?? []).flatMap((d) => d.tags))].sort());
   readonly create = injectCommand<Doc>("createDocument");
   readonly replace = injectCommand<Doc>("replaceContent");
-  readonly renameDocument = injectCommand<Doc>("renameDocument");
+  readonly updateDocument = injectCommand<Doc>("updateDocument");
   readonly moveDocument = injectCommand<Doc>("moveDocument");
   readonly tagDocument = injectCommand<Doc>("tagDocument");
   readonly deleteDocument = injectCommand<Doc>("deleteDocument");
@@ -365,7 +365,8 @@ export class Documents {
     const name = this.field(event, "name");
     this.editing.set(null);
     if (!name || name === doc.name) return Promise.resolve();
-    return this.run("renaming", () => this.renameDocument.run({ id: doc.id, name }, { ifVersion: doc.version }));
+    // updateDocument, not renameDocument: the older command is deprecated with a sunset, and this panel has moved
+    return this.run("renaming", () => this.updateDocument.run({ id: doc.id, changes: { name } }, { ifVersion: doc.version }));
   }
 
   file(event: Event, doc: Doc): Promise<void> {

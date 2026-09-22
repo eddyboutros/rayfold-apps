@@ -46,6 +46,18 @@ const GUIDE: Group[] = [
       { what: "Batches with references", how: "Several ops in one request, a later one naming an earlier one's result with $ref, run in one round trip.", where: "The palette: a new issue, handed to you, with a first note, is three commands and one request.", go: { view: "project", label: "Ctrl K" }, file: "web/workspace-ui/src/app/quick.ts" },
       { what: "Patches", how: "A command answers with what it changed, and every live query that read it re-runs; one that names an operation re-runs every open copy of it.", where: "Hand an issue over and watch the People page and the feed follow.", go: { view: "people", label: "People" }, file: "services/workspace/src/resolvers.ts (feedChanged)" },
       { what: "Uploads", how: "Bytes go to their own route and a command names what arrived; nothing binary travels in a batch.", where: "Dropping a file on Documents.", go: { view: "project", label: "Documents" }, file: "web/documents-ui/src/app/documents.ts (upload)" },
+      { what: "Cost budgets", how: "Every op has a static cost from its shape and page sizes; a batch over the viewer's budget is refused before it runs, with the cost and the budget.", where: "COST_BUDGET on a service; the catalogue's tests run at 150 and refuse a page of five hundred.", file: "services/catalogue/src/catalogue.test.ts (cost budget)" },
+    ],
+  },
+  {
+    title: "The contract",
+    blurb: "One schema per service is the API, the REST routes, the OpenAPI document and the rule for changing it.",
+    entries: [
+      { what: "REST routes (@http)", how: "A query or command bound to a method and a path is the same operation: validation, policies, typed errors and idempotency keys apply. GET carries an ETag, PATCH takes If-Match, errors are RFC 9457 problems.", where: "curl /api/documents/documents/{id}, PATCH it with If-Match, DELETE it twice with one Idempotency-Key; /api/documents/rayfold/openapi.json lists them.", file: "services/documents/src/documents.rayfold (@http)" },
+      { what: "Named views", how: "A shape attached to a type by name: default is what a caller gets with no shape, and a shape spreads another with ...Product.card.", where: "The catalogue's product and person views; GET /api/catalogue/products/{id} answers the default view.", go: { view: "catalogue", label: "Catalogue" }, file: "services/catalogue/src/catalogue.rayfold (view Product.card)" },
+      { what: "Cache headers (@cache)", how: "An entity's cache annotation becomes the route's Cache-Control and the batch's, public or private, for as long as it says.", where: "A product route answers max-age=60; a notification is private, max-age=0.", file: "services/catalogue/src/catalogue.rayfold (@cache)" },
+      { what: "Denials (@deny)", how: "Evaluated after @allow, so a second gate can refuse what the first let through: a share may never delete, however wide its token.", where: "deleteDocument, tested with a token minted to name it.", file: "services/documents/src/documents.rayfold (deleteDocument)" },
+      { what: "Deprecation and the lockfile", how: "@deprecated names a reason, a sunset and a replacement; rayfold check against each service's lockfile in CI refuses a breaking change before its sunset.", where: "renameDocument is deprecated in favour of updateDocument; npm run schema:check.", file: "services/*/rayfold.lock.json, .github/workflows/ci.yml" },
     ],
   },
   {

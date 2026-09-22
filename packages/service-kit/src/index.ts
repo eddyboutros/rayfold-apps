@@ -22,6 +22,7 @@ import {
   MemoryCounters,
   MemoryUsage,
   attachWebSocket,
+  createBindingHandler,
   createHttpHandler,
   createRayfoldServer,
   shutdown,
@@ -79,6 +80,8 @@ export interface Config {
   version: string;
   /** Gates `GET /rayfold/stats`. Without one the route is not served at all. */
   opsToken: string | undefined;
+  /** The most a batch may cost (spec 06 section 5), so one shape cannot ask for every row of every table. */
+  budget: number;
   capabilitySecret: string;
   /**
    * Browser origins allowed to make a request that changes data. A page on another origin is refused (spec 12 §2.1),
@@ -120,6 +123,7 @@ export function configFrom(name: string): Config {
     instance: process.env["INSTANCE"] ?? process.env["HOSTNAME"] ?? `${name}-${process.pid}`,
     version: process.env["SERVICE_VERSION"] ?? "dev",
     opsToken: process.env["OPS_TOKEN"],
+    budget: Number(process.env["COST_BUDGET"] ?? 1000),
     capabilitySecret: required("CAPABILITY_SECRET"),
     allowedOrigins: (process.env["ALLOWED_ORIGINS"] ?? "")
       .split(",")
@@ -193,6 +197,7 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
     // `rayfold check --unused` read, and what makes removing a field a fact rather than a guess (spec 11)
     usage: new MemoryUsage(),
     identity: { name: config.name, version: config.version, instance: config.instance },
+    budget: config.budget,
     // a span per batch, per operation and per loader, exported to the console when there is one
     ...(platform.instrumentation ? { instrumentation: platform.instrumentation } : {}),
     onRelayError: (e) => console.error(`[${config.name}] relay refused a message:`, e),
@@ -216,11 +221,21 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
     ...(config.allowedOrigins[0] ? { cors: config.allowedOrigins[0] } : {}),
   });
 
-  // the service's own routes first, then Rayfold: a service owns its port, and Rayfold is what most of it answers
+  // the operations the schema binds to REST-shaped routes (spec 04 section 8): the same contract, for curl,
+  // webhooks and anyone who expects resources. served as declared; the gateway's prefix is stripped before here.
+  const bindings = createBindingHandler(server, {
+    ...(opts.viewer ? { viewer: (req: IncomingMessage) => opts.viewer!(req, deps) } : {}),
+    allowedOrigins: config.allowedOrigins,
+  });
+
+  // the service's own routes first, then the bindings, then Rayfold: a service owns its port, and Rayfold is what
+  // most of it answers
   const http = createServer((req, res) => {
     if (uploadPreflight(req, res, config.allowedOrigins)) return;
     if (opts.routes?.(req, res, deps)) return;
-    void rayfold(req, res).catch((e: unknown) => {
+    void bindings(req, res)
+      .then((answered) => (answered ? undefined : rayfold(req, res)))
+      .catch((e: unknown) => {
       console.error(`[${config.name}] ${req.method} ${req.url} failed`, e);
       if (!res.headersSent) res.writeHead(500).end();
       else res.end();

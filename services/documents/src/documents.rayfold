@@ -94,11 +94,11 @@ event DocumentNoted { documentId: ID, projectId: ID, name: String, excerpt: Stri
 """Who is asking, as this service knows them. A share's holder is nobody here: a link is not an account."""
 query me: Member? @allow(read: viewer != null)
 
-query document(id: ID): Document? @allow(read: viewer != null)
+query document(id: ID): Document? @allow(read: viewer != null) @http(method: GET, path: "/documents/{id}")
 """The one document a share's token is for. Nobody else has one, so for anyone signed in this is null."""
 query shared: Document? @allow(read: viewer.documentId != null)
 """Everything on a project, newest first. A project's files are the team's, not the uploader's. Each filter narrows."""
-query documents(projectId: ID, folder: String?, tag: String?, page: PageArgs = { first: 20 }): Page<Document> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
+query documents(projectId: ID, folder: String?, tag: String?, page: PageArgs = { first: 20 }): Page<Document> @allow(read: viewer != null) @cost(base: 1, perItem: 1) @http(method: QUERY, path: "/documents", body: "*")
 """The folders a project's documents are filed in, with what each holds. The root is not a folder."""
 query folders(projectId: ID): [Folder] @allow(read: viewer != null)
 query revisions(documentId: ID, page: PageArgs = { first: 20 }): Page<Revision> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
@@ -120,11 +120,31 @@ command replaceContent(id: ID, upload: ID): Document
   emits DocumentChanged
   @allow(write: viewer != null)
 
+"""What updateDocument may change: a field that is absent stays as it is. `folder` null files it at the root."""
+input DocumentChanges {
+  name: String? @range(min: 1, max: 200)
+  folder: String? @range(max: 200)
+  tags: [String]?
+}
+
+"""
+Change a document's name, folder or tags, whichever are sent; the owner's to do, with `ifVersion` (or `If-Match` on
+the route). Replaces renameDocument, moveDocument and tagDocument for anything but the events they raise: those
+three stay until their sunset, and this one raises DocumentChanged.
+"""
+command updateDocument(id: ID, changes: DocumentChanges): Document
+  throws NotFound | Forbidden
+  emits DocumentChanged
+  @allow(write: viewer != null)
+  @simulate
+  @http(method: PATCH, path: "/documents/{id}", body: changes)
+
 command renameDocument(id: ID, name: String): Document
   throws NotFound | Forbidden
   emits DocumentChanged
   @allow(write: viewer != null)
   @simulate
+  @deprecated(reason: "one command changes every field of a document now", sunset: "2027-03-31", replacement: "updateDocument")
 
 """File a document in a folder, or at the root with null. The owner's to do; send `ifVersion`."""
 command moveDocument(id: ID, folder: String? @range(max: 200)): Document
@@ -155,7 +175,12 @@ command shareDocument(id: ID, ttlMs: Int = 3600000 @range(min: 1000, max: 360000
   throws NotFound | Forbidden
   @allow(write: viewer != null)
 
-"""Deletes the document, its revisions and their bytes."""
+"""
+Deletes the document, its revisions and their bytes. A share may never, whatever operations its token names: the
+token's list is the first gate, and this denial is the second, so widening a token is not enough.
+"""
 command deleteDocument(id: ID): Document
   throws NotFound | Forbidden
   @allow(write: viewer != null)
+  @deny(write: viewer.documentId != null)
+  @http(method: DELETE, path: "/documents/{id}")
