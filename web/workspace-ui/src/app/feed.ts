@@ -1,13 +1,14 @@
 /**
  * A project's feed, live.
  *
- * `injectLive` subscribes through the Rayfold client and returns signals. The server keeps the query open and pushes
- * a new answer whenever the op's result changes — including when the change was caused by a *different service*,
- * because the workspace service records what it hears on the relay. So a document uploaded somewhere else appears
- * here with no polling, no refresh and no socket of this component's own.
+ * `injectLive` keeps the query open and the server pushes a new answer whenever the result changes — including
+ * when the cause was a *different service*, because the workspace service records what it hears on the relay. So a
+ * document uploaded in the panel next to this one appears here with no polling, no refresh and no socket of this
+ * component's own.
  */
 import { ChangeDetectionStrategy, Component, computed, input } from "@angular/core";
-import { injectLive } from "@rayfold/angular";
+import { injectLive, provideRayfold } from "@rayfold/angular";
+import { workspaceClient } from "./client";
 
 export interface Line {
   id: string;
@@ -17,49 +18,74 @@ export interface Line {
   at: number;
 }
 
+const KIND_LABEL: Record<string, string> = {
+  "document.added": "added a document",
+  "document.replaced": "replaced a document",
+  "issue.created": "opened an issue",
+  "issue.moved": "moved an issue",
+  "comment.added": "commented",
+};
+
 @Component({
   selector: "workspace-feed",
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [provideRayfold(workspaceClient())],
   styleUrl: "./feed.css",
   template: `
-    <section class="feed">
+    <section class="card">
       <header>
         <h2>Activity</h2>
-        <span class="state" [class.on]="!feed.loading()">{{ feed.loading() ? "connecting" : "live" }}</span>
+        @if (feed.error()) {
+          <span class="pill bad"><span class="dot"></span>disconnected</span>
+        } @else if (feed.loading() && !lines().length) {
+          <span class="pill"><span class="dot"></span>connecting</span>
+        } @else {
+          <span class="pill ok live"><span class="dot"></span>live</span>
+        }
       </header>
 
-      @if (!projectId()) {
-        <p class="muted">No project selected.</p>
-      } @else if (feed.error()) {
-        <p role="alert" class="bad">The feed stopped: {{ message() }}</p>
-      } @else if (feed.loading() && !lines().length) {
-        <p class="muted">Opening the feed…</p>
-      } @else if (!lines().length) {
-        <p class="muted">Nothing has happened on this project yet.</p>
-      } @else {
-        <ol>
-          @for (line of lines(); track line.id) {
-            <li>
-              <span class="source" [attr.data-source]="line.source">{{ line.source }}</span>
-              <span class="text">{{ line.text }}</span>
-              <time [attr.datetime]="line.at">{{ when(line.at) }}</time>
-            </li>
+      <div class="body">
+        @if (!projectId()) {
+          <div class="empty"><strong>No project selected</strong></div>
+        } @else if (feed.error()) {
+          <div class="empty">
+            <strong>The feed stopped</strong>
+            {{ message() }}
+          </div>
+        } @else if (feed.loading() && !lines().length) {
+          @for (row of [1, 2, 3]; track row) {
+            <div class="row"><span class="skeleton" style="width: 62%"></span></div>
           }
-        </ol>
-      }
+        } @else if (!lines().length) {
+          <div class="empty">
+            <strong>Nothing yet</strong>
+            Files added, issues opened and comments left on this project will show up here as they happen.
+          </div>
+        } @else {
+          <ol>
+            @for (line of lines(); track line.id) {
+              <li class="row">
+                <span class="source pill" [attr.data-source]="line.source">{{ line.source }}</span>
+                <span class="what">
+                  <span class="verb">{{ verb(line.kind) }}</span>
+                  <span class="text">{{ detail(line) }}</span>
+                </span>
+                <time [attr.datetime]="line.at">{{ when(line.at) }}</time>
+              </li>
+            }
+          </ol>
+        }
+      </div>
     </section>
   `,
 })
 export class Feed {
   /**
-   * Not `input.required`. `injectLive` reads its arguments the moment it is injected — which is the behaviour you
-   * want, since the query is then already in flight — and a required input is not readable that early: it throws
-   * NG0950 during field initialisation. So the input carries a default and `enabled` waits for the real one.
+   * Not `input.required`: `injectLive` reads its arguments the moment it is injected, which is the behaviour you
+   * want, and a required input is not readable that early (NG0950). A default, and `enabled` waits for the real one.
    */
   readonly projectId = input<string>("");
 
-  // both are functions, so they are read reactively: the query starts by itself once the id arrives, and re-runs
-  // if it ever changes
   readonly feed = injectLive<{ items: Line[] }>("activity", () => ({ projectId: this.projectId() }), {
     shape: "{ items { id source kind text at } }",
     enabled: () => this.projectId() !== "",
@@ -67,12 +93,23 @@ export class Feed {
 
   readonly lines = computed(() => this.feed.data()?.items ?? []);
 
+  verb(kind: string): string {
+    return KIND_LABEL[kind] ?? kind;
+  }
+
+  /** The text minus the id in brackets the service appends: a person reads the name, a log reads the id. */
+  detail(line: Line): string {
+    return line.text.replace(/\s*\([0-9a-f-]{20,}\)\s*$/i, "");
+  }
+
   message(): string {
     const e = this.feed.error();
     return e instanceof Error ? e.message : String(e);
   }
 
   when(at: number): string {
-    return new Date(at).toLocaleTimeString();
+    const d = new Date(at);
+    const today = new Date().toDateString() === d.toDateString();
+    return today ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
 }

@@ -1,0 +1,92 @@
+.card {
+  overflow: hidden;
+}
+
+.count {
+  font-size: 12px;
+}
+
+/* where a file is dropped. a dashed edge says "put something here" without a picture of a cloud. */
+.drop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 16px 0;
+  padding: 13px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  font-size: 12.5px;
+}
+
+.drop.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.picker {
+  cursor: pointer;
+}
+
+.list ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+
+.list li:first-child {
+  border-top: 0;
+}
+
+.glyph {
+  color: var(--ink-faint);
+  font-size: 15px;
+}
+
+.meta {
+  min-width: 0;
+}
+
+.meta a {
+  display: block;
+  font-weight: 550;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta a:hover {
+  color: var(--accent);
+}
+
+.sub {
+  display: block;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.row-actions {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+li:hover .row-actions,
+li:focus-within .row-actions {
+  opacity: 1;
+}
+
+.bad {
+  color: var(--bad);
+  font-size: 12.5px;
+  padding-top: 0;
+}

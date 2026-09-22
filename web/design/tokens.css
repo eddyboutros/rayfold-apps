@@ -1,0 +1,127 @@
+/**
+ * Keel — the design system these front ends share.
+ *
+ * One file, referenced by every app in `web/`, because a micro-frontend arrangement fails visibly when it fails
+ * here: a page assembled from three teams' bundles has to look like one product, and the only way that holds is if
+ * nobody owns the palette. Teams own components; this owns colour, type and spacing.
+ *
+ * The neutrals are cool rather than grey — a few degrees towards the accent, so nothing on the page reads as
+ * printer grey. Colour that means something is reserved for state, and every coloured thing carries a word too,
+ * because a fifth of people cannot tell the red one from the green one.
+ */
+
+:root {
+  color-scheme: light;
+  accent-color: #2757d6;
+
+  /* ---- neutrals */
+  --bg: #fafbfc;
+  --surface: #ffffff;
+  --raised: #ffffff;
+  --sunken: #f2f4f7;
+  --line: #e3e7ee;
+  --line-strong: #cdd4e0;
+  --ink: #141824;
+  --ink-muted: #5b6376;
+  --ink-faint: #8a92a6;
+
+  /* ---- identity: one accent, for what is current and what is primary. Nothing else. */
+  --accent: #2757d6;
+  --accent-hover: #1e47b8;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(39, 87, 214, 0.09);
+  --accent-line: rgba(39, 87, 214, 0.3);
+
+  /* ---- state. Never the only signal: each of these ships beside a word. */
+  --ok: #17753d;
+  --ok-soft: rgba(23, 117, 61, 0.1);
+  --warn: #8a5a00;
+  --warn-soft: rgba(138, 90, 0, 0.1);
+  --bad: #b42318;
+  --bad-soft: rgba(180, 35, 24, 0.09);
+
+  --shadow-sm: 0 1px 2px rgba(20, 24, 36, 0.05), 0 1px 1px rgba(20, 24, 36, 0.04);
+  --shadow-md: 0 6px 20px rgba(20, 24, 36, 0.08), 0 1px 2px rgba(20, 24, 36, 0.04);
+  --shadow-lg: 0 16px 40px rgba(20, 24, 36, 0.14);
+
+  --radius-sm: 6px;
+  --radius: 9px;
+  --radius-lg: 14px;
+
+  /*
+   * A system stack, tuned. These are applications a customer runs on their own network; a product that waits on a
+   * font CDN is a product that renders in Times New Roman on the day the CDN is unreachable. The craft goes into
+   * the scale and the tracking instead.
+   */
+  --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --rail: 232px;
+  --topbar: 52px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    accent-color: #7c9cff;
+
+    --bg: #0d1017;
+    --surface: #141924;
+    --raised: #1a202d;
+    --sunken: #10141d;
+    --line: #242b3a;
+    --line-strong: #333c4f;
+    --ink: #e6eaf2;
+    --ink-muted: #98a1b5;
+    --ink-faint: #6c7689;
+
+    --accent: #7c9cff;
+    --accent-hover: #96afff;
+    --accent-ink: #0c1424;
+    --accent-soft: rgba(124, 156, 255, 0.14);
+    --accent-line: rgba(124, 156, 255, 0.36);
+
+    --ok: #4ec97f;
+    --ok-soft: rgba(78, 201, 127, 0.13);
+    --warn: #e0ad4e;
+    --warn-soft: rgba(224, 173, 78, 0.13);
+    --bad: #ff8172;
+    --bad-soft: rgba(255, 129, 114, 0.12);
+
+    --shadow-sm: none;
+    --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.6);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  accent-color: #7c9cff;
+
+  --bg: #0d1017;
+  --surface: #141924;
+  --raised: #1a202d;
+  --sunken: #10141d;
+  --line: #242b3a;
+  --line-strong: #333c4f;
+  --ink: #e6eaf2;
+  --ink-muted: #98a1b5;
+  --ink-faint: #6c7689;
+
+  --accent: #7c9cff;
+  --accent-hover: #96afff;
+  --accent-ink: #0c1424;
+  --accent-soft: rgba(124, 156, 255, 0.14);
+  --accent-line: rgba(124, 156, 255, 0.36);
+
+  --ok: #4ec97f;
+  --ok-soft: rgba(78, 201, 127, 0.13);
+  --warn: #e0ad4e;
+  --warn-soft: rgba(224, 173, 78, 0.13);
+  --bad: #ff8172;
+  --bad-soft: rgba(255, 129, 114, 0.12);
+
+  --shadow-sm: none;
+  --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.6);
+}

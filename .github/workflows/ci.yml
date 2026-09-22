@@ -44,3 +44,22 @@ jobs:
       - uses: actions/checkout@v5
       - run: docker build -f services/documents/Dockerfile -t apps/documents .
       - run: docker build -f services/workspace/Dockerfile -t apps/workspace .
+
+  frontends:
+    name: Every front end builds
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [shell, documents-ui, workspace-ui]
+    defaults:
+      run:
+        working-directory: web/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      # each front end is its own project with its own lockfile, so each installs on its own
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=moderate
+      - run: npx ng build

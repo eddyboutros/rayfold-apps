@@ -22,7 +22,7 @@ a file to the documents service and watch it appear on the workspace's feed with
 | `services/workspace` | Issues, comments, and a project feed that carries what the rest of the fleet did. |
 | `packages/service-kit` | How every service is wired. The interesting file in the repository. |
 | `e2e/` | The harness services are started with, and the flows that cross them. |
-| `web/shell`, `web/workspace-ui` | The page, and a remote loaded into it at runtime. See [web/README.md](web/README.md). |
+| `web/` | Keel: the page, and the panels loaded into it at runtime — one per team. See [web/README.md](web/README.md). |
 
 More services and the front ends follow; the shape below is what they plug into.
 

@@ -6,7 +6,7 @@
   },
   "newProjectRoot": "projects",
   "projects": {
-    "shell": {
+    "documents-ui": {
       "projectType": "application",
       "schematics": {},
       "root": "",
@@ -18,10 +18,10 @@
           "options": {},
           "configurations": {
             "production": {
-              "target": "shell:esbuild:production"
+              "target": "documents-ui:esbuild:production"
             },
             "development": {
-              "target": "shell:esbuild:development",
+              "target": "documents-ui:esbuild:development",
               "dev": true
             }
           },
@@ -30,7 +30,7 @@
         "serve": {
           "builder": "@angular-architects/native-federation:build",
           "options": {
-            "target": "shell:serve-original:development",
+            "target": "documents-ui:serve-original:development",
             "rebuildDelay": 500,
             "dev": true,
             "cacheExternalArtifacts": false,
@@ -88,15 +88,15 @@
           "builder": "@angular/build:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "shell:esbuild:production"
+              "buildTarget": "documents-ui:esbuild:production"
             },
             "development": {
-              "buildTarget": "shell:esbuild:development"
+              "buildTarget": "documents-ui:esbuild:development"
             }
           },
           "defaultConfiguration": "development",
           "options": {
-            "port": 4200
+            "port": 4202
           }
         }
       }

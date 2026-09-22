@@ -51,8 +51,14 @@
                 "input": "public"
               }
             ],
-            "styles": ["src/styles.css"],
-            "polyfills": ["es-module-shims"]
+            "styles": [
+              "../design/tokens.css",
+              "../design/base.css",
+              "src/styles.css"
+            ],
+            "polyfills": [
+              "es-module-shims"
+            ]
           },
           "configurations": {
             "production": {

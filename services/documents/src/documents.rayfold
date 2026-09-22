@@ -59,7 +59,7 @@ error Forbidden { id: ID }
 """The upload named by a command was never there, or its lifetime ran out before the command arrived."""
 error UploadGone { upload: ID }
 
-event DocumentChanged { documentId: ID, version: Int }
+event DocumentChanged { documentId: ID, name: String, version: Int }
 
 query document(id: ID): Document? @allow(read: viewer != null)
 query documents(page: PageArgs = { first: 20 }): Page<Document> @allow(read: viewer != null) @cost(base: 1, perItem: 1)

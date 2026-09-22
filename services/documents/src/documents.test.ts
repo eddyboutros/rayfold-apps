@@ -174,3 +174,28 @@ it("says who it is and what it is doing", async () => {
   // guard: the route is not open, and it is not advertised to someone without the token
   expect((await fetch(`${svc.base}/rayfold/stats`)).status).toBe(403);
 });
+
+it("tells a browser on another origin that an upload is allowed", async () => {
+  // what a browser sends before an upload from a page on a different origin. it never appears in a same-origin
+  // test, and a header missing from the answer fails the whole upload before the server sees a byte.
+  const res = await fetch(`${svc.base}/rayfold/uploads`, {
+    method: "OPTIONS",
+    headers: {
+      origin: "http://localhost:4200",
+      "access-control-request-method": "POST",
+      "access-control-request-headers": "authorization,content-type,rayfold-upload-name,rayfold-upload-type",
+    },
+  });
+  expect(res.status).toBe(204);
+  const allowed = (res.headers.get("access-control-allow-headers") ?? "").toLowerCase().split(/,\s*/);
+  expect(allowed).toContain("rayfold-upload-name");
+  expect(allowed).toContain("rayfold-upload-type");
+  expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:4200");
+
+  // guard: an origin the fleet does not allow gets Rayfold's own refusal, not a blanket yes
+  const foreign = await fetch(`${svc.base}/rayfold/uploads`, {
+    method: "OPTIONS",
+    headers: { origin: "https://evil.example", "access-control-request-method": "POST" },
+  });
+  expect(foreign.headers.get("access-control-allow-origin")).not.toBe("https://evil.example");
+});

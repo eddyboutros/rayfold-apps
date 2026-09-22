@@ -38,7 +38,7 @@ const service = await startService({
     // raised by the documents service, delivered here by the relay. the bus delivers by name, so hearing another
     // service's event costs one subscription and no coupling beyond agreeing what the event is called.
     server.events.on("DocumentChanged", (payload) => {
-      const { documentId, version } = payload as { documentId: string; version: number };
+      const { documentId, name, version } = payload as { documentId: string; name: string; version: number };
       const line = {
         // derived from what caused it, not random: this event reaches every instance of this service, and they
         // must write one row between them rather than one each
@@ -46,7 +46,8 @@ const service = await startService({
         projectId: PROJECT_OF_DOCUMENTS,
         source: "documents",
         kind: version === 1 ? "document.added" : "document.replaced",
-        text: version === 1 ? `a document was added (${documentId})` : `a document reached version ${version} (${documentId})`,
+        // the name is what a person reads; the id stays at the end for anyone tracing it
+        text: version === 1 ? `${name} (${documentId})` : `${name}, now version ${version} (${documentId})`,
         at: Date.now(),
       };
 

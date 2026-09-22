@@ -54,6 +54,8 @@ export async function startTestService(name: string, env: Record<string, string>
     SERVICE_VERSION: "test",
     INSTANCE: `${name}-test`,
     PUBLIC_BASE: "/files",
+    // the shell's origin in development, so a test can speak as a browser on it
+    ALLOWED_ORIGINS: "http://localhost:4200",
     ...env,
   });
 

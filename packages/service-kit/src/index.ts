@@ -124,6 +124,28 @@ export function schemaAt(url: URL | string): string {
 
 export { FileUploadStore, type FileUploadOptions } from "./upload-file.ts";
 
+/**
+ * Answers a browser's preflight for the upload route with the upload headers allowed.
+ *
+ * @rayfold/server 0.2.0 leaves `Rayfold-Upload-Name` and `Rayfold-Upload-Type` out of its allow list, so a page on
+ * another origin can never upload: the browser refuses the request before the server sees a byte. Fixed upstream
+ * for 0.2.1 with a test; this answers the one preflight itself until that ships, and goes away then.
+ */
+function uploadPreflight(req: IncomingMessage, res: ServerResponse, allowedOrigins: string[]): boolean {
+  if (req.method !== "OPTIONS" || !(req.url ?? "").split("?")[0]?.endsWith("/rayfold/uploads")) return false;
+  const origin = req.headers.origin;
+  if (!origin || !(allowedOrigins.includes(origin) || allowedOrigins.includes("*"))) return false; // Rayfold's own answer applies
+  res.writeHead(204, {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-headers": "Content-Type, Authorization, Rayfold-Client, Rayfold-Upload-Name, Rayfold-Upload-Type",
+    "access-control-max-age": "600",
+    vary: "Origin",
+  });
+  res.end();
+  return true;
+}
+
 export async function startService(opts: ServiceOptions): Promise<RunningService> {
   const config = configFrom(opts.name);
   const sql = new pg.Pool({ connectionString: config.databaseUrl });
@@ -171,6 +193,7 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
 
   // the service's own routes first, then Rayfold: a service owns its port, and Rayfold is what most of it answers
   const http = createServer((req, res) => {
+    if (uploadPreflight(req, res, config.allowedOrigins)) return;
     if (opts.routes?.(req, res, deps)) return;
     void rayfold(req, res).catch((e: unknown) => {
       console.error(`[${config.name}] ${req.method} ${req.url} failed`, e);
