@@ -5,6 +5,7 @@
  * split is the whole point of the service: a database is good at "which revision is current and who owns it" and
  * bad at holding a hundred megabytes twice on the way through.
  */
+import { membersSeed } from "@apps/service-kit";
 import type pg from "pg";
 
 export interface Member {
@@ -53,7 +54,7 @@ export const SCHEMA = `
   );
   -- added after the first deploy: rows from before it belong to the first project
   alter table documents add column if not exists project_id text not null default 'p1';
-  create index if not exists documents_owner on documents (owner_id, project_id, id);
+  create index if not exists documents_project on documents (project_id, updated_at desc, id);
 
   create table if not exists revisions (
     id text primary key,
@@ -67,11 +68,8 @@ export const SCHEMA = `
   create index if not exists revisions_document on revisions (document_id, version desc);
 `;
 
-/** Two people to own things, so the service has something to serve the moment it starts. */
-export const SEED = `
-  insert into members (id, name) values ('u1', 'Ada'), ('u2', 'Grace')
-  on conflict (id) do nothing;
-`;
+/** The team, so the service has owners the moment it starts. */
+export const SEED = membersSeed();
 
 const toDocument = (r: Record<string, unknown>): Document => ({
   id: r["id"] as string,
@@ -109,12 +107,15 @@ export class DocumentStore {
     return rows[0] ? toDocument(rows[0]) : null;
   }
 
-  async documentsOf(ownerId: string, projectId: string, first: number, after: string | null): Promise<{ items: Document[]; total: number }> {
+  /** A project's documents, most recently changed first. */
+  async documentsOf(projectId: string, first: number, after: string | null): Promise<{ items: Document[]; total: number }> {
     const { rows } = await this.sql.query(
-      "select * from documents where owner_id = $1 and project_id = $2 and ($3::text is null or id > $3) order by id limit $4",
-      [ownerId, projectId, after, first],
+      `select * from documents where project_id = $1
+         and ($2::text is null or (updated_at, id) < (select updated_at, id from documents where id = $2))
+       order by updated_at desc, id desc limit $3`,
+      [projectId, after, first],
     );
-    const { rows: counted } = await this.sql.query("select count(*)::int as n from documents where owner_id = $1 and project_id = $2", [ownerId, projectId]);
+    const { rows: counted } = await this.sql.query("select count(*)::int as n from documents where project_id = $1", [projectId]);
     return { items: rows.map(toDocument), total: (counted[0]?.["n"] as number) ?? 0 };
   }
 

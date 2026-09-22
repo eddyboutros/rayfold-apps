@@ -5,7 +5,7 @@
  *   POST /rayfold           a command names the upload; the answer carries `url`
  *   GET  /files/{id}        where that url points, for a browser or another service
  */
-import { FileUploadStore, schemaAt, startService, type Deps } from "@apps/service-kit";
+import { FileUploadStore, personOf, schemaAt, startService, type Deps } from "@apps/service-kit";
 import { Readable } from "node:stream";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { FileStore } from "./files.ts";
@@ -21,7 +21,8 @@ const files = new FileStore(FILES_DIR, PUBLIC_BASE);
 const uploads = new FileUploadStore({ dir: UPLOADS_DIR });
 
 /** A signed-in person, or the viewer a share's token speaks for. A bad token is nobody, not an error. */
-function whoIs(authorization: string | undefined, query: URLSearchParams, deps: Deps): Viewer | null {
+function whoIs(req: IncomingMessage, query: URLSearchParams, deps: Deps): Viewer | null {
+  const authorization = req.headers.authorization;
   const bearer = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : undefined;
   const token = [bearer, query.get("token")].find((t) => t?.startsWith("rfcap1."));
   if (token) {
@@ -31,11 +32,12 @@ function whoIs(authorization: string | undefined, query: URLSearchParams, deps: 
       return null;
     }
   }
-  // stands in for whatever the fleet uses: a session cookie, a JWT from the gateway, an introspected token
-  if (authorization === "Bearer ada") return { id: "u1", name: "Ada" };
-  if (authorization === "Bearer grace") return { id: "u2", name: "Grace" };
-  return null;
+  const person = personOf(req);
+  return person ? { id: person.id, name: person.name } : null;
 }
+
+/** The rule the schema states for Document, applied to its bytes: the team reads everything, a share reads its one. */
+const mayRead = (viewer: Viewer, documentId: string): boolean => viewer.documentId === undefined || viewer.documentId === documentId;
 
 const service = await startService({
   name: "documents",
@@ -43,7 +45,7 @@ const service = await startService({
   migrate: async (sql) => new DocumentStore(sql).migrate(),
   uploads: () => uploads,
   resolvers: (deps) => resolvers({ store: new DocumentStore(deps.sql), files, uploads, caps: deps.caps }),
-  viewer: (req, deps) => whoIs(req.headers.authorization, new URLSearchParams((req.url ?? "").split("?")[1] ?? ""), deps),
+  viewer: (req, deps) => whoIs(req, new URLSearchParams((req.url ?? "").split("?")[1] ?? ""), deps),
 
   routes: (req: IncomingMessage, res: ServerResponse, deps: Deps) => {
     const [path = "", search = ""] = (req.url ?? "").split("?");
@@ -54,8 +56,8 @@ const service = await startService({
     async function serve(revisionId: string, query: URLSearchParams): Promise<void> {
       // the same rule the schema states, applied to the bytes: an unguessable url is not a permission
       const found = await new DocumentStore(deps.sql).revisionWithDocument(revisionId);
-      const viewer = whoIs(req.headers.authorization, query, deps);
-      const allowed = !!found && !!viewer && (found.document.ownerId === viewer.id || viewer.documentId === found.document.id);
+      const viewer = whoIs(req, query, deps);
+      const allowed = !!found && !!viewer && mayRead(viewer, found.document.id);
       if (!allowed) return void res.writeHead(found && !viewer ? 401 : 404).end();
 
       // asked before the status line goes out: a stream that fails afterwards can only close the connection, which

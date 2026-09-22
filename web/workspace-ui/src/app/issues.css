@@ -12,6 +12,12 @@
   margin: 12px 0 4px;
 }
 
+.group .n {
+  margin-left: 4px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
 .list > .group:first-child {
   margin-top: 0;
 }
@@ -34,8 +40,8 @@ ol li:first-child {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
+  gap: 8px;
+  padding: 7px 0;
 }
 
 /* the title is the way into the conversation, and looks like text until it is pointed at */
@@ -64,10 +70,6 @@ ol li:first-child {
   text-decoration-color: var(--line-strong);
 }
 
-.who {
-  font-size: 12px;
-}
-
 /* the moves appear on hover or focus, so a list of twenty issues is a list and not forty buttons */
 .moves {
   display: flex;
@@ -84,6 +86,80 @@ ol li:first-child {
 .moves .btn {
   padding: 3px 8px;
   font-size: 12px;
+}
+
+/* who has it: a chip that is really a select, so assigning is one click and reading it is none */
+.assignee {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 3px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.assignee:hover,
+.assignee:focus-within {
+  border-color: var(--line-strong);
+  background: var(--sunken);
+}
+
+.assignee.nobody {
+  color: var(--ink-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.row:hover .assignee.nobody,
+.row:focus-within .assignee.nobody {
+  opacity: 1;
+}
+
+.assignee select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--sunken);
+  color: var(--ink-muted);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.nobody .avatar {
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+}
+
+.avatar[data-person="u1"] { background: rgba(39, 87, 214, 0.14); color: #2757d6; }
+.avatar[data-person="u2"] { background: rgba(23, 117, 61, 0.14); color: #17753d; }
+.avatar[data-person="u3"] { background: rgba(138, 90, 0, 0.14); color: #8a5a00; }
+.avatar[data-person="u4"] { background: rgba(122, 62, 178, 0.14); color: #7a3eb2; }
+
+:root[data-theme="dark"] .avatar[data-person="u1"] { color: #7c9cff; }
+:root[data-theme="dark"] .avatar[data-person="u2"] { color: #4ec97f; }
+:root[data-theme="dark"] .avatar[data-person="u3"] { color: #e0ad4e; }
+:root[data-theme="dark"] .avatar[data-person="u4"] { color: #c79bff; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .avatar[data-person="u1"] { color: #7c9cff; }
+  :root:not([data-theme="light"]) .avatar[data-person="u2"] { color: #4ec97f; }
+  :root:not([data-theme="light"]) .avatar[data-person="u3"] { color: #e0ad4e; }
+  :root:not([data-theme="light"]) .avatar[data-person="u4"] { color: #c79bff; }
 }
 
 .bad {

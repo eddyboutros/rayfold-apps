@@ -13,15 +13,16 @@ entity Member {
 """
 A file someone keeps here. `url` is where its bytes are; nothing else carries them.
 
-Who may read it is one expression: its owner, or the holder of a share for this document and no other. A share is a
-capability token, so that second viewer never existed as an account and cannot be anything but this.
+Who may read it is one expression: anyone on the team, or the holder of a share for this document and no other. A
+share is a capability token whose viewer carries `documentId` and nothing else, so that second viewer never existed
+as an account and cannot be anything but this. Changing a document is its owner's alone; see the commands.
 """
-entity Document @cache(maxAge: 0s, scope: private) @allow(read: viewer.id == ownerId || viewer.documentId == id) {
+entity Document @cache(maxAge: 0s, scope: private) @allow(read: viewer.documentId == null || viewer.documentId == id) {
   id: ID
   name: String
   """The project it lives in. Everything a person sees is scoped to one."""
   projectId: ID
-  """Who it belongs to. The policy above reads it; `owner` below is the same person, loaded."""
+  """Who it belongs to: the only person who may replace, rename, share or delete it. `owner` below is the same person, loaded."""
   ownerId: ID
   contentType: String
   """Bytes of the current revision."""
@@ -61,9 +62,14 @@ error Forbidden { id: ID }
 """The upload named by a command was never there, or its lifetime ran out before the command arrived."""
 error UploadGone { upload: ID }
 
-event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int }
+"""Raised on every change, with who made it, so another service can say so without asking this one."""
+event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID }
+
+"""Who is asking, as this service knows them. A share's holder is nobody here: a link is not an account."""
+query me: Member? @allow(read: viewer != null)
 
 query document(id: ID): Document? @allow(read: viewer != null)
+"""Everything on a project, newest first. A project's files are the team's, not the uploader's."""
 query documents(projectId: ID, page: PageArgs = { first: 20 }): Page<Document> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
 query revisions(documentId: ID, page: PageArgs = { first: 20 }): Page<Revision> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
 

@@ -22,11 +22,9 @@ export function documentsBase(): string {
 
 export function documentsClient(): RayfoldClient {
   return new RayfoldClient({
-    transport: createFetchTransport({
-      url: `${documentsBase()}/rayfold`,
-      // stands in for the session the shell would already hold
-      headers: () => ({ authorization: "Bearer ada" }),
-    }),
+    // no credentials here: the session is a cookie on the page's origin, and the browser sends it on its own —
+    // to the batch, to the upload, and to a file link opened in a new tab
+    transport: createFetchTransport({ url: `${documentsBase()}/rayfold` }),
     client: "documents-ui/0.1.0",
   });
 }

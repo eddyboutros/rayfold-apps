@@ -26,6 +26,8 @@ export interface Line {
   source: string;
   kind: string;
   text: string;
+  /** Who did it; null for a line no person caused. */
+  byId: string | null;
 }
 
 export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.now }: Parts): Resolvers {
@@ -54,8 +56,14 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
    */
   const feedChanged = [{ invOp: ["activity"] }];
 
+  /** The one line every command writes: what happened, on which project, by the person calling. */
+  const did = (ctx: { viewer: unknown }, projectId: string, kind: string, text: string) =>
+    line({ projectId, source: "workspace", kind, text, byId: (ctx.viewer as Viewer).id });
+
   return {
     Query: {
+      members: () => store.members(),
+
       issue: ({ id: issueId }: { id: string }) => store.issue(issueId),
 
       issues: async ({ projectId, page }: { projectId: string; page: { first: number; after?: string | null } }) => {
@@ -75,10 +83,27 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
     },
 
     Command: {
-      createIssue: async ({ projectId, title }: { projectId: string; title: string }, ctx) => {
-        const issue: Issue = { id: id(), projectId, title, state: "open", assigneeId: (ctx.viewer as Viewer).id, version: 1, updatedAt: now() };
+      createIssue: async ({ projectId, title, assigneeId }: { projectId: string; title: string; assigneeId?: string | null }, ctx) => {
+        const issue: Issue = { id: id(), projectId, title, state: "open", assigneeId: assigneeId ?? null, version: 1, updatedAt: now() };
         await store.createIssue(issue);
-        return ok(issue, { patch: feedChanged, emit: [await line({ projectId, source: "workspace", kind: "issue.created", text: title })] });
+        return ok(issue, { patch: feedChanged, emit: [await did(ctx, projectId, "issue.created", title)] });
+      },
+
+      assignIssue: async ({ id: issueId, assigneeId }: { id: string; assigneeId?: string | null }, ctx) => {
+        const issue = await find(issueId);
+        ctx.checkVersion(`Issue:${issue.id}`, issue.version, issue);
+        const to = assigneeId ?? null;
+        const next = { ...issue, assigneeId: to, version: issue.version + 1, updatedAt: now() };
+        if (ctx.simulate) return ok(next);
+
+        const won = await store.assignIssue(issue.id, to, issue.version, next.updatedAt);
+        if (!won) {
+          const current = await find(issueId);
+          ctx.checkVersion(`Issue:${issue.id}`, current.version, current);
+          throw RayfoldError.domain("NotFound", { id: issueId }, `Issue ${issueId} changed while this was running`);
+        }
+        const who = to ? ((await store.membersByIds([to])).get(to)?.name ?? to) : "nobody";
+        return ok(next, { patch: feedChanged, emit: [await did(ctx, issue.projectId, "issue.assigned", `${issue.title}: ${who}`)] });
       },
 
       moveIssue: async ({ id: issueId, to }: { id: string; to: IssueState }, ctx) => {
@@ -98,7 +123,7 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
           patch: feedChanged,
           emit: [
             { event: "IssueMoved", payload: { issueId: issue.id, from: issue.state, to } },
-            await line({ projectId: issue.projectId, source: "workspace", kind: "issue.moved", text: `${issue.title}: ${issue.state} → ${to}` }),
+            await did(ctx, issue.projectId, "issue.moved", `${issue.title}: ${issue.state} → ${to}`),
           ],
         });
       },
@@ -113,7 +138,7 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
           patch: feedChanged,
           emit: [
             { event: "CommentAdded", payload: { issueId, commentId: comment.id } },
-            await line({ projectId: issue.projectId, source: "workspace", kind: "comment.added", text: `${issue.title}: ${body.slice(0, 80)}` }),
+            await did(ctx, issue.projectId, "comment.added", `${issue.title}: ${body.slice(0, 80)}`),
           ],
         });
       },
@@ -140,6 +165,13 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
       by: async (comments: Comment[]) => {
         const members = await store.membersByIds([...new Set(comments.map((c) => c.byId))]);
         return comments.map((c) => members.get(c.byId) ?? null);
+      },
+    },
+
+    Activity: {
+      by: async (lines: Activity[]) => {
+        const members = await store.membersByIds([...new Set(lines.map((l) => l.byId).filter((x): x is string => !!x))]);
+        return lines.map((l) => (l.byId ? (members.get(l.byId) ?? null) : null));
       },
     },
   } satisfies Resolvers as Resolvers;

@@ -6,15 +6,14 @@
  * on the project's feed, and wakes the live queries and streams watching it. No polling, no webhook to register,
  * and no table shared between the two services.
  */
-import { schemaAt, startService, type Deps } from "@apps/service-kit";
+import { personOf, schemaAt, startService, type Deps } from "@apps/service-kit";
 import type { RayfoldServer } from "@rayfold/server";
 import { WorkspaceStore } from "./store.ts";
 import { resolvers, type Viewer } from "./resolvers.ts";
 
-function whoIs(authorization: string | undefined): Viewer | null {
-  if (authorization === "Bearer ada") return { id: "u1", name: "Ada" };
-  if (authorization === "Bearer grace") return { id: "u2", name: "Grace" };
-  return null;
+function whoIs(req: Parameters<typeof personOf>[0]): Viewer | null {
+  const person = personOf(req);
+  return person ? { id: person.id, name: person.name } : null;
 }
 
 const service = await startService({
@@ -22,7 +21,7 @@ const service = await startService({
   schema: schemaAt(new URL("./workspace.rayfold", import.meta.url)),
   migrate: async (sql) => new WorkspaceStore(sql).migrate(),
   resolvers: (deps) => resolvers({ store: new WorkspaceStore(deps.sql) }),
-  viewer: (req) => whoIs(req.headers.authorization),
+  viewer: (req) => whoIs(req),
 
   onStart: (server: RayfoldServer, deps: Deps) => {
     const store = new WorkspaceStore(deps.sql);
@@ -32,7 +31,7 @@ const service = await startService({
     server.events.on("DocumentChanged", (payload) => {
       // the event carries the project, so this service never asks the other which one: that is the whole of what
       // one service knows about another, and it is enough
-      const { documentId, projectId, name, version } = payload as { documentId: string; projectId: string; name: string; version: number };
+      const { documentId, projectId, name, version, byId } = payload as { documentId: string; projectId: string; name: string; version: number; byId: string };
       const line = {
         // derived from what caused it, not random: this event reaches every instance of this service, and they
         // must write one row between them rather than one each
@@ -43,6 +42,8 @@ const service = await startService({
         // the name is what a person reads; the id stays at the end for anyone tracing it
         text: version === 1 ? `${name} (${documentId})` : `${name}, now version ${version} (${documentId})`,
         at: Date.now(),
+        // the same person in both services: the fleet has one roster
+        byId: byId ?? null,
       };
 
       void store
@@ -51,7 +52,7 @@ const service = await startService({
           // delivered locally on every instance, written by only one: each instance has its own connected clients,
           // and each has to wake its own. `deliver` rather than `publish` for the same reason the id is derived —
           // this event is already on the relay, and sending anything back would multiply it by the fleet.
-          server.events.deliver("ActivityHappened", { projectId: line.projectId, source: line.source, kind: line.kind, text: line.text });
+          server.events.deliver("ActivityHappened", { projectId: line.projectId, source: line.source, kind: line.kind, text: line.text, byId: line.byId });
           server.changes.deliver({ keys: new Set(), ops: new Set(["activity"]) });
         })
         .catch((e: unknown) => console.error("[workspace] could not record a document change", e));

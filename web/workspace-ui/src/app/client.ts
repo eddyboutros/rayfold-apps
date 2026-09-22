@@ -16,10 +16,8 @@ export function workspaceBase(): string {
 
 export function workspaceClient(): RayfoldClient {
   return new RayfoldClient({
-    transport: createFetchTransport({
-      url: `${workspaceBase()}/rayfold`,
-      headers: () => ({ authorization: "Bearer ada" }),
-    }),
+    // no credentials here: the session is a cookie on the page's origin, and the browser sends it on its own
+    transport: createFetchTransport({ url: `${workspaceBase()}/rayfold` }),
     client: "workspace-ui/0.1.0",
   });
 }

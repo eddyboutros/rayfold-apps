@@ -17,6 +17,7 @@ export interface Doc {
   url: string;
   version: number;
   updatedAt: number;
+  owner: { id: string; name: string } | null;
 }
 
 @Component({
@@ -73,15 +74,23 @@ export interface Doc {
           <ol>
             @for (doc of items(); track doc.id) {
               <li>
-                <span class="glyph" aria-hidden="true">▤</span>
+                <span class="glyph" [attr.data-kind]="kind(doc)" aria-hidden="true">{{ ext(doc) }}</span>
                 <span class="meta">
                   <a [href]="href(doc)" target="_blank" rel="noreferrer">{{ doc.name }}</a>
-                  <span class="muted sub">{{ size(doc.size) }} · v{{ doc.version }} · {{ when(doc.updatedAt) }}</span>
+                  <span class="muted sub">
+                    {{ size(doc.size) }}
+                    @if (doc.version > 1) {
+                      · v{{ doc.version }}
+                    }
+                    · {{ doc.owner?.name ?? "someone" }} · {{ when(doc.updatedAt) }}
+                  </span>
                 </span>
                 <span class="row-actions">
-                  <button type="button" class="btn quiet" (click)="share(doc)" [disabled]="sharing() === doc.id">
-                    {{ shared() === doc.id ? "Link copied" : "Share" }}
-                  </button>
+                  @if (mine(doc)) {
+                    <button type="button" class="btn quiet" (click)="share(doc)" [disabled]="sharing() === doc.id">
+                      {{ shared() === doc.id ? "Link copied" : "Share" }}
+                    </button>
+                  }
                 </span>
               </li>
             }
@@ -105,21 +114,43 @@ export class Documents {
 
   // scoped to the project, and read reactively: switching projects re-runs it and ends the old one
   readonly page = injectQuery<{ items: Doc[] }>("documents", () => ({ projectId: this.projectId() }), {
-    shape: "{ items { id name contentType size url version updatedAt } }",
+    shape: "{ items { id name contentType size url version updatedAt owner { id name } } }",
     enabled: () => this.projectId() !== "",
   });
+  /** Whose files this panel may offer to change: sharing is the owner's, and the button is not shown to anyone else. */
+  readonly me = injectQuery<{ id: string } | null>("me", {}, { shape: "{ id }" });
 
   readonly items = computed(() => this.page.data()?.items ?? []);
   readonly create = injectCommand<Doc>("createDocument");
 
-  /** The service hands out `/files/<id>`, its own path; it is reached under the service's base. */
+  mine(doc: Doc): boolean {
+    const me = this.me.data();
+    return !!me && doc.owner?.id === me.id;
+  }
+
   /** A failure is told as itself. This panel once showed "No files yet" for a 403, which is a lie a person acts on. */
   describe(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
   }
 
+  /** The service hands out `/files/<id>`, its own path; it is reached under the service's base. */
   href(doc: Doc): string {
     return doc.url.startsWith("http") ? doc.url : `${this.base}${doc.url}`;
+  }
+
+  /** The extension, as the mark on the row: a file's name tells you what it is before its icon would. */
+  ext(doc: Doc): string {
+    const m = doc.name.match(/\.([a-z0-9]{1,4})$/i);
+    return m ? m[1]!.toUpperCase() : "FILE";
+  }
+
+  kind(doc: Doc): string {
+    const t = doc.contentType;
+    if (t.startsWith("image/")) return "image";
+    if (t === "application/pdf") return "pdf";
+    if (t.includes("spreadsheet") || t === "text/csv" || /\.(xlsx?|csv)$/i.test(doc.name)) return "sheet";
+    if (t.startsWith("text/") || t.includes("document") || /\.(docx?|md|txt)$/i.test(doc.name)) return "text";
+    return "other";
   }
 
   size(bytes: number): string {

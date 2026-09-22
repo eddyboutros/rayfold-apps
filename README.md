@@ -8,12 +8,28 @@ reaches into a checkout of the protocol, which is the point: if a service compil
 
 ```sh
 docker compose up --build        # postgres, every service, every front end, and a gateway on http://localhost:8080
+DOCUMENTS_URL=http://localhost:8080/api/documents WORKSPACE_URL=http://localhost:8080/api/workspace npm run seed
 npm test                         # each service against a real postgres
 ```
 
-Open http://localhost:8080. Add a file in the Documents panel and watch it appear on the Activity feed, which is
-served by a different service, without the page reloading. For development, `web/README.md` says how to run the
-front ends on their own dev servers against the same services.
+Open http://localhost:8080 and sign in as anyone on the team. Add a file in the Documents panel and watch it appear
+on the Activity feed, which is served by a different service, without the page reloading. For development,
+`web/README.md` says how to run the front ends on their own dev servers against the same services.
+
+`npm run seed` gives a fresh environment a team's first week of work — files, issues, hand-overs, conversations —
+through the same operations the front ends use, so a demo shows what the product does and nothing else. It leaves a
+project alone once it has work on it.
+
+## Who is signed in
+
+Four people, seeded into every service from one roster (`packages/service-kit/src/team.ts`). The shell's sign-in
+page sets a session cookie on the page's origin; the browser sends it to every service behind `/api/*` on its own,
+and to a file link opened in a new tab. No bundle handles a credential and no service is told about the shell. A
+program with no browser sends `Authorization: Bearer <handle>` instead, which the tests do.
+
+The sign-in page is where an identity provider would be: it lists the team and asks no password, and says so. The
+cookie it sets is the one a real login would set. Everything after that — every policy, every `by` on a feed line —
+is real.
 
 ## One origin
 

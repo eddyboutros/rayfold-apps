@@ -1,13 +1,14 @@
 /**
  * The shell.
  *
- * It owns the page, the Rayfold client and who is signed in — and none of the features. Each panel is loaded at
+ * It owns the page, the session and the project switcher — and none of the features. Each panel is loaded at
  * runtime from a remote the owning team deploys on its own, which is the point of the arrangement: the workspace
  * team ships a new feed without this application being rebuilt or redeployed.
  */
 import { ChangeDetectionStrategy, Component, computed, signal, type Type } from "@angular/core";
 import { NgComponentOutlet } from "@angular/common";
 import { loadRemoteModule } from "@angular-architects/native-federation";
+import { TEAM, current, initials, signIn, signOut, type Person } from "./session";
 
 /** A panel on the page, and the remote it comes from. */
 interface Panel {
@@ -30,79 +31,117 @@ const PROJECTS = [
   imports: [NgComponentOutlet],
   styleUrl: "./app.css",
   template: `
-    <div class="shell">
-      <nav class="rail">
-        <div class="brand">
-          <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 2 L21 8 V16 L12 22 L3 16 V8 Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
-            <path d="M12 7 L16.5 9.8 V14.2 L12 17 L7.5 14.2 V9.8 Z" fill="currentColor" opacity="0.45" />
-          </svg>
-          <span class="name">Keel</span>
-        </div>
-
-        <p class="eyebrow group">Projects</p>
-        @for (project of projects; track project.id) {
-          <button type="button" class="nav" [class.on]="project.id === projectId()" (click)="projectId.set(project.id)">
-            <span class="swatch" [attr.data-project]="project.id"></span>
-            {{ project.name }}
-          </button>
-        }
-
-        <span class="spacer"></span>
-
-        <div class="account">
-          <button type="button" class="nav" (click)="toggleTheme()">
-            <span class="glyph">{{ theme() === "dark" ? "☾" : "☀" }}</span>
-            {{ theme() === "dark" ? "Dark" : "Light" }}
-          </button>
-          <div class="who">
-            <span class="avatar">A</span>
-            <span>
-              <strong>Ada Lovelace</strong>
-              <span class="muted">ada&#64;keel.example</span>
-            </span>
+    @if (!me()) {
+      <div class="gate">
+        <div class="gate-card card">
+          <div class="brand big">
+            <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2 L21 8 V16 L12 22 L3 16 V8 Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+              <path d="M12 7 L16.5 9.8 V14.2 L12 17 L7.5 14.2 V9.8 Z" fill="currentColor" opacity="0.45" />
+            </svg>
+            <span class="name">Keel</span>
           </div>
+          <h1>Sign in</h1>
+          <p class="lede">Choose who you are. Everything you do on the projects is done in that name.</p>
+          <ul class="people">
+            @for (person of team; track person.handle) {
+              <li>
+                <button type="button" class="person" (click)="enter(person)">
+                  <span class="avatar">{{ initials(person.name) }}</span>
+                  <span class="text">
+                    <strong>{{ person.name }}</strong>
+                    <span class="muted">{{ person.title }} · {{ person.email }}</span>
+                  </span>
+                  <span class="go" aria-hidden="true">→</span>
+                </button>
+              </li>
+            }
+          </ul>
+          <p class="note muted">
+            This environment signs in without a password. Your organisation's identity provider takes this screen's
+            place in production; the rest of the product does not change.
+          </p>
         </div>
-      </nav>
-
-      <div class="frame">
-        <header class="topbar">
-          <div>
-            <h1>{{ project().name }}</h1>
-            <p class="path">Projects <span aria-hidden="true">/</span> {{ project().name }}</p>
-          </div>
-
-        </header>
-
-        <main>
-          @for (panel of panels(); track panel.key) {
-            <section class="slot">
-              @if (panel.component) {
-                <ng-container *ngComponentOutlet="panel.component; inputs: { projectId: projectId() }" />
-              } @else if (panel.failed) {
-                <div class="card">
-                  <div class="body empty">
-                    <strong>{{ panel.label }} is unavailable</strong>
-                    {{ panel.failed }}
-                  </div>
-                </div>
-              } @else {
-                <div class="card">
-                  <header><span class="skeleton" style="width: 120px"></span></header>
-                  <div class="body">
-                    <span class="skeleton" style="width: 80%; margin-bottom: 9px"></span>
-                    <span class="skeleton" style="width: 55%"></span>
-                  </div>
-                </div>
-              }
-            </section>
-          }
-        </main>
       </div>
-    </div>
+    } @else {
+      <div class="shell">
+        <nav class="rail">
+          <div class="brand">
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2 L21 8 V16 L12 22 L3 16 V8 Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+              <path d="M12 7 L16.5 9.8 V14.2 L12 17 L7.5 14.2 V9.8 Z" fill="currentColor" opacity="0.45" />
+            </svg>
+            <span class="name">Keel</span>
+          </div>
+
+          <p class="eyebrow group">Projects</p>
+          @for (project of projects; track project.id) {
+            <button type="button" class="nav" [class.on]="project.id === projectId()" (click)="projectId.set(project.id)">
+              <span class="swatch" [attr.data-project]="project.id"></span>
+              {{ project.name }}
+            </button>
+          }
+
+          <span class="spacer"></span>
+
+          <div class="account">
+            <button type="button" class="nav" (click)="toggleTheme()">
+              <span class="glyph">{{ theme() === "dark" ? "☾" : "☀" }}</span>
+              {{ theme() === "dark" ? "Dark" : "Light" }}
+            </button>
+            <div class="who">
+              <span class="avatar">{{ initials(me()!.name) }}</span>
+              <span class="text">
+                <strong>{{ me()!.name }}</strong>
+                <span class="muted">{{ me()!.email }}</span>
+              </span>
+              <button type="button" class="btn quiet leave" (click)="leave()" title="Sign out">Sign out</button>
+            </div>
+          </div>
+        </nav>
+
+        <div class="frame">
+          <header class="topbar">
+            <div>
+              <h1>{{ project().name }}</h1>
+              <p class="path">Projects <span aria-hidden="true">/</span> {{ project().name }}</p>
+            </div>
+          </header>
+
+          <main>
+            @for (panel of panels(); track panel.key) {
+              <section class="slot">
+                @if (panel.component) {
+                  <ng-container *ngComponentOutlet="panel.component; inputs: { projectId: projectId() }" />
+                } @else if (panel.failed) {
+                  <div class="card">
+                    <div class="body empty">
+                      <strong>{{ panel.label }} is unavailable</strong>
+                      {{ panel.failed }}
+                    </div>
+                  </div>
+                } @else {
+                  <div class="card">
+                    <header><span class="skeleton" style="width: 120px"></span></header>
+                    <div class="body">
+                      <span class="skeleton" style="width: 80%; margin-bottom: 9px"></span>
+                      <span class="skeleton" style="width: 55%"></span>
+                    </div>
+                  </div>
+                }
+              </section>
+            }
+          </main>
+        </div>
+      </div>
+    }
   `,
 })
 export class App {
+  readonly team = TEAM;
+  readonly me = signal<Person | null>(current());
+  readonly initials = initials;
+
   readonly projects = PROJECTS;
   readonly projectId = signal(PROJECTS[0]!.id);
   readonly project = computed(() => this.projects.find((p) => p.id === this.projectId()) ?? this.projects[0]!);
@@ -128,6 +167,18 @@ export class App {
 
   private settle(key: string, component: Type<unknown> | null, failed: string | null): void {
     this.panels.update((panels) => panels.map((p) => (p.key === key ? { ...p, component, failed } : p)));
+  }
+
+  enter(person: Person): void {
+    signIn(person);
+    // the panels are created after this, so every call they make carries the session from the first
+    this.me.set(current());
+  }
+
+  leave(): void {
+    signOut();
+    // the panels go with the page: their live queries end with them, and nothing is left open in the old name
+    this.me.set(null);
   }
 
   toggleTheme(): void {

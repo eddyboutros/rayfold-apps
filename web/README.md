@@ -7,9 +7,9 @@ services, which are on another.
 | | |
 |---|---|
 | `design/` | Tokens and base styles every app here builds from. Nobody owns the palette; teams own components. |
-| `shell` | The page, the project switcher, the theme, and who is signed in. Owns no features and no client. |
+| `shell` | The page, the project switcher, the theme, sign-in and the session. Owns no features and no client. |
 | `documents-ui` | Files: upload, share. Owned by the team that owns the documents service. |
-| `workspace-ui` | The activity feed. Owned by the team that owns the workspace service. |
+| `workspace-ui` | Issues, hand-overs, conversations, and the activity feed. Owned by the team that owns the workspace service. |
 
 ```sh
 cd web/documents-ui && npm install && npx ng serve --port 4202   # the remotes first
@@ -35,6 +35,11 @@ remote provides the client for the service it was built against — `providers: 
 on the exposed component — and the shell provides none. A service is a path on the page's own origin,
 `/api/documents`, in development and production alike: the gateway forwards it in one, `proxy.conf.json` in the
 other. No bundle knows a host, and nothing a browser does is cross-origin.
+
+**No bundle handles a credential.** The shell's sign-in sets a session cookie on the page's origin and the browser
+sends it with every same-origin request — the batch, the upload, a file link opened in a new tab. A remote's client
+has no headers to add. Signing out clears the cookie and takes the panels off the page, so their live queries end
+with them and nothing stays open in the old name.
 
 **Deployed, each front end is its own container.** `web/Dockerfile` builds any of them from its own lockfile
 (`--build-arg APP=…`) and serves the result with nginx; a remote is built with `/remotes/<app>/` as its base href,

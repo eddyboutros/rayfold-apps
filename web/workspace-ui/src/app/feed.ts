@@ -16,14 +16,16 @@ export interface Line {
   kind: string;
   text: string;
   at: number;
+  by: { id: string; name: string } | null;
 }
 
 const KIND_LABEL: Record<string, string> = {
-  "document.added": "added a document",
-  "document.replaced": "replaced a document",
-  "issue.created": "opened an issue",
-  "issue.moved": "moved an issue",
-  "comment.added": "commented",
+  "document.added": "added a file",
+  "document.replaced": "replaced a file",
+  "issue.created": "opened",
+  "issue.moved": "moved",
+  "issue.assigned": "handed over",
+  "comment.added": "commented on",
 };
 
 @Component({
@@ -65,12 +67,21 @@ const KIND_LABEL: Record<string, string> = {
           <ol>
             @for (line of lines(); track line.id) {
               <li class="row">
-                <span class="source pill" [attr.data-source]="line.source">{{ line.source }}</span>
+                <span class="avatar" [attr.data-person]="line.by?.id" aria-hidden="true">{{ initials(line) }}</span>
                 <span class="what">
+                  <span class="who">{{ line.by?.name ?? "Keel" }}</span>
                   <span class="verb">{{ verb(line.kind) }}</span>
-                  <span class="text">{{ detail(line) }}</span>
+                  <span class="text">{{ subject(line) }}</span>
+                  @if (detail(line); as more) {
+                    <span class="more muted">{{ more }}</span>
+                  }
                 </span>
-                <time [attr.datetime]="line.at">{{ when(line.at) }}</time>
+                <span class="when">
+                  @if (line.source !== "workspace") {
+                    <span class="source pill" [attr.data-source]="line.source">{{ line.source }}</span>
+                  }
+                  <time [attr.datetime]="line.at">{{ when(line.at) }}</time>
+                </span>
               </li>
             }
           </ol>
@@ -87,7 +98,7 @@ export class Feed {
   readonly projectId = input<string>("");
 
   readonly feed = injectLive<{ items: Line[] }>("activity", () => ({ projectId: this.projectId() }), {
-    shape: "{ items { id source kind text at } }",
+    shape: "{ items { id source kind text at by { id name } } }",
     enabled: () => this.projectId() !== "",
   });
 
@@ -97,9 +108,43 @@ export class Feed {
     return KIND_LABEL[kind] ?? kind;
   }
 
+  initials(line: Line): string {
+    const name = line.by?.name;
+    if (!name) return "K";
+    return name
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((p) => p[0] ?? "")
+      .join("")
+      .toUpperCase();
+  }
+
   /** The text minus the id in brackets the service appends: a person reads the name, a log reads the id. */
-  detail(line: Line): string {
+  private clean(line: Line): string {
     return line.text.replace(/\s*\([0-9a-f-]{20,}\)\s*$/i, "");
+  }
+
+  /** What was acted on: the issue's title, or the file's name. */
+  subject(line: Line): string {
+    const text = this.clean(line);
+    if (line.kind === "document.replaced") return text.replace(/, now version \d+$/, "");
+    if (line.kind.startsWith("issue.") || line.kind.startsWith("comment.")) return text.split(": ")[0] ?? text;
+    return text;
+  }
+
+  /** What happened to it, when the line says more than its subject: where it moved, what was said, which version. */
+  detail(line: Line): string {
+    const text = this.clean(line);
+    if (line.kind === "document.replaced") return text.match(/now version \d+$/)?.[0] ?? "";
+    if (line.kind.startsWith("issue.") || line.kind.startsWith("comment.")) {
+      const i = text.indexOf(": ");
+      if (i < 0) return "";
+      const rest = text.slice(i + 2);
+      if (line.kind === "issue.assigned") return `to ${rest}`;
+      if (line.kind === "comment.added") return `“${rest}”`;
+      return rest;
+    }
+    return "";
   }
 
   message(): string {

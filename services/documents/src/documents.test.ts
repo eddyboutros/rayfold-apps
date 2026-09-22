@@ -64,7 +64,7 @@ interface Share {
 it("keeps an uploaded file, answers with its url, and serves the bytes from there", async () => {
   const doc = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("the first draft")), name: "draft.txt" }, { shape: SHAPE });
 
-  expect(doc).toMatchObject({ name: "draft.txt", size: 15, version: 1, owner: { name: "Ada" } });
+  expect(doc).toMatchObject({ name: "draft.txt", size: 15, version: 1, owner: { name: "Ada Lovelace" } });
   expect(JSON.stringify(doc)).not.toContain("the first draft");
   expect(await (await download(doc.url, "ada")).text()).toBe("the first draft");
 
@@ -147,9 +147,54 @@ it("a share cannot change anything, and cannot be widened", async () => {
 it("the url is not a permission", async () => {
   const doc = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("private")), name: "draft.txt" }, { shape: SHAPE });
 
-  expect((await download(doc.url, "grace")).status).toBe(404);
   expect((await download(doc.url)).status).toBe(401);
+  expect((await download(doc.url, "mallory")).status).toBe(401); // not on the team is nobody
+  // a share for a different document names the bytes and still may not have them
+  const other = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("the other")), name: "other.txt" }, { shape: SHAPE });
+  const share = await client("ada").command<Share>("shareDocument", { id: other.id }, { shape: "{ token }" });
+  expect((await download(doc.url, share.token)).status).toBe(404);
   expect(await (await download(doc.url, "ada")).text()).toBe("private"); // guard: its owner still reads it
+});
+
+it("a project's files are the team's to read, and the owner's to change", async () => {
+  const ada = client("ada");
+  const grace = client("grace");
+  const doc = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("the plan")), name: "plan.txt" }, { shape: SHAPE });
+
+  // Grace did not upload it and sees it, in the list and on the wire
+  const listed = await grace.query<{ items: Array<{ name: string; owner: { name: string } }> }>("documents", { projectId: "p1" }, { shape: "{ items { name owner { name } } }" });
+  expect(listed.items).toEqual([{ $type: "Document", name: "plan.txt", owner: { $type: "Member", name: "Ada Lovelace" } }]);
+  expect(await (await download(doc.url, "grace")).text()).toBe("the plan");
+
+  // and may not change it: that is its owner's
+  for (const [op, args] of [
+    ["renameDocument", { id: doc.id, name: "grace's now" }],
+    ["shareDocument", { id: doc.id }],
+    ["deleteDocument", { id: doc.id }],
+  ] as const) {
+    const refused = await grace.command(op, args, { shape: "{ id }" }).then(() => null, (e: RayfoldClientError) => e);
+    expect(refused?.type, op).toBe("Forbidden");
+  }
+  // guard: the same calls from the owner go through
+  expect(await ada.command<Document>("renameDocument", { id: doc.id, name: "plan v2.txt" }, { shape: "{ name }" })).toMatchObject({ name: "plan v2.txt" });
+
+  // a project's files stay in their project
+  expect((await grace.query<{ items: unknown[] }>("documents", { projectId: "p2" }, { shape: "{ items { name } }" })).items).toEqual([]);
+
+  // what the panel uses to know whose files it may offer to change
+  expect(await grace.query("me", {}, { shape: "{ id name }" })).toMatchObject({ id: "u2", name: "Grace Hopper" });
+  // a share cannot even ask: the token names the two operations it may call, and this is not one of them
+  const share = await ada.command<Share>("shareDocument", { id: doc.id }, { shape: "{ token }" });
+  const asked = await client(share.token).query("me", {}, { shape: "{ id name }" }).then(() => null, (e: RayfoldClientError) => e);
+  expect(asked?.code).toBe("permission_denied");
+});
+
+it("a browser's session cookie reads the bytes without a header, which is how a link opens in a tab", async () => {
+  const doc = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("in a new tab")), name: "notes.txt" }, { shape: SHAPE });
+  const res = await fetch(`${svc.base}${doc.url}`, { headers: { cookie: "keel_session=grace" } });
+  expect(res.status).toBe(200);
+  expect(await res.text()).toBe("in a new tab");
+  expect((await fetch(`${svc.base}${doc.url}`, { headers: { cookie: "keel_session=nobody" } })).status).toBe(401);
 });
 
 it("takes the bytes with the document when it is deleted", async () => {

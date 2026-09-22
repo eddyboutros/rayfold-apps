@@ -112,14 +112,143 @@
   line-height: 1.35;
 }
 
-.who strong {
+.who .text {
+  min-width: 0;
+  flex: 1;
+}
+
+.who strong,
+.who .muted {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.who strong {
   font-size: 12.5px;
   font-weight: 600;
 }
 
 .who .muted {
   font-size: 11.5px;
+}
+
+/* sign out is there when the pointer is, and otherwise the rail is quiet; it sits over the email, taking no room */
+.who {
+  position: relative;
+}
+
+.leave {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 7px;
+  font-size: 11.5px;
+  background: var(--surface);
+  border-color: var(--line);
+  opacity: 0;
+}
+
+.who:hover .leave,
+.who:focus-within .leave {
+  opacity: 1;
+}
+
+/* ---- the gate: the page before a session */
+.gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.gate-card {
+  width: min(440px, 100%);
+  padding: 30px 30px 24px;
+  box-shadow: var(--shadow-md);
+}
+
+.gate-card .brand.big {
+  padding: 0 0 22px;
+}
+
+.gate-card .brand.big .name {
+  font-size: 18px;
+}
+
+.gate-card h1 {
+  font-size: 22px;
+  margin-bottom: 4px;
+}
+
+.people {
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.person {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.person:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.person .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 12.5px;
+}
+
+.person .text {
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.person strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.person .muted {
+  display: block;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person .go {
+  color: var(--ink-faint);
+}
+
+.person:hover .go {
+  color: var(--accent);
+}
+
+.note {
+  margin-top: 20px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .avatar {

@@ -56,21 +56,22 @@ interface Doc {
   version: number;
 }
 interface Feed {
-  items: Array<{ source: string; kind: string; text: string }>;
+  items: Array<{ source: string; kind: string; text: string; by?: { name: string } | null }>;
 }
 
-it("a document kept in one service shows up on the other service's feed", async () => {
+it("a document kept in one service shows up on the other service's feed, with who did it", async () => {
   const doc = await documents.client("ada").command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("the contract")), name: "contract.txt" }, { shape: "{ id version }" });
 
   const feed = await until(
     "the document to reach the workspace feed",
     async () => {
-      const page = await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text } }" });
+      const page = await workspace.client("grace").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text by { name } } }" });
       return page.items.length ? page : undefined;
     },
   );
 
-  expect(feed.items[0]).toMatchObject({ source: "documents", kind: "document.added" });
+  // the person is named by the workspace from its own roster: the event carried an id, never a name
+  expect(feed.items[0]).toMatchObject({ source: "documents", kind: "document.added", by: { name: "Ada Lovelace" } });
   expect(feed.items[0]?.text).toContain(doc.id);
 
   // nothing was shared to make that happen: the workspace has no documents table, and never asked for one

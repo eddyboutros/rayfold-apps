@@ -41,12 +41,14 @@ entity Activity @allow(read: viewer != null) {
   kind: String
   text: String
   at: Instant
+  """Who did it. Absent when the line came from something no person did."""
+  by: Member?
 }
 
 error NotFound { id: ID }
 
 """Raised here when anything lands on a project's feed, so a stream can carry it without polling the table."""
-event ActivityHappened { projectId: ID, source: String, kind: String, text: String }
+event ActivityHappened { projectId: ID, source: String, kind: String, text: String, byId: ID? }
 
 event IssueMoved { issueId: ID, from: IssueState, to: IssueState }
 event CommentAdded { issueId: ID, commentId: ID }
@@ -55,7 +57,10 @@ event CommentAdded { issueId: ID, commentId: ID }
 Raised by the **documents** service, not by this one. Declared here because the relay delivers events by name to
 every service in the fleet, and this service reacts to it: a changed document becomes a line in the feed.
 """
-event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int }
+event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID }
+
+"""Everyone who can be assigned something, for a picker."""
+query members: [Member] @allow(read: viewer != null)
 
 query issue(id: ID): Issue? @allow(read: viewer != null)
 query issues(projectId: ID, page: PageArgs = { first: 20 }): Page<Issue> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
@@ -64,9 +69,17 @@ query comments(issueId: ID, page: PageArgs = { first: 50 }): Page<Comment> @allo
 """What has happened on this project, newest first. Ask for it `live` and it stays current by itself."""
 query activity(projectId: ID, page: PageArgs = { first: 20 }): Page<Activity> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
 
-command createIssue(projectId: ID, title: String @range(min: 1, max: 200)): Issue
+"""Open an issue. Unassigned unless `assigneeId` says otherwise."""
+command createIssue(projectId: ID, title: String @range(min: 1, max: 200), assigneeId: ID?): Issue
   emits ActivityHappened
   @allow(write: viewer != null)
+
+"""Hand an issue to someone, or to nobody. Send `ifVersion` as with a move."""
+command assignIssue(id: ID, assigneeId: ID?): Issue
+  throws NotFound
+  emits ActivityHappened
+  @allow(write: viewer != null)
+  @simulate
 
 """Move an issue. Send `ifVersion` with the version you read and a move that would overwrite someone else's is refused."""
 command moveIssue(id: ID, to: IssueState): Issue

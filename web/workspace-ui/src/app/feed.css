@@ -4,12 +4,18 @@ ol {
   list-style: none;
 }
 
+/* a feed is long by nature; it scrolls inside its card rather than pushing the page out from under the others */
+:host .card > .body {
+  max-height: min(72vh, 760px);
+  overflow-y: auto;
+}
+
 .row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 11px;
-  padding: 9px 0;
+  align-items: start;
+  gap: 10px;
+  padding: 8px 0;
   border-top: 1px solid var(--line);
 }
 
@@ -17,21 +23,50 @@ ol {
   border-top: 0;
 }
 
-/* which service a line came from, which is the whole point of the feed */
-.source {
-  text-transform: capitalize;
+/* who did it, first. a feed is a list of people doing things, not a list of things. */
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--sunken);
+  color: var(--ink-muted);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
 }
 
-.source[data-source="documents"] {
-  background: var(--accent-soft);
-  color: var(--accent);
+.avatar[data-person="u1"] { background: rgba(39, 87, 214, 0.14); color: #2757d6; }
+.avatar[data-person="u2"] { background: rgba(23, 117, 61, 0.14); color: #17753d; }
+.avatar[data-person="u3"] { background: rgba(138, 90, 0, 0.14); color: #8a5a00; }
+.avatar[data-person="u4"] { background: rgba(122, 62, 178, 0.14); color: #7a3eb2; }
+
+:root[data-theme="dark"] .avatar[data-person="u1"] { color: #7c9cff; }
+:root[data-theme="dark"] .avatar[data-person="u2"] { color: #4ec97f; }
+:root[data-theme="dark"] .avatar[data-person="u3"] { color: #e0ad4e; }
+:root[data-theme="dark"] .avatar[data-person="u4"] { color: #c79bff; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .avatar[data-person="u1"] { color: #7c9cff; }
+  :root:not([data-theme="light"]) .avatar[data-person="u2"] { color: #4ec97f; }
+  :root:not([data-theme="light"]) .avatar[data-person="u3"] { color: #e0ad4e; }
+  :root:not([data-theme="light"]) .avatar[data-person="u4"] { color: #c79bff; }
 }
 
 .what {
   min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 6px;
+  line-height: 1.45;
+  padding-top: 2px;
+}
+
+.what > span {
+  margin-right: 5px;
+}
+
+.who {
+  font-weight: 600;
 }
 
 .verb {
@@ -40,13 +75,32 @@ ol {
 
 .text {
   font-weight: 500;
+}
+
+.more {
+  display: block;
+  font-size: 12.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
+}
+
+.when {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 3px;
+}
+
+/* which service a line came from, when it was not this one: the fleet, visible */
+.source[data-source="documents"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  text-transform: capitalize;
 }
 
 time {
   color: var(--ink-faint);
   font-size: 11.5px;
+  white-space: nowrap;
 }

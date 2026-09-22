@@ -69,10 +69,12 @@ export function resolvers({ store, files, uploads, caps, id = () => crypto.rando
 
   return {
     Query: {
+      me: (_: unknown, ctx) => store.member((ctx.viewer as Viewer).id),
+
       document: ({ id: documentId }: { id: string }) => store.document(documentId),
 
-      documents: async ({ projectId, page }: { projectId: string; page: { first: number; after?: string | null } }, ctx) => {
-        const { items, total } = await store.documentsOf((ctx.viewer as Viewer).id, projectId, page.first, page.after ?? null);
+      documents: async ({ projectId, page }: { projectId: string; page: { first: number; after?: string | null } }) => {
+        const { items, total } = await store.documentsOf(projectId, page.first, page.after ?? null);
         return pageOf(items, total, (d) => d.id);
       },
 
@@ -99,7 +101,7 @@ export function resolvers({ store, files, uploads, caps, id = () => crypto.rando
           ownerId: viewer.id,
         };
         await store.create(doc, { id: revisionId, documentId: doc.id, version: 1, size, url: doc.url, at, byId: viewer.id });
-        return ok(doc, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: 1 } }] });
+        return ok(doc, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: 1, byId: viewer.id } }] });
       },
 
       replaceContent: async ({ id: documentId, upload }: { id: string; upload: string }, ctx) => {
@@ -120,16 +122,17 @@ export function resolvers({ store, files, uploads, caps, id = () => crypto.rando
           ctx.checkVersion(`Document:${doc.id}`, current.version, current);
           throw RayfoldError.domain("NotFound", { id: documentId }, `Document ${documentId} changed while this was running`);
         }
-        return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: next.version } }] });
+        return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: next.version, byId: viewer.id } }] });
       },
 
       renameDocument: async ({ id: documentId, name }: { id: string; name: string }, ctx) => {
-        const doc = mine(await find(documentId), ctx.viewer as Viewer);
+        const viewer = ctx.viewer as Viewer;
+        const doc = mine(await find(documentId), viewer);
         ctx.checkVersion(`Document:${doc.id}`, doc.version, doc);
         const next = { ...doc, name, version: doc.version + 1, updatedAt: now() };
         if (ctx.simulate) return ok(next);
         await store.rename(doc.id, name, next.version, next.updatedAt);
-        return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: next.name, version: next.version } }] });
+        return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: next.name, version: next.version, byId: viewer.id } }] });
       },
 
       shareDocument: async ({ id: documentId, ttlMs }: { id: string; ttlMs: number }, ctx) => {

@@ -123,6 +123,7 @@ export function schemaAt(url: URL | string): string {
 }
 
 export { FileUploadStore, type FileUploadOptions } from "./upload-file.ts";
+export { SESSION_COOKIE, TEAM, membersSeed, personOf, type Person } from "./team.ts";
 
 /**
  * Answers a browser's preflight for the upload route with the upload headers allowed.

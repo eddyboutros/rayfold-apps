@@ -4,6 +4,7 @@
  * `activity` is the one worth looking at: rows arrive from this service's own commands and from events other
  * services raised, and `source` says which. Nothing here reads another service's tables to build it.
  */
+import { membersSeed } from "@apps/service-kit";
 import type pg from "pg";
 
 export type IssueState = "open" | "doing" | "done";
@@ -38,6 +39,7 @@ export interface Activity {
   kind: string;
   text: string;
   at: number;
+  byId: string | null;
 }
 
 export const SCHEMA = `
@@ -75,12 +77,12 @@ export const SCHEMA = `
     at bigint not null
   );
   create index if not exists activity_project on activity (project_id, at desc);
+  -- added after the first deploy. no reference to members: a line relayed from another service may name someone
+  -- this service has not heard of yet, and the line is still worth keeping
+  alter table activity add column if not exists by_id text;
 `;
 
-export const SEED = `
-  insert into members (id, name) values ('u1', 'Ada'), ('u2', 'Grace')
-  on conflict (id) do nothing;
-`;
+export const SEED = membersSeed();
 
 const toIssue = (r: Record<string, unknown>): Issue => ({
   id: r["id"] as string,
@@ -107,6 +109,7 @@ const toActivity = (r: Record<string, unknown>): Activity => ({
   kind: r["kind"] as string,
   text: r["text"] as string,
   at: Number(r["at"]),
+  byId: (r["by_id"] as string | null) ?? null,
 });
 
 export class WorkspaceStore {
@@ -151,6 +154,11 @@ export class WorkspaceStore {
     return { items: rows.map(toActivity), total: (n[0]?.["n"] as number) ?? 0 };
   }
 
+  async members(): Promise<Member[]> {
+    const { rows } = await this.sql.query("select * from members order by name");
+    return rows.map((r) => ({ id: r["id"] as string, name: r["name"] as string }));
+  }
+
   async membersByIds(ids: string[]): Promise<Map<string, Member>> {
     const wanted = ids.filter(Boolean);
     if (!wanted.length) return new Map();
@@ -170,6 +178,15 @@ export class WorkspaceStore {
     const { rowCount } = await this.sql.query(
       "update issues set state = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4",
       [id, to, at, fromVersion],
+    );
+    return !!rowCount;
+  }
+
+  /** Same shape as a move: lands only while the version is what the caller read. */
+  async assignIssue(id: string, assigneeId: string | null, fromVersion: number, at: number): Promise<boolean> {
+    const { rowCount } = await this.sql.query(
+      "update issues set assignee_id = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4",
+      [id, assigneeId, at, fromVersion],
     );
     return !!rowCount;
   }
@@ -198,8 +215,8 @@ export class WorkspaceStore {
    */
   async record(entry: Activity): Promise<boolean> {
     const { rowCount } = await this.sql.query(
-      "insert into activity (id, project_id, source, kind, text, at) values ($1,$2,$3,$4,$5,$6) on conflict (id) do nothing",
-      [entry.id, entry.projectId, entry.source, entry.kind, entry.text, entry.at],
+      "insert into activity (id, project_id, source, kind, text, at, by_id) values ($1,$2,$3,$4,$5,$6,$7) on conflict (id) do nothing",
+      [entry.id, entry.projectId, entry.source, entry.kind, entry.text, entry.at, entry.byId],
     );
     return !!rowCount;
   }
