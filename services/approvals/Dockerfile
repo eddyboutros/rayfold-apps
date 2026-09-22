@@ -4,7 +4,8 @@ FROM eclipse-temurin:21-jdk AS build
 WORKDIR /build
 COPY services/approvals/pom.xml services/approvals/mvnw ./
 COPY services/approvals/.mvn .mvn
-RUN ./mvnw -q -B dependency:go-offline
+# the wrapper is a script; a checkout that lost its mode still runs it
+RUN chmod +x mvnw && ./mvnw -q -B dependency:go-offline
 COPY services/approvals/src src
 RUN ./mvnw -q -B -DskipTests package
 

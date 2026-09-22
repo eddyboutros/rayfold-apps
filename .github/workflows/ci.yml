@@ -67,7 +67,7 @@ jobs:
           java-version: 21
           cache: maven
       # the same way the Dockerfile builds it: the wrapper, the tests against the database
-      - run: ./mvnw -q -B verify
+      - run: chmod +x mvnw && ./mvnw -q -B verify
 
   images:
     name: Every service builds an image
