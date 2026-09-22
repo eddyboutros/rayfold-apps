@@ -46,7 +46,24 @@ export interface Parts {
   now?: () => number;
 }
 
-/** What the extract-text worker is handed: enough to fetch the bytes and to say what they belong to. */
+export const DOCUMENT_KEPT = "document-kept";
+
+/**
+ * What happens to a document once it is kept, as the platform runs it: three steps on three queues, each on the
+ * service that owns the work.
+ *
+ * `extract` reads the bytes; `index` runs only when there was text to index — a condition on the step before it,
+ * not an `if` in a worker — and `notify` tells the workspace either way. The lock keeps two versions of one document
+ * from being worked on at the same time, whichever queue the step is on: the race that would otherwise index an
+ * older version last.
+ */
+export const DOCUMENT_KEPT_STEPS = [
+  { name: "extract", queue: "extract-text", lock: "doc:{documentId}", retries: 5, timeoutMs: 60_000 },
+  { name: "index", queue: "index-file", after: ["extract"], when: { step: "extract", path: "characters", notEquals: 0 }, lock: "doc:{documentId}" },
+  { name: "notify", queue: "notify-workspace", after: ["index"] },
+];
+
+/** What the extract step is handed: enough to fetch the bytes and to say what they belong to. */
 export interface ExtractJob {
   documentId: string;
   projectId: string;
@@ -93,11 +110,12 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
   };
 
   /**
-   * Hands the document to whoever extracts text from it, through the platform's queue. The job carries a capability
-   * token that reads this document and nothing else, for the hour a token may live at most: the worker never holds
-   * a person's session, and a job that has waited longer than that is re-queued by hand rather than given a token
-   * that would outlive the reason it was minted. A platform that is down does not fail the upload; the document is
-   * kept and the job is the platform's to run when it is back.
+   * Hands the document to the fleet, through the platform: a run of the `document-kept` flow — extract its text,
+   * index it if there was any, tell the workspace — with a capability token that reads this document and nothing
+   * else, for the hour a token may live at most: the workers never hold a person's session, and a run that has
+   * waited longer than that is started again by hand rather than given a token that would outlive the reason it was
+   * minted. A platform that is down does not fail the upload; the document is kept and the run is the platform's to
+   * start when it is back.
    */
   const extractLater = async (doc: Document): Promise<void> => {
     const token = caps.mint({ id: `job:${doc.id}`, documentId: doc.id }, { ops: ["document"], ttlMs: 60 * 60 * 1000, iss: "documents" });
@@ -112,11 +130,11 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
       fetchUrl: `${selfUrl}${doc.url}?token=${encodeURIComponent(token)}`,
     };
     try {
-      // one job per revision: a retry of the command replays, and a second instance's enqueue finds this one
-      const queued = await platform.enqueue("extract-text", job, { key: `${doc.id}:${doc.version}` });
-      if (queued) log.info("queued text extraction", { documentId: doc.id, version: doc.version, job: queued.id });
+      // one run per revision: a retry of the command replays, and a second instance's start finds this one
+      const run = await platform.startFlow(DOCUMENT_KEPT, job, { key: `${doc.id}:${doc.version}` });
+      if (run) log.info("started the document-kept flow", { documentId: doc.id, version: doc.version, run: run.id });
     } catch (e) {
-      log.error("could not queue text extraction", { documentId: doc.id, error: e instanceof Error ? e.message : String(e) });
+      log.error("could not start the document-kept flow", { documentId: doc.id, error: e instanceof Error ? e.message : String(e) });
     }
   };
 

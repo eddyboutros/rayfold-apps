@@ -46,8 +46,17 @@ afterAll(async () => {
 });
 
 const operator = () => new RayfoldClient({ transport: createFetchTransport({ url: `${platform.url}/rayfold` }) });
-const enqueue = (payload: Record<string, unknown>) =>
-  operator().command<{ id: string }>("enqueue", { queue: "extract-text", payload, key: `${payload["documentId"]}:${payload["version"]}` }, { shape: "{ id }", key: crypto.randomUUID() });
+/** The documents service's flow, as it defines it: this service works its first two steps. */
+const DOCUMENT_KEPT = [
+  { name: "extract", queue: "extract-text", lock: "doc:{documentId}" },
+  { name: "index", queue: "index-file", after: ["extract"], when: { step: "extract", path: "characters", notEquals: 0 }, lock: "doc:{documentId}" },
+  { name: "notify", queue: "notify-workspace", after: ["index"] },
+];
+const start = async (payload: Record<string, unknown>, key = `${payload["documentId"]}:${payload["version"]}`) => {
+  await operator().command("defineFlow", { name: "document-kept", steps: DOCUMENT_KEPT }, { shape: "{ name }", key: crypto.randomUUID() });
+  return operator().command<{ id: string }>("startFlow", { name: "document-kept", payload, key }, { shape: "{ id }", key: crypto.randomUUID() });
+};
+const stepsOf = (runId: string) => platform.jobs.filter((j) => j.flowRun === runId);
 
 const ada = () => svc.client("ada");
 
@@ -167,13 +176,13 @@ it("an article is written under a slug made from its title, and an edit needs th
   expect(found.items.map((h) => h.slug)).toContain("sandbox-reset-how-it-works");
 });
 
-it("a kept document's text is taken from the queue, indexed, and found — text and PDF alike", async () => {
+it("a kept document's text is read by the extract step, indexed by the index step, and found — text and PDF alike", async () => {
   const plan = bytes.serve("/files/r1", "text/markdown", new TextEncoder().encode("# Cutover plan\n\nThe mirror must reconcile for five consecutive days before wave two. The zebra clause applies."));
   const contract = bytes.serve("/files/r2", "application/pdf", pdf("Master services agreement", ["Availability: 99.9% measured monthly, excluding announced maintenance."]));
-  await enqueue({ documentId: "doc-plan", projectId: "p1", name: "Cutover plan.md", version: 1, contentType: "text/markdown", size: 80, url: "/files/r1", fetchUrl: plan });
-  await enqueue({ documentId: "doc-msa", projectId: "p1", name: "Master services agreement.pdf", version: 1, contentType: "application/pdf", size: 900, url: "/files/r2", fetchUrl: contract });
+  const planRun = await start({ documentId: "doc-plan", projectId: "p1", name: "Cutover plan.md", version: 1, contentType: "text/markdown", size: 80, url: "/files/r1", fetchUrl: plan });
+  await start({ documentId: "doc-msa", projectId: "p1", name: "Master services agreement.pdf", version: 1, contentType: "application/pdf", size: 900, url: "/files/r2", fetchUrl: contract });
 
-  // the worker is this service's own: nothing is called here but the queue
+  // the workers are this service's own: nothing is called here but the platform
   const found = await until("the plan to be searchable", async () => {
     // a phrase only the file has: the articles talk about consecutive days too, and rank above a file by design
     const page = await ada().query<Page<Hit & { excerpt?: string; url?: string }>>("search", { q: "zebra clause" }, { shape: "{ items { name ...on File { excerpt url projectId } } }" });
@@ -182,20 +191,33 @@ it("a kept document's text is taken from the queue, indexed, and found — text 
   expect(found.items[0]).toMatchObject({ $type: "File", name: "Cutover plan.md", url: "/files/r1", projectId: "p1" });
   expect(found.items[0]?.excerpt).toContain("The mirror must reconcile");
 
+  // the steps as the platform ran them: extract read the text, index kept it, notify is for another service
+  const steps = stepsOf(planRun.id);
+  expect(steps.map((j) => [j.step, j.state])).toEqual([
+    ["extract", "done"],
+    ["index", "done"],
+    ["notify", "ready"],
+  ]);
+  expect(steps[0]!.result).toMatchObject({ characters: expect.any(Number), excerpt: expect.stringContaining("Cutover plan") });
+  expect((steps[1]!.payload as { results: { extract: { characters: number } } }).results.extract.characters).toBeGreaterThan(50);
+  expect(steps[1]!.result).toEqual({ indexed: true, characters: (steps[0]!.result as { characters: number }).characters });
+
   // the PDF's text, from its content stream: a phrase inside it, not only its name
   const msa = await until("the pdf to be searchable", async () => {
     const page = await ada().query<Page<Hit>>("search", { q: "announced maintenance" }, { shape: "{ items { name } }" });
     return page.items.length ? page : undefined;
   });
   expect(msa.items.map((h) => h.name)).toContain("Master services agreement.pdf");
-  expect(platform.jobs.filter((j) => j.queue === "extract-text").map((j) => j.state)).toEqual(["done", "done"]);
 
   // a newer version replaces the text; an older one that finishes later does not put it back
   const revised = bytes.serve("/files/r3", "text/markdown", new TextEncoder().encode("# Cutover plan, revised\n\nSeven consecutive days now."));
-  await enqueue({ documentId: "doc-plan", projectId: "p1", name: "Cutover plan.md", version: 2, contentType: "text/markdown", size: 60, url: "/files/r3", fetchUrl: revised });
+  await start({ documentId: "doc-plan", projectId: "p1", name: "Cutover plan.md", version: 2, contentType: "text/markdown", size: 60, url: "/files/r3", fetchUrl: revised });
   await until("the revision to be indexed", async () => ((await svc.sql.query("select version from files where id = 'doc-plan'")).rows[0]?.["version"] === 2 ? true : undefined));
-  await enqueue({ documentId: "doc-plan", projectId: "p1", name: "Cutover plan.md", version: 1, contentType: "text/markdown", size: 80, url: "/files/r1", fetchUrl: plan });
-  await until("the stale job to be done", async () => (platform.jobs.filter((j) => j.key === "doc-plan:1").every((j) => j.state === "done") && platform.jobs.filter((j) => j.key === "doc-plan:1").length === 2 ? true : undefined));
+  // its own key: the first run about version 1 is still open here (nobody works notify in this test), and a start
+  // with the same key would rightly hand that run back rather than begin another
+  const stale = await start({ documentId: "doc-plan", projectId: "p1", name: "Cutover plan.md", version: 1, contentType: "text/markdown", size: 80, url: "/files/r1", fetchUrl: plan }, "doc-plan:1:again");
+  await until("the stale run's index step to be done", async () => (stepsOf(stale.id).find((j) => j.step === "index")?.state === "done" ? true : undefined));
+  expect(stepsOf(stale.id).find((j) => j.step === "index")!.result).toMatchObject({ indexed: false });
   expect((await svc.sql.query("select version, url from files where id = 'doc-plan'")).rows[0]).toMatchObject({ version: 2, url: "/files/r3" });
 
   // files leaf through with everything else, as their own kind
@@ -204,11 +226,16 @@ it("a kept document's text is taken from the queue, indexed, and found — text 
   expect(files.items.every((i) => i.$type === "File")).toBe(true);
 });
 
-it("a document that is gone by the time its job runs is not an error, and is not indexed", async () => {
-  await enqueue({ documentId: "doc-gone", projectId: "p1", name: "gone.txt", version: 1, contentType: "text/plain", size: 1, url: "/files/none", fetchUrl: bytes.serve("/files/none-here", "text/plain", new Uint8Array()).replace("none-here", "none") });
-  await until("the job to be done", async () => (platform.jobs.find((j) => j.key === "doc-gone:1")?.state === "done" ? true : undefined));
+it("a document that is gone by the time its step runs has nothing to index: the index step is skipped by its condition, not by an if", async () => {
+  const run = await start({ documentId: "doc-gone", projectId: "p1", name: "gone.txt", version: 1, contentType: "text/plain", size: 1, url: "/files/none", fetchUrl: bytes.serve("/files/none-here", "text/plain", new Uint8Array()).replace("none-here", "none") });
+  await until("the extract step to be done", async () => (stepsOf(run.id).find((j) => j.step === "extract")?.state === "done" ? true : undefined));
   expect((await svc.sql.query("select 1 from files where id = 'doc-gone'")).rowCount).toBe(0);
-  expect(platform.jobs.find((j) => j.key === "doc-gone:1")).toMatchObject({ attempts: 1, result: { indexed: false } });
+  expect(stepsOf(run.id).map((j) => [j.step, j.state])).toEqual([
+    ["extract", "done"],
+    ["index", "skipped"],
+    ["notify", "ready"], // told, so it can say there was nothing to index
+  ]);
+  expect(stepsOf(run.id)[0]).toMatchObject({ attempts: 1, result: { characters: 0 } });
 });
 
 it("nobody may search, and a search needs a phrase", async () => {

@@ -137,7 +137,7 @@ export function schemaAt(url: URL | string): string {
 
 export { FileUploadStore, type FileUploadOptions } from "./upload-file.ts";
 export { SESSION_COOKIE, TEAM, membersSeed, personOf, type Person } from "./team.ts";
-export { connectPlatform, type LiveConfig, type Job, type Log, type Platform, type WorkOptions } from "./platform.ts";
+export { connectPlatform, type Condition, type FlowStep, type LiveConfig, type Job, type Log, type Platform, type WorkOptions } from "./platform.ts";
 
 /**
  * Answers a browser's preflight for the upload route with the upload headers allowed.

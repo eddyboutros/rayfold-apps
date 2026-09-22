@@ -109,12 +109,20 @@ query** and applies a change the moment it arrives (the documents service's uplo
 ordinary commands, and it exports a span per batch, operation and loader over **OTLP** so a trace shows how a page
 was resolved. Without `CONSOLE_URL` a service runs alone on its defaults; it never needs the platform to serve.
 
-The flow that uses all of it: keeping a document puts an `extract-text` job on the queue, with a capability token
-that reads that one document for an hour. The catalogue takes the job, fetches the bytes with the token, reads the
-text (text files as they are; the PDFs this fleet writes from their content streams) and indexes it as a `File`, a
-fourth kind in its search. Nothing is shared between the two services but the queue, and the console shows the job
-move. `e2e/fleet.test.ts` drives the whole chain; `e2e/stand-in-console.ts` is the console as a service sees it,
-so the tests need only Postgres.
+The flow that uses all of it — `document-kept`, defined by the documents service at start and started when a
+document is kept, with a capability token that reads that one document for an hour:
+
+| Step | Queue | Worked by | Runs |
+|---|---|---|---|
+| `extract` | `extract-text` | catalogue | first; fetches the bytes with the token and reads the text |
+| `index` | `index-file` | catalogue | after `extract`, **only when** `extract.characters != 0` — a condition between the steps, not an `if` in a worker |
+| `notify` | `notify-workspace` | workspace | after `index`, skipped or not: the feed says the file is searchable, or had nothing to index |
+
+`extract` and `index` carry a lock, `doc:{documentId}`, so two versions of one document are never worked on at once,
+whichever queue the step is on — the race that would otherwise index the older version last. Nothing is shared
+between the services but the platform, and the console's Flows screen shows the run move from queue to queue.
+`e2e/fleet.test.ts` drives the whole chain; `e2e/stand-in-console.ts` is the console as a service sees it — the
+same flow semantics, in memory — so the tests need only Postgres.
 
 ## Conventions
 

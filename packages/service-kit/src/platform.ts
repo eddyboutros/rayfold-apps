@@ -74,6 +74,34 @@ export interface WorkOptions {
   idleMs?: number;
 }
 
+/**
+ * What a job checks before it runs, against the result of a step it waited for: `path` is dotted into that step's
+ * result; one of the tests applies.
+ */
+export interface Condition {
+  step: string;
+  path?: string;
+  equals?: unknown;
+  notEquals?: unknown;
+  in?: unknown[];
+  exists?: boolean;
+}
+
+/** One step of a flow, as the console defines them. */
+export interface FlowStep {
+  name: string;
+  queue: string;
+  after?: string[];
+  when?: Condition;
+  retries?: number;
+  timeoutMs?: number;
+  priority?: number;
+  delayMs?: number;
+  /** An exclusive key, with `{path}` filled from the run's payload: two runs about one thing take turns here. */
+  lock?: string;
+  onFailure?: "abort" | "continue";
+}
+
 export interface Platform {
   /** Whether a console is configured at all. */
   readonly connected: boolean;
@@ -81,9 +109,13 @@ export interface Platform {
   /** The service's log: its own output, and the console's Logs screen when there is one, tied to the trace. */
   readonly log: Log;
   /** Puts a job on a queue. Answers the job's id, or null when there is no platform to put it on. */
-  enqueue(queue: string, payload: unknown, opts?: { key?: string }): Promise<{ id: string } | null>;
+  enqueue(queue: string, payload: unknown, opts?: { key?: string; lock?: string }): Promise<{ id: string } | null>;
   /** Creates a queue with these limits, or leaves it as it is. */
-  defineQueue(name: string, opts: { maxAttempts?: number; leaseMs?: number; backoffMs?: number }): Promise<void>;
+  defineQueue(name: string, opts: { maxAttempts?: number; leaseMs?: number; backoffMs?: number; concurrency?: number; timeoutMs?: number }): Promise<void>;
+  /** Defines a flow, or replaces it: the steps, the order, the conditions, the locks. Idempotent; a service does it at start. */
+  defineFlow(name: string, steps: FlowStep[]): Promise<void>;
+  /** Starts a run of a flow. With a key, a run already going about the same thing is what comes back. Null without a platform. */
+  startFlow(name: string, payload: unknown, opts?: { key?: string }): Promise<{ id: string; started: boolean } | null>;
   /**
    * Takes jobs from a queue, one at a time, for as long as the service runs. A handler that returns finishes the
    * job with its result; one that throws fails it, and the queue retries it with backoff up to its limit. Answers a
@@ -181,12 +213,24 @@ export function connectPlatform(opts: PlatformOptions): Platform {
     instrumentation: rayfoldTracing({ tracer: provider.getTracer("@rayfold/server") }),
 
     async enqueue(queue, payload, o = {}) {
-      const job = await client.command<{ id: string }>("enqueue", { queue, payload, ...(o.key ? { key: o.key } : {}) }, { shape: "{ id }", key: key() });
+      const job = await client.command<{ id: string }>("enqueue", { queue, payload, ...(o.key ? { key: o.key } : {}), ...(o.lock ? { lock: o.lock } : {}) }, { shape: "{ id }", key: key() });
       return { id: job.id };
     },
 
     async defineQueue(name, o) {
       await client.command("defineQueue", { name, ...o }, { shape: "{ name }", key: key() });
+    },
+
+    async defineFlow(name, steps) {
+      await client.command("defineFlow", { name, steps }, { shape: "{ name }", key: key() });
+    },
+
+    async startFlow(name, payload, o = {}) {
+      // the run's id is what comes back either way; whether this call started it is told by comparing keys, which
+      // the console does for us: a run about the same key that is unfinished is returned, not a new one
+      const before = o.key ? await client.query<Array<{ id: string; state: string }>>("flowRuns", { name, limit: 50 }, { shape: "{ id key state }", policy: "network" }).catch(() => []) : [];
+      const run = await client.command<{ id: string }>("startFlow", { name, payload, ...(o.key ? { key: o.key } : {}) }, { shape: "{ id }", key: key() });
+      return { id: run.id, started: !before.some((r) => r.id === run.id) };
     },
 
     work(queue, handler, o = {}) {
@@ -264,6 +308,13 @@ function alone(app: string, override?: (line: string) => void): Platform {
     },
     async defineQueue() {
       say();
+    },
+    async defineFlow() {
+      say();
+    },
+    async startFlow() {
+      say();
+      return null;
     },
     work() {
       say();

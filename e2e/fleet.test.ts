@@ -167,10 +167,11 @@ it("the workspace's own work and the other service's sit on one feed, and an ope
   }
 });
 
-it("a document kept in one service is found by a search in another, by way of the platform's queue", async () => {
-  // the whole chain, with nothing shared between the two services but the queue: documents puts the job on it with
-  // a token that reads this one document; the catalogue takes the job, fetches the bytes with that token, and
-  // indexes the text. the person searching never touched either job or token.
+it("a document kept in one service is found by a search in another, and the third says so — one flow across three services", async () => {
+  // the whole chain, with nothing shared between the services but the platform's flow: documents starts a run with
+  // a token that reads this one document; the catalogue works extract and index, fetching the bytes with that
+  // token; the workspace works notify and puts a line on the project's feed. the person searching never touched a
+  // job or a token.
   const doc = await documents.client("ada").command<Doc>(
     "createDocument",
     { projectId: PROJECT, upload: await upload(text("Wave two moves orders and returns; invoicing stays behind until wave three.")), name: "Rollout notes.txt" },
@@ -192,11 +193,39 @@ it("a document kept in one service is found by a search in another, by way of th
   const url = found.items[0]!.url!;
   expect(await (await fetch(`${documents.base}${url}`, { headers: { cookie: "keel_session=grace" } })).text()).toContain("Wave two moves orders");
 
-  // what the queue recorded: one job, keyed to the revision, done by the catalogue's worker
-  const job = platform.jobs.find((j) => j.key === `${doc.id}:1`)!;
-  expect(job).toMatchObject({ queue: "extract-text", state: "done", attempts: 1 });
-  expect(job.worker).toContain("catalogue");
-  expect(job.result).toMatchObject({ indexed: true });
+  // the last step: the workspace's feed says the file became searchable, credited to the product, not a person
+  const line = await until("the feed to say the file is searchable", async () => {
+    const page = await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text by { name } } }" });
+    return page.items.find((i) => i.kind === "document.indexed");
+  }, 10_000);
+  expect(line).toMatchObject({ source: "catalogue", by: null });
+  expect(line.text).toContain("Rollout notes.txt");
+
+  // what the platform recorded: one run, keyed to the revision, each step done by the service that owns the work
+  const run = platform.runs.find((r) => r.key === `${doc.id}:1`)!;
+  const steps = platform.jobs.filter((j) => j.flowRun === run.id);
+  expect(steps.map((j) => [j.step, j.state, j.worker?.split("-")[0]])).toEqual([
+    ["extract", "done", "catalogue"],
+    ["index", "done", "catalogue"],
+    ["notify", "done", "workspace"],
+  ]);
+  expect(steps[2]!.result).toEqual({ recorded: true });
+});
+
+it("a file with no text is not indexed, and the feed says so: a condition between steps, not an if in a worker", async () => {
+  const doc = await documents.client("ada").command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(new Uint8Array()), name: "empty.txt" }, { shape: "{ id }" });
+  const line = await until("the feed to say there was nothing to index", async () => {
+    const page = await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { kind text } }" });
+    return page.items.find((i) => i.kind === "document.empty");
+  }, 10_000);
+  expect(line.text).toContain("empty.txt");
+  const run = platform.runs.find((r) => r.key === `${doc.id}:1`)!;
+  expect(platform.jobs.filter((j) => j.flowRun === run.id).map((j) => [j.step, j.state])).toEqual([
+    ["extract", "done"],
+    ["index", "skipped"],
+    ["notify", "done"],
+  ]);
+  expect((await catalogue.sql.query("select 1 from files where id = $1", [doc.id])).rowCount).toBe(0);
 });
 
 it("each service answers for itself, and says which it is", async () => {

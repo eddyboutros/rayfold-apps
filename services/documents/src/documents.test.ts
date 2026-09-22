@@ -218,14 +218,25 @@ it("takes the bytes with the document when it is deleted", async () => {
   expect((await svc.sql.query("select 1 from revisions where document_id = $1", [doc.id])).rowCount).toBe(0);
 });
 
-it("keeping a document queues its text extraction, with a token that reads that document and nothing else", async () => {
+it("keeping a document starts the document-kept flow, with a token that reads that document and nothing else", async () => {
   const ada = client("ada");
+  // the service defined the flow at start: three steps, the condition and the lock between them
+  expect(platform.flows.get("document-kept")?.map((s) => s.name)).toEqual(["extract", "index", "notify"]);
+  expect(platform.flows.get("document-kept")?.[1]).toMatchObject({ after: ["extract"], when: { step: "extract", path: "characters", notEquals: 0 }, lock: "doc:{documentId}" });
+
   const doc = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("the whole contract")), name: "contract.txt" }, { shape: SHAPE });
   const other = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("not this one")), name: "other.txt" }, { shape: SHAPE });
 
-  // one job per revision, keyed so a retry or a second instance cannot queue it twice
-  const job = await until("the job to be queued", async () => platform.jobs.find((j) => j.queue === "extract-text" && j.key === `${doc.id}:1`));
-  const payload = job.payload as { documentId: string; projectId: string; name: string; contentType: string; url: string; fetchUrl: string };
+  // one run per revision, keyed so a retry or a second instance cannot start it twice
+  const run = await until("the run to be started", async () => platform.runs.find((r) => r.name === "document-kept" && r.key === `${doc.id}:1`));
+  const steps = platform.jobs.filter((j) => j.flowRun === run.id);
+  expect(steps.map((j) => [j.step, j.queue, j.state])).toEqual([
+    ["extract", "extract-text", "ready"],
+    ["index", "index-file", "waiting"],
+    ["notify", "notify-workspace", "waiting"],
+  ]);
+  expect(steps[0]?.lock).toBe(`doc:${doc.id}`);
+  const payload = steps[0]!.payload as { documentId: string; projectId: string; name: string; contentType: string; url: string; fetchUrl: string };
   expect(payload).toMatchObject({ documentId: doc.id, projectId: "p1", name: "contract.txt", contentType: "text/plain", url: doc.url });
 
   // the worker fetches the bytes with what the job carries, and nothing else: no session, no ops token
@@ -234,10 +245,12 @@ it("keeping a document queues its text extraction, with a token that reads that 
   expect(token.startsWith("rfcap1.")).toBe(true);
   expect((await download(other.url, token)).status).toBe(404);
 
-  // a new version is a new job
+  // a new version is a new run, whose extract step waits its turn behind the first version's lock
   await ada.command<Document>("replaceContent", { id: doc.id, upload: await upload("ada", text("the whole contract, signed")) }, { shape: SHAPE });
-  const second = await until("the second job", async () => platform.jobs.find((j) => j.key === `${doc.id}:2`));
-  expect(await (await fetch((second.payload as { fetchUrl: string }).fetchUrl)).text()).toBe("the whole contract, signed");
+  const second = await until("the second run", async () => platform.runs.find((r) => r.key === `${doc.id}:2`));
+  const extract2 = platform.jobs.find((j) => j.flowRun === second.id && j.step === "extract")!;
+  expect(await (await fetch((extract2.payload as { fetchUrl: string }).fetchUrl)).text()).toBe("the whole contract, signed");
+  expect(extract2.lock).toBe(`doc:${doc.id}`);
 });
 
 it("the platform's upload limit applies while the service runs, and a refused upload leaves no bytes", async () => {

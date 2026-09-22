@@ -10,7 +10,7 @@ import { Readable } from "node:stream";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { FileStore } from "./files.ts";
 import { DocumentStore } from "./store.ts";
-import { resolvers, type Viewer } from "./resolvers.ts";
+import { DOCUMENT_KEPT, DOCUMENT_KEPT_STEPS, resolvers, type Viewer } from "./resolvers.ts";
 
 const FILES_DIR = process.env["FILES_DIR"] ?? "/var/lib/documents/files";
 const UPLOADS_DIR = process.env["UPLOADS_DIR"] ?? "/var/lib/documents/uploads";
@@ -57,6 +57,10 @@ const service = await startService({
       limitBytes: () => deps.platform.config.number("uploads.maxBytes", 25 * 1024 * 1024),
     }),
   viewer: (req, deps) => whoIs(req, new URLSearchParams((req.url ?? "").split("?")[1] ?? ""), deps),
+
+  // the flow this service starts is this service's to define: what the steps are and what must hold between them.
+  // defining it again with the same steps changes nothing, so every instance does it at start
+  onStart: (_server, deps) => deps.platform.defineFlow(DOCUMENT_KEPT, DOCUMENT_KEPT_STEPS),
 
   routes: (req: IncomingMessage, res: ServerResponse, deps: Deps) => {
     const [path = "", search = ""] = (req.url ?? "").split("?");

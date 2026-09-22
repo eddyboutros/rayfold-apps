@@ -22,6 +22,8 @@ export interface Line {
 const KIND_LABEL: Record<string, string> = {
   "document.added": "added a file",
   "document.replaced": "replaced a file",
+  "document.indexed": "made searchable",
+  "document.empty": "found nothing to index in",
   "issue.created": "opened",
   "issue.moved": "moved",
   "issue.assigned": "handed over",

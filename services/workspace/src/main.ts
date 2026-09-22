@@ -58,6 +58,32 @@ const service = await startService({
         })
         .catch((e: unknown) => deps.platform.log.error("could not record a document change", { documentId, error: e instanceof Error ? e.message : String(e) }));
     });
+
+    // the last step of the document-kept flow, worked here because the feed is this service's: the platform hands
+    // it what the steps before produced, so it can say whether the file became searchable or had nothing to index
+    void deps.platform.defineQueue("notify-workspace", { maxAttempts: 3, leaseMs: 15_000 });
+    deps.platform.work<{ documentId: string; projectId: string; name: string; version: number; results: { index: { indexed: boolean } | null } }>(
+      "notify-workspace",
+      async ({ payload: job }) => {
+        const indexed = job.results.index?.indexed === true;
+        const line = {
+          id: `documents:${job.documentId}:${job.version}:indexed`,
+          projectId: job.projectId,
+          source: "catalogue",
+          kind: indexed ? "document.indexed" : "document.empty",
+          text: indexed ? `${job.name} (${job.documentId})` : `${job.name}, nothing to index (${job.documentId})`,
+          at: Date.now(),
+          // no person did this: the platform did, which the feed shows as the product
+          byId: null,
+        };
+        const written = await store.record(line);
+        if (written) {
+          server.events.deliver("ActivityHappened", { projectId: line.projectId, source: line.source, kind: line.kind, text: line.text, byId: null });
+          server.changes.deliver({ keys: new Set(), ops: new Set(["activity"]) });
+        }
+        return { recorded: written };
+      },
+    );
   },
 });
 
