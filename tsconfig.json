@@ -3,7 +3,10 @@
     "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2023", "DOM"],
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
@@ -13,7 +16,14 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["packages/*/src", "services/*/src", "e2e"]
+  "include": [
+    "packages/*/src",
+    "services/*/src",
+    "e2e",
+    "clients"
+  ]
 }

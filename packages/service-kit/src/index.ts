@@ -24,6 +24,7 @@ import {
   attachWebSocket,
   createBindingHandler,
   createHttpHandler,
+  createMcpHandler,
   createRayfoldServer,
   shutdown,
   type RayfoldServer,
@@ -46,6 +47,11 @@ export interface ServiceOptions {
   migrate?: (sql: pg.Pool) => Promise<void>;
   /** Turns a request into the viewer the schema's policies see. */
   viewer?: (req: IncomingMessage, deps: Deps) => unknown;
+  /**
+   * The shapes this service's clients send, registered at start. With TRUSTED_SHAPES=1 they are the only shapes the
+   * service accepts (spec 02 section 3): a shape it has never seen is refused, whoever sends it.
+   */
+  shapes?: readonly string[];
   /** Where uploaded bytes wait to be claimed. Without one the upload route is not served. */
   uploads?: (deps: Deps) => UploadStore;
   /**
@@ -82,6 +88,8 @@ export interface Config {
   opsToken: string | undefined;
   /** The most a batch may cost (spec 06 section 5), so one shape cannot ask for every row of every table. */
   budget: number;
+  /** Production mode for shapes: only the ones registered at start are served. Off in development. */
+  trustedShapes: boolean;
   capabilitySecret: string;
   /**
    * Browser origins allowed to make a request that changes data. A page on another origin is refused (spec 12 §2.1),
@@ -124,6 +132,7 @@ export function configFrom(name: string): Config {
     version: process.env["SERVICE_VERSION"] ?? "dev",
     opsToken: process.env["OPS_TOKEN"],
     budget: Number(process.env["COST_BUDGET"] ?? 1000),
+    trustedShapes: process.env["TRUSTED_SHAPES"] === "1",
     capabilitySecret: required("CAPABILITY_SECRET"),
     allowedOrigins: (process.env["ALLOWED_ORIGINS"] ?? "")
       .split(",")
@@ -198,6 +207,7 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
     usage: new MemoryUsage(),
     identity: { name: config.name, version: config.version, instance: config.instance },
     budget: config.budget,
+    trustedShapes: config.trustedShapes,
     // a span per batch, per operation and per loader, exported to the console when there is one
     ...(platform.instrumentation ? { instrumentation: platform.instrumentation } : {}),
     onRelayError: (e) => console.error(`[${config.name}] relay refused a message:`, e),
@@ -221,9 +231,20 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
     ...(config.allowedOrigins[0] ? { cors: config.allowedOrigins[0] } : {}),
   });
 
+  // the shapes the service's own clients use, known before the first request: what trusted mode serves
+  for (const shape of opts.shapes ?? []) server.registerShape(shape);
+
   // the operations the schema binds to REST-shaped routes (spec 04 section 8): the same contract, for curl,
   // webhooks and anyone who expects resources. served as declared; the gateway's prefix is stripped before here.
   const bindings = createBindingHandler(server, {
+    ...(opts.viewer ? { viewer: (req: IncomingMessage) => opts.viewer!(req, deps) } : {}),
+    allowedOrigins: config.allowedOrigins,
+  });
+
+  // the same schema as MCP tools and resources (spec 10), for an agent: commands are tools with a dry-run twin,
+  // queries are tools and resources, and the viewer is whoever the request says, token or session, as everywhere
+  const mcp = createMcpHandler(server, {
+    path: "/rayfold/mcp",
     ...(opts.viewer ? { viewer: (req: IncomingMessage) => opts.viewer!(req, deps) } : {}),
     allowedOrigins: config.allowedOrigins,
   });
@@ -234,7 +255,8 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
     if (uploadPreflight(req, res, config.allowedOrigins)) return;
     if (opts.routes?.(req, res, deps)) return;
     void bindings(req, res)
-      .then((answered) => (answered ? undefined : rayfold(req, res)))
+      .then((answered) => answered || mcp(req, res))
+      .then((answered) => (answered === true ? undefined : rayfold(req, res)))
       .catch((e: unknown) => {
       console.error(`[${config.name}] ${req.method} ${req.url} failed`, e);
       if (!res.headersSent) res.writeHead(500).end();

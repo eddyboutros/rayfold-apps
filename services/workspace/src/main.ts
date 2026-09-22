@@ -10,9 +10,26 @@ import { TEAM, personOf, schemaAt, startService, type Deps } from "@apps/service
 import type { RayfoldServer } from "@rayfold/server";
 import { WorkspaceStore } from "./store.ts";
 import { resolvers, type Viewer } from "./resolvers.ts";
+import { WORKSPACE_SHAPES } from "./shapes.ts";
 
-function whoIs(req: Parameters<typeof personOf>[0]): Viewer | null {
-  const person = personOf(req);
+/**
+ * A signed-in person, or the viewer an agent's token speaks for. A bad token is nobody, not an error. A socket
+ * handshake from a program carries no Authorization header, so the same bearer is also read from `?token=` on the
+ * URL, for the field client; a browser's socket carries the session cookie and needs neither.
+ */
+function whoIs(req: Parameters<typeof personOf>[0] & { url?: string | undefined }, deps: Deps): Viewer | null {
+  const authorization = req.headers.authorization;
+  const fromHeader = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : undefined;
+  const fromUrl = new URLSearchParams((req.url ?? "").split("?")[1] ?? "").get("token") ?? undefined;
+  const bearer = fromHeader ?? fromUrl;
+  if (bearer?.startsWith("rfcap1.")) {
+    try {
+      return deps.caps.viewerOf(bearer) as Viewer;
+    } catch {
+      return null;
+    }
+  }
+  const person = personOf(bearer && !fromHeader ? { headers: { ...req.headers, authorization: `Bearer ${bearer}` } } : req);
   return person ? { id: person.id, name: person.name } : null;
 }
 
@@ -20,8 +37,10 @@ const service = await startService({
   name: "workspace",
   schema: schemaAt(new URL("./workspace.rayfold", import.meta.url)),
   migrate: async (sql) => new WorkspaceStore(sql).migrate(),
-  resolvers: (deps) => resolvers({ store: new WorkspaceStore(deps.sql) }),
-  viewer: (req) => whoIs(req),
+  resolvers: (deps) => resolvers({ store: new WorkspaceStore(deps.sql), caps: deps.caps }),
+  viewer: (req, deps) => whoIs(req, deps),
+  // what the panels and the field client send, so TRUSTED_SHAPES=1 serves them and nothing else
+  shapes: WORKSPACE_SHAPES,
 
   onStart: (server: RayfoldServer, deps: Deps) => {
     const store = new WorkspaceStore(deps.sql);

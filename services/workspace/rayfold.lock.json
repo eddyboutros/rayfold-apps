@@ -1,6 +1,6 @@
 {
   "rayfold": "0.1",
-  "hash": "9971c5ab51165976db73d8de1a3c57b9cc6726e5f1fb60ab60f9938c8cda8485",
+  "hash": "730d1fbb8678274f955417efcdc233634a2cd17ec2b7930720f5f99e638f0ed1",
   "ir": {
     "rayfold": "0.1",
     "types": {
@@ -336,8 +336,18 @@
               "nullable": false
             },
             "args": [],
-            "annotations": [],
-            "ordinal": 3
+            "annotations": [
+              {
+                "name": "merge",
+                "args": {
+                  "value": {
+                    "$ident": "keepLocal"
+                  }
+                }
+              }
+            ],
+            "ordinal": 3,
+            "description": "A client that predicts a rename keeps its word until the server answers."
           },
           {
             "name": "state",
@@ -347,8 +357,18 @@
               "nullable": false
             },
             "args": [],
-            "annotations": [],
-            "ordinal": 4
+            "annotations": [
+              {
+                "name": "merge",
+                "args": {
+                  "value": {
+                    "$ident": "serverWins"
+                  }
+                }
+              }
+            ],
+            "ordinal": 4,
+            "description": "A client that predicts a move gives way the moment the server says otherwise."
           },
           {
             "name": "assignee",
@@ -438,9 +458,98 @@
             "args": [],
             "annotations": [],
             "ordinal": 11
+          },
+          {
+            "name": "comments",
+            "type": {
+              "kind": "named",
+              "name": "Page",
+              "nullable": false,
+              "args": [
+                {
+                  "kind": "named",
+                  "name": "Comment",
+                  "nullable": false
+                }
+              ]
+            },
+            "args": [
+              {
+                "name": "page",
+                "type": {
+                  "kind": "named",
+                  "name": "PageArgs",
+                  "nullable": false
+                },
+                "annotations": [],
+                "default": {
+                  "first": 20
+                }
+              }
+            ],
+            "annotations": [
+              {
+                "name": "lazy",
+                "args": {}
+              },
+              {
+                "name": "cost",
+                "args": {
+                  "base": 1,
+                  "perItem": 1
+                }
+              }
+            ],
+            "ordinal": 12,
+            "description": "The conversation. Long and not for a list, so it arrives in a later frame unless a shape asks for it eagerly."
           }
         ],
         "implements": []
+      },
+      "AgentToken": {
+        "kind": "object",
+        "name": "AgentToken",
+        "annotations": [],
+        "description": "What an agent holds: a capability token for the same person, narrowed to the operations it names, and marked.",
+        "fields": [
+          {
+            "name": "token",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "expiresAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "ops",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          }
+        ]
       },
       "IssueChanges": {
         "kind": "input",
@@ -1564,6 +1673,164 @@
             "ordinal": 5
           }
         ]
+      },
+      "ApprovalRequested": {
+        "kind": "event",
+        "name": "ApprovalRequested",
+        "annotations": [],
+        "description": "The approvals service's, the fleet's JVM member: a sign-off asked, and one decided. Heard here the same way.",
+        "fields": [
+          {
+            "name": "approvalId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "documentName",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "requesterId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "approverId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          }
+        ]
+      },
+      "ApprovalDecided": {
+        "kind": "event",
+        "name": "ApprovalDecided",
+        "annotations": [],
+        "fields": [
+          {
+            "name": "approvalId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "documentName",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "decision",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "note",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7
+          }
+        ]
       }
     },
     "ops": {
@@ -1640,6 +1907,92 @@
           }
         ],
         "description": "Who is asking, as this service knows them: the session made a person, and this is that person's row."
+      },
+      "mintAgentToken": {
+        "kind": "command",
+        "name": "mintAgentToken",
+        "args": [
+          {
+            "name": "ops",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "ttlMs",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 60000,
+                  "max": 3600000
+                }
+              }
+            ],
+            "default": 900000
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "AgentToken",
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "&&",
+                  "l": {
+                    "k": "bin",
+                    "op": "!=",
+                    "l": {
+                      "k": "path",
+                      "root": "viewer",
+                      "path": []
+                    },
+                    "r": {
+                      "k": "lit",
+                      "v": null
+                    }
+                  },
+                  "r": {
+                    "k": "bin",
+                    "op": "==",
+                    "l": {
+                      "k": "path",
+                      "root": "viewer",
+                      "path": [
+                        "agent"
+                      ]
+                    },
+                    "r": {
+                      "k": "lit",
+                      "v": null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "A token for a program acting as the caller: the same person, allowed only the operations named, for a while. It is\nmarked as an agent's, and an agent may not mint another: a token can be narrowed, never widened."
       },
       "workload": {
         "kind": "query",
@@ -2080,6 +2433,10 @@
                 }
               }
             }
+          },
+          {
+            "name": "simulate",
+            "args": {}
           }
         ],
         "description": "Open an issue. Unassigned and of normal priority unless the arguments say otherwise."
@@ -2751,5 +3108,5 @@
     },
     "views": {}
   },
-  "lockedAt": "2026-09-22T22:50:36.779Z"
+  "lockedAt": "2026-09-22T23:42:57.613Z"
 }

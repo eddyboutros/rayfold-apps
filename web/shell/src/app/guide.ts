@@ -50,6 +50,17 @@ const GUIDE: Group[] = [
     ],
   },
   {
+    title: "Beyond the browser",
+    blurb: "Two programs under clients/ that a panel never needed to be: run them against the dev fleet and read what they say.",
+    entries: [
+      { what: "Rayfold Binary", how: "The same frames as bytes: a field name costs one small integer on the wire, decoded with the schema from the manifest.", where: "npm run field, step 1: one WebSocket in RB.", file: "clients/field/lib.mts" },
+      { what: "Deferred blocks (@defer)", how: "A shape marks a block to arrive after the frame that carries the rest, addressed to its place; the client hands back the whole.", where: "npm run field, step 2: the issue first, its thread after.", file: "clients/field/field.mts" },
+      { what: "Offline queue and predictions", how: "Commands made while the server cannot be reached wait with their keys and go out in order, once; meanwhile the cache shows the prediction, under the field's @merge policy.", where: "npm run field, steps 3 and 4: the line is cut, a move is made, the line is back.", file: "e2e/field.test.ts" },
+      { what: "Trusted shapes", how: "In production a service serves only the shapes it registered at start, by id; anything else is refused whoever sends it.", where: "TRUSTED_SHAPES=1 on the workspace; the shapes in services/workspace/src/shapes.ts.", file: "services/workspace/src/shapes.ts" },
+      { what: "MCP and scoped tokens", how: "Every Rayfold server is an MCP server: commands are tools with a dry-run twin, queries are tools and resources. An agent holds a token narrowed to a few operations and cannot widen it.", where: "npm run agent: mint, list, dry-run, run, and be refused.", file: "clients/agent/agent.mts" },
+    ],
+  },
+  {
     title: "The contract",
     blurb: "One schema per service is the API, the REST routes, the OpenAPI document and the rule for changing it.",
     entries: [

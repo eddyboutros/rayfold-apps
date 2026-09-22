@@ -6,16 +6,20 @@
  * things happen when another service raises an event — see `main.ts` — so the feed is the fleet's, not this
  * service's, and nothing here reads another service's tables to build it.
  */
-import { RayfoldError, ok, type Resolvers } from "@rayfold/server";
+import { RayfoldError, ok, type Capabilities, type Resolvers } from "@rayfold/server";
 import type { Activity, Comment, Issue, IssueChanges, IssueState, Member, Message, Notification, Priority, WorkspaceStore } from "./store.ts";
 
 export interface Viewer {
   id: string;
   name?: string;
+  /** Set on the viewer an agent's token speaks for: the person's program, not the person. */
+  agent?: boolean;
 }
 
 export interface Parts {
   store: WorkspaceStore;
+  /** Mints agent tokens; without it the command is refused as unimplemented. */
+  caps?: Capabilities;
   id?: () => string;
   now?: () => number;
 }
@@ -49,7 +53,7 @@ function describeChange(key: keyof IssueChanges, next: Issue): string {
   }
 }
 
-export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.now }: Parts): Resolvers {
+export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = Date.now }: Parts): Resolvers {
   const find = async (issueId: string): Promise<Issue> => {
     const issue = await store.issue(issueId);
     if (!issue) throw RayfoldError.domain("NotFound", { id: issueId }, `No issue ${issueId}`);
@@ -153,6 +157,8 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
           version: 1,
           updatedAt: now(),
         };
+        // a dry run answers with the issue as it would be, and writes neither it nor its feed line
+        if (ctx.simulate) return ok(issue);
         await store.createIssue(issue);
         return ok(issue, { patch: feedChanged, emit: [await did(ctx, projectId, "issue.created", title)] });
       },
@@ -269,6 +275,14 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
         return ok(message, { emit: [{ event: "Said", payload: { projectId, messageId: message.id, body, byId: viewer.id, byName: viewer.name ?? viewer.id, at: message.at } }] });
       },
 
+      mintAgentToken: ({ ops, ttlMs }: { ops: string[]; ttlMs: number }, ctx) => {
+        if (!caps) throw new RayfoldError("unimplemented", "This service mints no tokens");
+        const viewer = ctx.viewer as Viewer;
+        // the same person, marked: policies that read viewer.agent tell a program from the person it acts for
+        const token = caps.mint({ id: viewer.id, name: viewer.name, agent: true }, { ops, ttlMs, iss: "workspace" });
+        return ok({ token, expiresAt: now() + ttlMs, ops });
+      },
+
       markRead: async ({ upTo }: { upTo: string }, ctx) => {
         // an Instant argument arrives as RFC 3339 text; the store keeps epoch milliseconds
         const n = await store.markRead((ctx.viewer as Viewer).id, Date.parse(upTo), now());
@@ -315,6 +329,14 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
         const members = await store.membersByIds([...new Set(issues.map((i) => i.assigneeId).filter((x): x is string => !!x))]);
         return issues.map((i) => (i.assigneeId ? (members.get(i.assigneeId) ?? null) : null));
       },
+      // one read per issue on the page: a thread is its own list, and the field is lazy so a list of issues never pays for it
+      comments: async (issues: Issue[], { page }: { page: { first: number; after?: string | null } }) =>
+        Promise.all(
+          issues.map(async (i) => {
+            const { items, total } = await store.comments(i.id, page.first, page.after ?? null);
+            return pageOf(items, total, (c) => c.id);
+          }),
+        ),
     },
 
     Comment: {

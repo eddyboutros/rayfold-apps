@@ -93,6 +93,22 @@ from the documents service and marks a pending sign-off stale. Its own tests sta
 directions, and the workspace's tests send the JVM's messages by hand with `pg_notify`, so each half is proved
 without the other in the room.
 
+## Two more clients
+
+Not everything that talks to the fleet is a browser panel. Two programs under `clients/` show the rest of the
+protocol, each narrating what it does; run them against the dev fleet.
+
+- **`npm run field`** is a device on a bad line. It talks to the workspace over one WebSocket in Rayfold Binary,
+  asks for an issue with a `@defer` block so the thread arrives after the issue, then cuts its own line (it owns a
+  small TCP relay), makes a move anyway, and shows the prediction the schema's `@merge` policy allows while the
+  command waits on disk with its idempotency key. When the line is back the queue drains, once. `TRUSTED_SHAPES=1`
+  on a service makes it serve only the shapes it registered at start (`services/workspace/src/shapes.ts`), by id;
+  the test starts one to prove it.
+- **`npm run agent`** is a program acting for a person through MCP. The person mints it a token narrowed to a few
+  operations (`mintAgentToken`); the bridge at `/rayfold/mcp` lists every command as a tool with a `.simulate` twin
+  and every query as a tool and a resource. The agent dry-runs `createIssue`, then runs it, then is refused what the
+  token does not name, including minting a wider token for itself.
+
 ## The contract
 
 Each service's `.rayfold` file is its API, its REST routes, its OpenAPI document and the rule for changing it.

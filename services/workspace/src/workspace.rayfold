@@ -21,8 +21,10 @@ enum Priority { low, normal, high, urgent }
 entity Issue @allow(read: viewer != null) {
   id: ID
   projectId: ID
-  title: String
-  state: IssueState
+  """A client that predicts a rename keeps its word until the server answers."""
+  title: String @merge(keepLocal)
+  """A client that predicts a move gives way the moment the server says otherwise."""
+  state: IssueState @merge(serverWins)
   assignee: Member?
   priority: Priority
   """Free text, as many as the project likes. Filter the list by one."""
@@ -33,6 +35,15 @@ entity Issue @allow(read: viewer != null) {
   """Bumped on every change. Send it back as ifVersion so a move cannot land on top of someone else's."""
   version: Int @version
   updatedAt: Instant
+  """The conversation. Long and not for a list, so it arrives in a later frame unless a shape asks for it eagerly."""
+  comments(page: PageArgs = { first: 20 }): Page<Comment> @lazy @cost(base: 1, perItem: 1)
+}
+
+"""What an agent holds: a capability token for the same person, narrowed to the operations it names, and marked."""
+object AgentToken {
+  token: String
+  expiresAt: Instant
+  ops: [String]
 }
 
 """
@@ -140,6 +151,13 @@ query members: [Member] @allow(read: viewer != null)
 """Who is asking, as this service knows them: the session made a person, and this is that person's row."""
 query me: Member? @allow(read: viewer != null)
 
+"""
+A token for a program acting as the caller: the same person, allowed only the operations named, for a while. It is
+marked as an agent's, and an agent may not mint another: a token can be narrowed, never widened.
+"""
+command mintAgentToken(ops: [String], ttlMs: Int = 900000 @range(min: 60000, max: 3600000)): AgentToken
+  @allow(write: viewer != null && viewer.agent == null)
+
 """How the work is spread over the team, across every project. Ask for it `live` and it follows each hand-over."""
 query workload: [Workload] @allow(read: viewer != null) @cost(base: 4)
 
@@ -156,6 +174,7 @@ query activity(projectId: ID, page: PageArgs = { first: 20 }): Page<Activity> @a
 command createIssue(projectId: ID, title: String @range(min: 1, max: 200), assigneeId: ID?, priority: Priority = normal, labels: [String] = [], dueOn: Date?, description: String?): Issue
   emits ActivityHappened
   @allow(write: viewer != null)
+  @simulate
 
 """Change an issue's fields. Send `ifVersion` as with a move; an edit on top of someone else's is refused."""
 command updateIssue(id: ID, changes: IssueChanges): Issue

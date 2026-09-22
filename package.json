@@ -21,7 +21,9 @@
     "down": "docker compose down -v",
     "pretest": "node scripts/check-install.mjs",
     "schema:check": "rayfold check services/documents/src/documents.rayfold --against services/documents/rayfold.lock.json && rayfold check services/workspace/src/workspace.rayfold --against services/workspace/rayfold.lock.json && rayfold check services/catalogue/src/catalogue.rayfold --against services/catalogue/rayfold.lock.json",
-    "schema:lock": "rayfold lock services/documents/src/documents.rayfold --out services/documents/rayfold.lock.json && rayfold lock services/workspace/src/workspace.rayfold --out services/workspace/rayfold.lock.json && rayfold lock services/catalogue/src/catalogue.rayfold --out services/catalogue/rayfold.lock.json"
+    "schema:lock": "rayfold lock services/documents/src/documents.rayfold --out services/documents/rayfold.lock.json && rayfold lock services/workspace/src/workspace.rayfold --out services/workspace/rayfold.lock.json && rayfold lock services/catalogue/src/catalogue.rayfold --out services/catalogue/rayfold.lock.json",
+    "field": "tsx clients/field/field.mts",
+    "agent": "tsx clients/agent/agent.mts"
   },
   "devDependencies": {
     "@rayfold/cli": "^0.2.0",
