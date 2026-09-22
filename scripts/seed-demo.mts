@@ -10,6 +10,7 @@
  *   DOCUMENTS_URL=… WORKSPACE_URL=… npx tsx scripts/seed-demo.mts
  */
 import { RayfoldClient, createFetchTransport } from "@rayfold/client";
+import { pdf } from "../e2e/pdf.ts";
 
 const DOCUMENTS_URL = (process.env["DOCUMENTS_URL"] ?? "http://localhost:4001").replace(/\/$/, "");
 const WORKSPACE_URL = (process.env["WORKSPACE_URL"] ?? "http://localhost:4002").replace(/\/$/, "");
@@ -75,40 +76,6 @@ class Person {
 }
 
 const text = (s: string) => new TextEncoder().encode(s);
-
-/**
- * A one-page PDF, by hand: the smallest file a PDF reader opens without complaint. A document store with no PDF in
- * it does not look like one anyone uses.
- */
-function pdf(title: string, lines: string[]): Uint8Array {
-  const esc = (s: string) => s.replace(/[\\()]/g, (c) => `\\${c}`);
-  const content = [
-    "BT",
-    "/F1 18 Tf 72 720 Td",
-    `(${esc(title)}) Tj`,
-    "/F1 11 Tf 0 -30 Td 14 TL",
-    ...lines.map((l) => `(${esc(l)}) '`),
-    "ET",
-  ].join("\n");
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
-    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-  ];
-  let out = "%PDF-1.4\n";
-  const offsets: number[] = [];
-  objects.forEach((body, i) => {
-    offsets.push(out.length);
-    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
-  });
-  const xref = out.length;
-  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const o of offsets) out += `${String(o).padStart(10, "0")} 00000 n \n`;
-  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-  return text(out);
-}
 
 async function alreadySeeded(projectId: string): Promise<boolean> {
   const page = await client(WORKSPACE_URL, "ada").query<{ total: number }>("issues", { projectId }, { shape: "{ total }" });

@@ -31,6 +31,7 @@ import {
 import { PgIdempotencyStore, PgRelay, idempotencySchema, pgNotifications, relaySchema } from "@rayfold/postgres";
 import pg from "pg";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { connectPlatform, type Platform } from "./platform.ts";
 
 export interface ServiceOptions {
   /** What this service is called, in the fleet view and in its own logs. */
@@ -64,6 +65,8 @@ export interface Deps {
   /** Signs and verifies capability tokens. Every service in the fleet shares the secret, so a token minted by one is honoured by the next. */
   caps: Capabilities;
   config: Config;
+  /** The console, when there is one: live configuration, the queue, and where traces go. See `platform.ts`. */
+  platform: Platform;
 }
 
 export interface Config {
@@ -84,6 +87,12 @@ export interface Config {
    * they are on different ports, so each front end's origin is named here.
    */
   allowedOrigins: string[];
+  /** The console's address, for configuration, the queue and traces. Absent: the service runs alone. */
+  consoleUrl: string | undefined;
+  /** Which of this service's configurations to read: `development`, `staging`, `production`. */
+  environment: string;
+  /** Where other services and workers reach this one, for a URL it hands out to them. */
+  selfUrl: string;
 }
 
 export interface RunningService {
@@ -115,6 +124,9 @@ export function configFrom(name: string): Config {
       .split(",")
       .map((o) => o.trim())
       .filter(Boolean),
+    consoleUrl: process.env["CONSOLE_URL"] || undefined,
+    environment: process.env["APP_ENVIRONMENT"] ?? "development",
+    selfUrl: (process.env["SELF_URL"] ?? `http://127.0.0.1:${process.env["PORT"] ?? 4000}`).replace(/\/$/, ""),
   };
 }
 
@@ -125,6 +137,7 @@ export function schemaAt(url: URL | string): string {
 
 export { FileUploadStore, type FileUploadOptions } from "./upload-file.ts";
 export { SESSION_COOKIE, TEAM, membersSeed, personOf, type Person } from "./team.ts";
+export { connectPlatform, type LiveConfig, type Job, type Platform, type WorkOptions } from "./platform.ts";
 
 /**
  * Answers a browser's preflight for the upload route with the upload headers allowed.
@@ -152,7 +165,8 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
   const config = configFrom(opts.name);
   const sql = new pg.Pool({ connectionString: config.databaseUrl });
   const caps = new Capabilities({ secret: config.capabilitySecret });
-  const deps: Deps = { sql, caps, config };
+  const platform = connectPlatform({ url: config.consoleUrl, app: config.name, environment: config.environment, instance: config.instance });
+  const deps: Deps = { sql, caps, config, platform };
 
   // the platform's tables first: both are safe to run from every instance at once
   await sql.query(idempotencySchema());
@@ -178,9 +192,14 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
     // `rayfold check --unused` read, and what makes removing a field a fact rather than a guess (spec 11)
     usage: new MemoryUsage(),
     identity: { name: config.name, version: config.version, instance: config.instance },
+    // a span per batch, per operation and per loader, exported to the console when there is one
+    ...(platform.instrumentation ? { instrumentation: platform.instrumentation } : {}),
     onRelayError: (e) => console.error(`[${config.name}] relay refused a message:`, e),
   });
 
+  // configuration before the port opens: a service serves with its configuration, not with defaults it corrects later
+  await platform.config.ready();
+  if (platform.connected) console.log(`[${config.name}] configuration from ${config.consoleUrl} (${config.environment}): ${JSON.stringify(platform.config.snapshot())}`);
   await opts.onStart?.(server, deps);
 
   const uploads = opts.uploads?.(deps);
@@ -209,6 +228,8 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
   await new Promise<void>((resolve) => http.listen(config.port, resolve));
 
   const stop = async (): Promise<void> => {
+    // workers first, so no job is claimed by a process on its way out; then the port, then the connections
+    await platform.stop();
     await shutdown(server, http);
     await listener.end();
     await sql.end();

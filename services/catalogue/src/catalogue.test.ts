@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
-import type { RayfoldClientError } from "@rayfold/client";
+import { RayfoldClient, createFetchTransport, type RayfoldClientError } from "@rayfold/client";
+import { createServer, type Server } from "node:http";
 import { startTestService, type TestService } from "../../../e2e/harness.ts";
+import { pdf } from "../../../e2e/pdf.ts";
+import { startStandInConsole, type StandInConsole } from "../../../e2e/stand-in-console.ts";
+import { until } from "../../../e2e/wait.ts";
 import { SEEDED } from "./seed.ts";
 
 /**
@@ -9,18 +13,46 @@ import { SEEDED } from "./seed.ts";
  * that cannot land on someone else's.
  */
 let svc: TestService;
+/** The platform's queue, as far as this service can tell. */
+let platform: StandInConsole;
+/** Stands in for the documents service: bytes at a URL, as a job's fetchUrl points at. */
+let bytes: Server & { serve: (path: string, type: string, body: Uint8Array) => string };
 
 beforeAll(async () => {
-  svc = await startTestService("catalogue");
+  platform = await startStandInConsole();
+  const files = new Map<string, { type: string; body: Uint8Array }>();
+  const server = createServer((req, res) => {
+    const file = files.get(req.url ?? "");
+    if (!file) return void res.writeHead(404).end();
+    res.writeHead(200, { "content-type": file.type }).end(file.body);
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as { port: number }).port;
+  bytes = Object.assign(server, {
+    serve: (path: string, type: string, body: Uint8Array) => {
+      files.set(path, { type, body });
+      return `http://127.0.0.1:${port}${path}`;
+    },
+  });
+  svc = await startTestService("catalogue", { CONSOLE_URL: platform.url, APP_ENVIRONMENT: "test" });
   // the catalogue is reference data and is not emptied between runs, so what a test writes it removes itself
   await svc.sql.query("delete from articles where slug like 'sandbox-reset-how-it-works%'");
+  await svc.sql.query("delete from files");
 });
-afterAll(() => svc?.stop());
+afterAll(async () => {
+  await svc?.stop();
+  await platform?.stop();
+  await new Promise<void>((r) => bytes?.close(() => r()));
+});
+
+const operator = () => new RayfoldClient({ transport: createFetchTransport({ url: `${platform.url}/rayfold` }) });
+const enqueue = (payload: Record<string, unknown>) =>
+  operator().command<{ id: string }>("enqueue", { queue: "extract-text", payload, key: `${payload["documentId"]}:${payload["version"]}` }, { shape: "{ id }", key: crypto.randomUUID() });
 
 const ada = () => svc.client("ada");
 
 interface Hit {
-  $type: "Product" | "Person" | "Article";
+  $type: "Product" | "Person" | "Article" | "File";
   id: string;
   name: string;
   sku?: string;
@@ -133,6 +165,50 @@ it("an article is written under a slug made from its title, and an edit needs th
   // it is searchable the moment it is written
   const found = await ada().query<Page<Hit>>("search", { q: "sandbox reset" }, { shape: "{ items { ...on Article { slug } } }" });
   expect(found.items.map((h) => h.slug)).toContain("sandbox-reset-how-it-works");
+});
+
+it("a kept document's text is taken from the queue, indexed, and found — text and PDF alike", async () => {
+  const plan = bytes.serve("/files/r1", "text/markdown", new TextEncoder().encode("# Cutover plan\n\nThe mirror must reconcile for five consecutive days before wave two. The zebra clause applies."));
+  const contract = bytes.serve("/files/r2", "application/pdf", pdf("Master services agreement", ["Availability: 99.9% measured monthly, excluding announced maintenance."]));
+  await enqueue({ documentId: "doc-plan", projectId: "p1", name: "Cutover plan.md", version: 1, contentType: "text/markdown", size: 80, url: "/files/r1", fetchUrl: plan });
+  await enqueue({ documentId: "doc-msa", projectId: "p1", name: "Master services agreement.pdf", version: 1, contentType: "application/pdf", size: 900, url: "/files/r2", fetchUrl: contract });
+
+  // the worker is this service's own: nothing is called here but the queue
+  const found = await until("the plan to be searchable", async () => {
+    // a phrase only the file has: the articles talk about consecutive days too, and rank above a file by design
+    const page = await ada().query<Page<Hit & { excerpt?: string; url?: string }>>("search", { q: "zebra clause" }, { shape: "{ items { name ...on File { excerpt url projectId } } }" });
+    return page.items.length ? page : undefined;
+  });
+  expect(found.items[0]).toMatchObject({ $type: "File", name: "Cutover plan.md", url: "/files/r1", projectId: "p1" });
+  expect(found.items[0]?.excerpt).toContain("The mirror must reconcile");
+
+  // the PDF's text, from its content stream: a phrase inside it, not only its name
+  const msa = await until("the pdf to be searchable", async () => {
+    const page = await ada().query<Page<Hit>>("search", { q: "announced maintenance" }, { shape: "{ items { name } }" });
+    return page.items.length ? page : undefined;
+  });
+  expect(msa.items.map((h) => h.name)).toContain("Master services agreement.pdf");
+  expect(platform.jobs.filter((j) => j.queue === "extract-text").map((j) => j.state)).toEqual(["done", "done"]);
+
+  // a newer version replaces the text; an older one that finishes later does not put it back
+  const revised = bytes.serve("/files/r3", "text/markdown", new TextEncoder().encode("# Cutover plan, revised\n\nSeven consecutive days now."));
+  await enqueue({ documentId: "doc-plan", projectId: "p1", name: "Cutover plan.md", version: 2, contentType: "text/markdown", size: 60, url: "/files/r3", fetchUrl: revised });
+  await until("the revision to be indexed", async () => ((await svc.sql.query("select version from files where id = 'doc-plan'")).rows[0]?.["version"] === 2 ? true : undefined));
+  await enqueue({ documentId: "doc-plan", projectId: "p1", name: "Cutover plan.md", version: 1, contentType: "text/markdown", size: 80, url: "/files/r1", fetchUrl: plan });
+  await until("the stale job to be done", async () => (platform.jobs.filter((j) => j.key === "doc-plan:1").every((j) => j.state === "done") && platform.jobs.filter((j) => j.key === "doc-plan:1").length === 2 ? true : undefined));
+  expect((await svc.sql.query("select version, url from files where id = 'doc-plan'")).rows[0]).toMatchObject({ version: 2, url: "/files/r3" });
+
+  // files leaf through with everything else, as their own kind
+  const files = await ada().query<Page<Hit>>("items", { kind: "file", page: { first: 10 } }, { shape: "{ items { id name } total }" });
+  expect(files.total).toBe(2);
+  expect(files.items.every((i) => i.$type === "File")).toBe(true);
+});
+
+it("a document that is gone by the time its job runs is not an error, and is not indexed", async () => {
+  await enqueue({ documentId: "doc-gone", projectId: "p1", name: "gone.txt", version: 1, contentType: "text/plain", size: 1, url: "/files/none", fetchUrl: bytes.serve("/files/none-here", "text/plain", new Uint8Array()).replace("none-here", "none") });
+  await until("the job to be done", async () => (platform.jobs.find((j) => j.key === "doc-gone:1")?.state === "done" ? true : undefined));
+  expect((await svc.sql.query("select 1 from files where id = 'doc-gone'")).rowCount).toBe(0);
+  expect(platform.jobs.find((j) => j.key === "doc-gone:1")).toMatchObject({ attempts: 1, result: { indexed: false } });
 });
 
 it("nobody may search, and a search needs a phrase", async () => {

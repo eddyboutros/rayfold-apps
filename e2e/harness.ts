@@ -61,8 +61,8 @@ const OPS_TOKEN = "test-ops-token";
 const TABLES: Record<string, string[]> = {
   documents: ["revisions", "documents"],
   workspace: ["comments", "activity", "issues"],
-  // the catalogue's tables are its reference data, seeded at start and kept: a test reads them rather than empties them
-  catalogue: [],
+  // the catalogue's own tables are reference data, seeded at start and kept; the files it indexes are the fleet's
+  catalogue: ["files"],
 };
 
 /**

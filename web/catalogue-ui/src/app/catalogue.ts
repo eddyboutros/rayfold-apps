@@ -10,17 +10,23 @@
 import { ChangeDetectionStrategy, Component, computed, effect, signal, untracked } from "@angular/core";
 import { NgTemplateOutlet } from "@angular/common";
 import { injectQuery, provideRayfold } from "@rayfold/angular";
-import { catalogueClient } from "./client";
+import { catalogueClient, documentsBase } from "./client";
 import { ArticleView } from "./article";
 
-export type Kind = "product" | "person" | "article";
+export type Kind = "product" | "person" | "article" | "file";
 
 /** One entry, whichever kind: the interface's fields, and each kind's own when the shape asked for them. */
 export interface Entry {
-  $type: "Product" | "Person" | "Article";
+  $type: "Product" | "Person" | "Article" | "File";
   id: string;
   name: string;
   updatedAt: number;
+  // File
+  projectId?: string;
+  contentType?: string;
+  size?: number;
+  url?: string;
+  excerpt?: string;
   // Product
   sku?: string;
   category?: string;
@@ -44,20 +50,25 @@ interface Page {
   hasMore: boolean;
 }
 
-const PER_PAGE: Record<Kind, number> = { product: 12, person: 16, article: 10 };
-const ON_HOME: Record<Kind, number> = { product: 4, person: 8, article: 5 };
+const PER_PAGE: Record<Kind, number> = { product: 12, person: 16, article: 10, file: 10 };
+const ON_HOME: Record<Kind, number> = { product: 4, person: 8, article: 5, file: 5 };
 
 const SHAPE =
   "{ items { id name updatedAt " +
   "...on Product { sku category price availability summary } " +
   "...on Person { title department location email } " +
-  "...on Article { slug summary tags author { name } } } total hasMore }";
+  "...on Article { slug summary tags author { name } } " +
+  "...on File { projectId contentType size url excerpt } } total hasMore }";
 
 const KINDS: Array<{ kind: Kind; label: string; one: string }> = [
   { kind: "product", label: "Products", one: "product" },
   { kind: "person", label: "People", one: "person" },
   { kind: "article", label: "Articles", one: "article" },
+  { kind: "file", label: "Files", one: "file" },
 ];
+
+/** The projects, as the shell names them. A file says which it belongs to; the name is what a person reads. */
+const PROJECT: Record<string, string> = { p1: "Northwind rollout", p2: "Q3 compliance" };
 
 const AVAILABILITY: Record<NonNullable<Entry["availability"]>, string> = {
   available: "Available",
@@ -243,6 +254,23 @@ const AVAILABILITY: Record<NonNullable<Entry["availability"]>, string> = {
             }
           </div>
         }
+        @case ("file") {
+          <div class="card articles files">
+            @for (e of items; track e.id) {
+              <a class="row" [href]="fileHref(e)" target="_blank" rel="noreferrer">
+                <span class="glyph" [attr.data-kind]="fileKind(e)" aria-hidden="true">{{ ext(e.name) }}</span>
+                <span class="main">
+                  <h3>{{ e.name }}</h3>
+                  <span class="muted line">{{ e.excerpt }}</span>
+                </span>
+                <span class="meta">
+                  <span class="pill quiet">{{ project(e.projectId) }}</span>
+                  <span class="muted small by">{{ bytes(e.size ?? 0) }} · {{ when(e.updatedAt) }}</span>
+                </span>
+              </a>
+            }
+          </div>
+        }
       }
     </ng-template>
 
@@ -266,6 +294,13 @@ const AVAILABILITY: Record<NonNullable<Entry["availability"]>, string> = {
           <div class="card articles">
             @for (n of [1, 2, 3]; track n) {
               <div class="row"><span class="main"><span class="skeleton" style="width: 35%"></span><span class="skeleton" style="width: 80%; margin-top: 8px"></span></span></div>
+            }
+          </div>
+        }
+        @case ("file") {
+          <div class="card articles">
+            @for (n of [1, 2]; track n) {
+              <div class="row"><span class="main"><span class="skeleton" style="width: 35%"></span><span class="skeleton" style="width: 70%; margin-top: 8px"></span></span></div>
             }
           </div>
         }
@@ -298,6 +333,7 @@ export class Catalogue {
   private readonly homeProducts = injectQuery<Page>("items", { kind: "product", page: { first: ON_HOME.product } }, { shape: SHAPE });
   private readonly homePeople = injectQuery<Page>("items", { kind: "person", page: { first: ON_HOME.person } }, { shape: SHAPE });
   private readonly homeArticles = injectQuery<Page>("items", { kind: "article", page: { first: ON_HOME.article } }, { shape: SHAPE });
+  private readonly homeFiles = injectQuery<Page>("items", { kind: "file", page: { first: ON_HOME.file } }, { shape: SHAPE });
 
   readonly list = injectQuery<Page>(
     "items",
@@ -317,7 +353,16 @@ export class Catalogue {
   }
 
   home_(kind: Kind) {
-    return kind === "product" ? this.homeProducts : kind === "person" ? this.homePeople : this.homeArticles;
+    switch (kind) {
+      case "product":
+        return this.homeProducts;
+      case "person":
+        return this.homePeople;
+      case "article":
+        return this.homeArticles;
+      case "file":
+        return this.homeFiles;
+    }
   }
 
   count(kind: Kind): number | null {
@@ -330,9 +375,39 @@ export class Catalogue {
 
   /** Search hits in the order they came, gathered by kind: within a kind the best match is still first. */
   grouped(items: Entry[]): Array<{ kind: Kind; label: string; items: Entry[] }> {
-    const of: Record<Kind, Entry[]> = { product: [], person: [], article: [] };
-    for (const e of items) of[e.$type === "Product" ? "product" : e.$type === "Person" ? "person" : "article"].push(e);
+    const of: Record<Kind, Entry[]> = { product: [], person: [], article: [], file: [] };
+    const kindOf: Record<Entry["$type"], Kind> = { Product: "product", Person: "person", Article: "article", File: "file" };
+    for (const e of items) of[kindOf[e.$type]].push(e);
     return KINDS.filter((k) => of[k.kind].length).map((k) => ({ kind: k.kind, label: k.label, items: of[k.kind] }));
+  }
+
+  /** A file's bytes live in the documents service; its url is that service's path, reached under its base. */
+  fileHref(e: Entry): string {
+    return `${documentsBase()}${e.url ?? ""}`;
+  }
+
+  project(id: string | undefined): string {
+    return (id && PROJECT[id]) || id || "";
+  }
+
+  ext(name: string): string {
+    const m = name.match(/\.([a-z0-9]{1,4})$/i);
+    return m ? m[1]!.toUpperCase() : "FILE";
+  }
+
+  fileKind(e: Entry): string {
+    const t = e.contentType ?? "";
+    if (t === "application/pdf") return "pdf";
+    if (t === "text/csv" || t.includes("spreadsheet")) return "sheet";
+    if (t.startsWith("text/") || t.includes("document")) return "text";
+    if (t.startsWith("image/")) return "image";
+    return "other";
+  }
+
+  bytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
   }
 
   type(value: string): void {

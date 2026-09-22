@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startTestService, type TestService } from "./harness.ts";
+import { startStandInConsole, type StandInConsole } from "./stand-in-console.ts";
 import { signal, until } from "./wait.ts";
 
 /**
@@ -14,6 +15,8 @@ import { signal, until } from "./wait.ts";
  */
 let documents: TestService;
 let workspace: TestService;
+let catalogue: TestService;
+let platform: StandInConsole;
 let dirs: { files: string; uploads: string };
 
 const PROJECT = "p1";
@@ -21,14 +24,18 @@ const PROJECT = "p1";
 beforeAll(async () => {
   const root = await mkdtemp(join(tmpdir(), "fleet-"));
   dirs = { files: join(root, "files"), uploads: join(root, "uploads") };
+  platform = await startStandInConsole();
   // started one after the other, as a deploy starts them: each reads its own configuration and opens its own port
-  documents = await startTestService("documents", { FILES_DIR: dirs.files, UPLOADS_DIR: dirs.uploads });
-  workspace = await startTestService("workspace");
+  documents = await startTestService("documents", { FILES_DIR: dirs.files, UPLOADS_DIR: dirs.uploads, CONSOLE_URL: platform.url });
+  workspace = await startTestService("workspace", { CONSOLE_URL: platform.url });
+  catalogue = await startTestService("catalogue", { CONSOLE_URL: platform.url });
 });
 
 afterAll(async () => {
+  await catalogue?.stop();
   await workspace?.stop();
   await documents?.stop();
+  await platform?.stop();
   await rm(dirs.files, { recursive: true, force: true });
   await rm(dirs.uploads, { recursive: true, force: true });
 });
@@ -36,6 +43,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await documents.reset();
   await workspace.reset();
+  await catalogue.reset();
   await rm(dirs.files, { recursive: true, force: true });
 });
 
@@ -159,10 +167,43 @@ it("the workspace's own work and the other service's sit on one feed, and an ope
   }
 });
 
+it("a document kept in one service is found by a search in another, by way of the platform's queue", async () => {
+  // the whole chain, with nothing shared between the two services but the queue: documents puts the job on it with
+  // a token that reads this one document; the catalogue takes the job, fetches the bytes with that token, and
+  // indexes the text. the person searching never touched either job or token.
+  const doc = await documents.client("ada").command<Doc>(
+    "createDocument",
+    { projectId: PROJECT, upload: await upload(text("Wave two moves orders and returns; invoicing stays behind until wave three.")), name: "Rollout notes.txt" },
+    { shape: "{ id version }" },
+  );
+
+  const found = await until("the catalogue to find the document's text", async () => {
+    const page = await catalogue.client("grace").query<{ items: Array<{ $type: string; name: string; url?: string; excerpt?: string }> }>(
+      "search",
+      { q: "invoicing stays behind" },
+      { shape: "{ items { name ...on File { url excerpt } } }" },
+    );
+    return page.items.length ? page : undefined;
+  }, 10_000);
+  expect(found.items[0]).toMatchObject({ $type: "File", name: "Rollout notes.txt" });
+  expect(found.items[0]?.excerpt).toContain("Wave two moves orders");
+
+  // the url the catalogue hands out is the documents service's own path, which the person's session may open there
+  const url = found.items[0]!.url!;
+  expect(await (await fetch(`${documents.base}${url}`, { headers: { cookie: "keel_session=grace" } })).text()).toContain("Wave two moves orders");
+
+  // what the queue recorded: one job, keyed to the revision, done by the catalogue's worker
+  const job = platform.jobs.find((j) => j.key === `${doc.id}:1`)!;
+  expect(job).toMatchObject({ queue: "extract-text", state: "done", attempts: 1 });
+  expect(job.worker).toContain("catalogue");
+  expect(job.result).toMatchObject({ indexed: true });
+});
+
 it("each service answers for itself, and says which it is", async () => {
   for (const [name, svc] of [
     ["documents", documents],
     ["workspace", workspace],
+    ["catalogue", catalogue],
   ] as const) {
     const stats = await fetch(`${svc.base}/rayfold/stats`, { headers: { authorization: `Bearer ${svc.opsToken}` } });
     expect(stats.status, name).toBe(200);

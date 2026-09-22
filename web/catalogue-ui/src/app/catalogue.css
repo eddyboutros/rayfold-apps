@@ -345,6 +345,38 @@ h3 {
   gap: 2px;
 }
 
+/* a file is a link to its bytes in the documents service, with its kind as a small tab */
+.files .row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.files .row:hover {
+  text-decoration: none;
+}
+
+.glyph {
+  display: grid;
+  place-items: center;
+  min-width: 34px;
+  height: 24px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--sunken);
+  color: var(--ink-muted);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.glyph[data-kind="pdf"] { background: var(--bad-soft); color: var(--bad); }
+.glyph[data-kind="sheet"] { background: var(--ok-soft); color: var(--ok); }
+.glyph[data-kind="text"] { background: var(--accent-soft); color: var(--accent); }
+.glyph[data-kind="image"] { background: var(--warn-soft); color: var(--warn); }
+
 .articles .meta {
   display: flex;
   flex-direction: column;

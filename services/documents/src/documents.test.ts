@@ -2,8 +2,10 @@ import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { RayfoldClientError } from "@rayfold/client";
+import { RayfoldClient, createFetchTransport, type RayfoldClientError } from "@rayfold/client";
 import { startTestService, type TestService } from "../../../e2e/harness.ts";
+import { startStandInConsole, type StandInConsole } from "../../../e2e/stand-in-console.ts";
+import { until } from "../../../e2e/wait.ts";
 
 /**
  * The documents service as it runs: a real Postgres, a real port, the real client. What is asserted is what the
@@ -12,18 +14,26 @@ import { startTestService, type TestService } from "../../../e2e/harness.ts";
  */
 let svc: TestService;
 let dirs: { files: string; uploads: string };
+/** The platform, as far as this service can tell: its configuration and its queue. */
+let platform: StandInConsole;
 
 beforeAll(async () => {
   const root = await mkdtemp(join(tmpdir(), "documents-"));
   dirs = { files: join(root, "files"), uploads: join(root, "uploads") };
-  svc = await startTestService("documents", { FILES_DIR: dirs.files, UPLOADS_DIR: dirs.uploads });
+  platform = await startStandInConsole();
+  svc = await startTestService("documents", { FILES_DIR: dirs.files, UPLOADS_DIR: dirs.uploads, CONSOLE_URL: platform.url, APP_ENVIRONMENT: "test" });
 });
 
 afterAll(async () => {
   await svc?.stop();
+  await platform?.stop();
   await rm(dirs.files, { recursive: true, force: true });
   await rm(dirs.uploads, { recursive: true, force: true });
 });
+
+const operator = () => new RayfoldClient({ transport: createFetchTransport({ url: `${platform.url}/rayfold` }) });
+const configure = (key: string, value: string) =>
+  operator().command("setConfig", { app: "documents", environment: "test", key, value }, { shape: "{ key }", key: crypto.randomUUID() });
 
 beforeEach(async () => {
   await svc.reset();
@@ -206,6 +216,52 @@ it("takes the bytes with the document when it is deleted", async () => {
   expect(await readdir(dirs.files)).toEqual([]);
   expect((await download(doc.url, "ada")).status).toBe(404);
   expect((await svc.sql.query("select 1 from revisions where document_id = $1", [doc.id])).rowCount).toBe(0);
+});
+
+it("keeping a document queues its text extraction, with a token that reads that document and nothing else", async () => {
+  const ada = client("ada");
+  const doc = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("the whole contract")), name: "contract.txt" }, { shape: SHAPE });
+  const other = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("not this one")), name: "other.txt" }, { shape: SHAPE });
+
+  // one job per revision, keyed so a retry or a second instance cannot queue it twice
+  const job = await until("the job to be queued", async () => platform.jobs.find((j) => j.queue === "extract-text" && j.key === `${doc.id}:1`));
+  const payload = job.payload as { documentId: string; projectId: string; name: string; contentType: string; url: string; fetchUrl: string };
+  expect(payload).toMatchObject({ documentId: doc.id, projectId: "p1", name: "contract.txt", contentType: "text/plain", url: doc.url });
+
+  // the worker fetches the bytes with what the job carries, and nothing else: no session, no ops token
+  expect(await (await fetch(payload.fetchUrl)).text()).toBe("the whole contract");
+  const token = new URL(payload.fetchUrl).searchParams.get("token")!;
+  expect(token.startsWith("rfcap1.")).toBe(true);
+  expect((await download(other.url, token)).status).toBe(404);
+
+  // a new version is a new job
+  await ada.command<Document>("replaceContent", { id: doc.id, upload: await upload("ada", text("the whole contract, signed")) }, { shape: SHAPE });
+  const second = await until("the second job", async () => platform.jobs.find((j) => j.key === `${doc.id}:2`));
+  expect(await (await fetch((second.payload as { fetchUrl: string }).fetchUrl)).text()).toBe("the whole contract, signed");
+});
+
+it("the platform's upload limit applies while the service runs, and a refused upload leaves no bytes", async () => {
+  await configure("uploads.maxBytes", "10");
+  // the value travels over a live query; the service applies it the moment it arrives, without a restart
+  const refused = await until("the limit to reach the service", async () => {
+    const e = await client("ada")
+      .command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("eleven bytes")), name: "big.txt" }, { shape: SHAPE })
+      .then(() => null, (err: RayfoldClientError) => err);
+    return e?.type === "UploadTooLarge" ? e : undefined;
+  });
+  expect(refused.data).toMatchObject({ size: 12, limit: 10 });
+  expect(await readdir(dirs.files)).toEqual([]);
+
+  // guard: under the limit is kept, and raising the limit lets the same bytes through, still without a restart
+  const small = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("ten bytes!")), name: "small.txt" }, { shape: SHAPE });
+  expect(small.size).toBe(10);
+  await configure("uploads.maxBytes", String(25 * 1024 * 1024));
+  const kept = await until("the raised limit to reach the service", async () =>
+    client("ada")
+      .command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("eleven bytes")), name: "big.txt" }, { shape: SHAPE })
+      .then((d) => d, () => undefined),
+  );
+  expect(kept.size).toBe(12);
 });
 
 it("says who it is and what it is doing", async () => {

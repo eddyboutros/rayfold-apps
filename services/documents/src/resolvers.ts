@@ -7,6 +7,7 @@
  */
 import { RayfoldError, ok, type Resolvers, type UploadStore } from "@rayfold/server";
 import type { Capabilities } from "@rayfold/server";
+import type { Platform } from "@apps/service-kit";
 import type { FileStore } from "./files.ts";
 import type { Document, Member, Revision } from "./store.ts";
 import type { DocumentStore } from "./store.ts";
@@ -34,11 +35,31 @@ export interface Parts {
   files: FileStore;
   uploads: UploadStore;
   caps: Capabilities;
+  /** The queue a kept document's text extraction goes on. */
+  platform: Platform;
+  /** Where a worker reaches this service, for the URL the job carries. */
+  selfUrl: string;
+  /** The most bytes a document may be, read each time: the platform can change it while the service runs. */
+  limitBytes: () => number;
   id?: () => string;
   now?: () => number;
 }
 
-export function resolvers({ store, files, uploads, caps, id = () => crypto.randomUUID(), now = Date.now }: Parts): Resolvers {
+/** What the extract-text worker is handed: enough to fetch the bytes and to say what they belong to. */
+export interface ExtractJob {
+  documentId: string;
+  projectId: string;
+  name: string;
+  version: number;
+  contentType: string;
+  size: number;
+  /** The document's own path, as the catalogue links to it. */
+  url: string;
+  /** Where the bytes are fetched from, with a capability token that reads this document and nothing else. */
+  fetchUrl: string;
+}
+
+export function resolvers({ store, files, uploads, caps, platform, selfUrl, limitBytes, id = () => crypto.randomUUID(), now = Date.now }: Parts): Resolvers {
   const find = async (documentId: string): Promise<Document> => {
     const doc = await store.document(documentId);
     if (!doc) throw RayfoldError.domain("NotFound", { id: documentId }, `No document ${documentId}`);
@@ -50,14 +71,50 @@ export function resolvers({ store, files, uploads, caps, id = () => crypto.rando
     return doc;
   };
 
-  /** Moves an upload's bytes into the file store under a fresh revision id. The upload is gone afterwards. */
+  /**
+   * Moves an upload's bytes into the file store under a fresh revision id. The upload is gone afterwards. Bytes over
+   * the platform's limit are taken back rather than kept: the limit is checked on what actually arrived, because the
+   * upload route cannot know what a client will claim.
+   */
   const keep = async (upload: string): Promise<{ revisionId: string; size: number; type?: string | undefined }> => {
     const kept = await uploads.open(upload);
     if (!kept) throw RayfoldError.domain("UploadGone", { upload }, `Upload ${upload} is not there any more`);
     const revisionId = id();
     const size = await files.write(revisionId, kept.body);
     await uploads.delete(upload);
+    const limit = limitBytes();
+    if (size > limit) {
+      await files.remove(revisionId);
+      throw RayfoldError.domain("UploadTooLarge", { size, limit }, `${size} bytes is over the limit of ${limit}`);
+    }
     return { revisionId, size, type: kept.upload.type };
+  };
+
+  /**
+   * Hands the document to whoever extracts text from it, through the platform's queue. The job carries a capability
+   * token that reads this document and nothing else, for the hour a token may live at most: the worker never holds
+   * a person's session, and a job that has waited longer than that is re-queued by hand rather than given a token
+   * that would outlive the reason it was minted. A platform that is down does not fail the upload; the document is
+   * kept and the job is the platform's to run when it is back.
+   */
+  const extractLater = async (doc: Document): Promise<void> => {
+    const token = caps.mint({ id: `job:${doc.id}`, documentId: doc.id }, { ops: ["document"], ttlMs: 60 * 60 * 1000, iss: "documents" });
+    const job: ExtractJob = {
+      documentId: doc.id,
+      projectId: doc.projectId,
+      name: doc.name,
+      version: doc.version,
+      contentType: doc.contentType,
+      size: doc.size,
+      url: doc.url,
+      fetchUrl: `${selfUrl}${doc.url}?token=${encodeURIComponent(token)}`,
+    };
+    try {
+      // one job per revision: a retry of the command replays, and a second instance's enqueue finds this one
+      await platform.enqueue("extract-text", job, { key: `${doc.id}:${doc.version}` });
+    } catch (e) {
+      console.error(`[documents] could not queue text extraction for ${doc.id}`, e);
+    }
   };
 
   const pageOf = <T>(items: T[], total: number, cursor: (t: T) => string) => ({
@@ -101,6 +158,7 @@ export function resolvers({ store, files, uploads, caps, id = () => crypto.rando
           ownerId: viewer.id,
         };
         await store.create(doc, { id: revisionId, documentId: doc.id, version: 1, size, url: doc.url, at, byId: viewer.id });
+        await extractLater(doc);
         return ok(doc, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: 1, byId: viewer.id } }] });
       },
 
@@ -122,6 +180,7 @@ export function resolvers({ store, files, uploads, caps, id = () => crypto.rando
           ctx.checkVersion(`Document:${doc.id}`, current.version, current);
           throw RayfoldError.domain("NotFound", { id: documentId }, `Document ${documentId} changed while this was running`);
         }
+        await extractLater(next);
         return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: next.version, byId: viewer.id } }] });
       },
 

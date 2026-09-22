@@ -53,10 +53,30 @@ entity Article implements Item @cache(maxAge: 60s, scope: public) {
   updatedAt: Instant
 }
 
-"""What a search finds. A shape names what it wants of each kind: `{ ...on Product { sku } ...on Person { title } }`."""
-union Hit = Product | Person | Article
+"""
+A file someone kept in the documents service, as far as its text is searchable here. The bytes stay there; `url` is
+where they are, and the documents service decides who may read them. The text arrives through the platform's queue:
+keeping a document puts an extract-text job on it, and this service takes the job.
+"""
+entity File implements Item @cache(maxAge: 60s, scope: private) {
+  id: ID
+  name: String
+  projectId: ID
+  contentType: String
+  size: Int @unit("bytes")
+  """The document's path in the documents service. A page reaches it under that service's base."""
+  url: String
+  """The first lines of the text, for a result to show."""
+  excerpt: String
+  """The document's version this text was taken from."""
+  version: Int
+  updatedAt: Instant
+}
 
-enum Kind { product, person, article }
+"""What a search finds. A shape names what it wants of each kind: `{ ...on Product { sku } ...on Person { title } }`."""
+union Hit = Product | Person | Article | File
+
+enum Kind { product, person, article, file }
 
 error NotFound { id: ID }
 

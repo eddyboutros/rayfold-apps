@@ -101,6 +101,21 @@ starts two.
 
 A service says what it is; none of that is repeated in it.
 
+## The platform's console
+
+With `CONSOLE_URL` set, every service is on the platform: it reads its configuration from the console with a **live
+query** and applies a change the moment it arrives (the documents service's upload limit is one such value, under
+`documents / <environment> / uploads.maxBytes`), it puts work on and takes work from the console's **queue** through
+ordinary commands, and it exports a span per batch, operation and loader over **OTLP** so a trace shows how a page
+was resolved. Without `CONSOLE_URL` a service runs alone on its defaults; it never needs the platform to serve.
+
+The flow that uses all of it: keeping a document puts an `extract-text` job on the queue, with a capability token
+that reads that one document for an hour. The catalogue takes the job, fetches the bytes with the token, reads the
+text (text files as they are; the PDFs this fleet writes from their content streams) and indexes it as a `File`, a
+fourth kind in its search. Nothing is shared between the two services but the queue, and the console shows the job
+move. `e2e/fleet.test.ts` drives the whole chain; `e2e/stand-in-console.ts` is the console as a service sees it,
+so the tests need only Postgres.
+
 ## Conventions
 
 **One database, one schema per service.** Services share a Postgres and never read each other's tables. Two tables
@@ -128,3 +143,6 @@ path for tests.
 | `OPS_TOKEN` | Gates `GET /rayfold/stats`. Without it that route is not served at all. |
 | `PORT` | Default 4000. |
 | `SERVICE_VERSION`, `INSTANCE` | What the service reports as its identity. A container's hostname does for the second. |
+| `CONSOLE_URL` | The Rayfold Console: configuration, queue, traces. Absent: the service runs alone. |
+| `APP_ENVIRONMENT` | Which configuration to read from the console. Default `development`; `production` in compose. |
+| `SELF_URL` | Where a worker reaches this service, for a URL it hands out in a job. Default `http://127.0.0.1:$PORT`. |

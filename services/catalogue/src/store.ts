@@ -8,7 +8,7 @@ import type pg from "pg";
 import { SEED } from "./seed.ts";
 
 export type Availability = "available" | "limited" | "waitlist" | "retired";
-export type Kind = "product" | "person" | "article";
+export type Kind = "product" | "person" | "article" | "file";
 
 export interface Product {
   $type: "Product";
@@ -46,7 +46,20 @@ export interface Article {
   updatedAt: number;
 }
 
-export type Item = Product | Person | Article;
+export interface File {
+  $type: "File";
+  id: string;
+  name: string;
+  projectId: string;
+  contentType: string;
+  size: number;
+  url: string;
+  excerpt: string;
+  version: number;
+  updatedAt: number;
+}
+
+export type Item = Product | Person | Article | File;
 
 export const SCHEMA = `
   create table if not exists products (
@@ -81,17 +94,38 @@ export const SCHEMA = `
     version int not null,
     updated_at bigint not null
   );
+
+  -- what the extract-text worker writes: the document's text, and enough about it to show a result. the id is the
+  -- documents service's id for it, so a new version of the same document replaces the row rather than adding one
+  create table if not exists files (
+    id text primary key,
+    name text not null,
+    project_id text not null,
+    content_type text not null,
+    size bigint not null,
+    url text not null,
+    text text not null,
+    version int not null,
+    updated_at bigint not null
+  );
 `;
 
-const TABLE: Record<Kind, string> = { product: "products", person: "people", article: "articles" };
-const TYPE: Record<Kind, Item["$type"]> = { product: "Product", person: "Person", article: "Article" };
+const TABLE: Record<Kind, string> = { product: "products", person: "people", article: "articles", file: "files" };
+const TYPE: Record<Kind, Item["$type"]> = { product: "Product", person: "Person", article: "Article", file: "File" };
 
 /** What one kind contributes to the search: the columns to rank a phrase against, weighted by how much they say. */
 const SEARCHABLE: Record<Kind, string> = {
   product: "setweight(to_tsvector('english', name || ' ' || sku), 'A') || setweight(to_tsvector('english', summary || ' ' || category), 'B')",
   person: "setweight(to_tsvector('english', name), 'A') || setweight(to_tsvector('english', title || ' ' || department || ' ' || location), 'B')",
   article: "setweight(to_tsvector('english', name || ' ' || array_to_string(tags, ' ')), 'A') || setweight(to_tsvector('english', summary), 'B') || setweight(to_tsvector('english', body), 'C')",
+  file: "setweight(to_tsvector('english', name), 'A') || setweight(to_tsvector('english', text), 'C')",
 };
+
+/** The first lines of a text, for a result: enough to recognise the file, not enough to read it here. */
+export function excerptOf(text: string, max = 200): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
+}
 
 const toProduct = (r: Record<string, unknown>): Product => ({
   $type: "Product",
@@ -129,7 +163,20 @@ const toArticle = (r: Record<string, unknown>): Article => ({
   updatedAt: Number(r["updated_at"]),
 });
 
-const convert: Record<Kind, (r: Record<string, unknown>) => Item> = { product: toProduct, person: toPerson, article: toArticle };
+const toFile = (r: Record<string, unknown>): File => ({
+  $type: "File",
+  id: r["id"] as string,
+  name: r["name"] as string,
+  projectId: r["project_id"] as string,
+  contentType: r["content_type"] as string,
+  size: Number(r["size"]),
+  url: r["url"] as string,
+  excerpt: excerptOf(r["text"] as string),
+  version: r["version"] as number,
+  updatedAt: Number(r["updated_at"]),
+});
+
+const convert: Record<Kind, (r: Record<string, unknown>) => Item> = { product: toProduct, person: toPerson, article: toArticle, file: toFile };
 
 export class CatalogueStore {
   constructor(private readonly sql: pg.Pool) {}
@@ -172,7 +219,7 @@ export class CatalogueStore {
    * three columns first, so one `order by` serves whichever mix the page holds.
    */
   async items(kind: Kind | null, first: number, offset: number): Promise<{ items: Item[]; total: number }> {
-    const kinds: Kind[] = kind ? [kind] : ["product", "person", "article"];
+    const kinds: Kind[] = kind ? [kind] : ["product", "person", "article", "file"];
     const union = kinds.map((k) => `select '${k}' as kind, id, updated_at from ${TABLE[k]}`).join(" union all ");
     const { rows } = await this.sql.query(`select kind, id from (${union}) all_items order by updated_at desc, id limit $1 offset $2`, [first, offset]);
     const { rows: counted } = await this.sql.query(`select count(*)::int as n from (${union}) all_items`);
@@ -181,7 +228,7 @@ export class CatalogueStore {
 
   /** Everything matching a phrase, best match first, then newest. */
   async search(q: string, first: number, after: string | null): Promise<{ items: Item[]; total: number }> {
-    const kinds: Kind[] = ["product", "person", "article"];
+    const kinds: Kind[] = ["product", "person", "article", "file"];
     const ranked = kinds
       .map((k) => `select '${k}' as kind, id, updated_at, ts_rank(${SEARCHABLE[k]}, query) as rank from ${TABLE[k]}, plainto_tsquery('english', $1) query where ${SEARCHABLE[k]} @@ query`)
       .join(" union all ");
@@ -219,6 +266,26 @@ export class CatalogueStore {
       [a.id, a.name, a.summary, a.tags, a.body, a.version, a.updatedAt, fromVersion],
     );
     return !!rowCount;
+  }
+
+  /**
+   * Keeps a document's text, replacing what an earlier version left. A version older than the one already kept is
+   * left alone: the queue is at-least-once and two versions' jobs can finish in either order.
+   */
+  async indexFile(file: Omit<File, "$type" | "excerpt"> & { text: string }): Promise<boolean> {
+    const { rowCount } = await this.sql.query(
+      `insert into files (id, name, project_id, content_type, size, url, text, version, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       on conflict (id) do update set name = excluded.name, project_id = excluded.project_id, content_type = excluded.content_type,
+         size = excluded.size, url = excluded.url, text = excluded.text, version = excluded.version, updated_at = excluded.updated_at
+       where files.version <= excluded.version`,
+      [file.id, file.name, file.projectId, file.contentType, file.size, file.url, file.text, file.version, file.updatedAt],
+    );
+    return !!rowCount;
+  }
+
+  async removeFile(id: string): Promise<void> {
+    await this.sql.query("delete from files where id = $1", [id]);
   }
 
   async slugTaken(slug: string): Promise<boolean> {

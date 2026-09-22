@@ -35,6 +35,11 @@ services:
       UPLOADS_DIR: /var/lib/documents/uploads
       # what a document's url starts with, as reached through the gateway
       PUBLIC_BASE: /files
+      # where a worker in the fleet fetches a document's bytes: this container, on the compose network
+      SELF_URL: http://documents:4000
+      # the console, when one runs beside the fleet: configuration, the queue, traces. empty means none
+      CONSOLE_URL: ${CONSOLE_URL:-}
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
     volumes:
       - documents:/var/lib/documents
     depends_on:
@@ -60,6 +65,8 @@ services:
       CAPABILITY_SECRET: ${CAPABILITY_SECRET:-a-development-secret-at-least-16}
       OPS_TOKEN: ${OPS_TOKEN:-dev-ops-token}
       SERVICE_VERSION: ${GIT_SHA:-dev}
+      CONSOLE_URL: ${CONSOLE_URL:-}
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
     depends_on:
       postgres: { condition: service_healthy }
     healthcheck:
@@ -80,6 +87,8 @@ services:
       CAPABILITY_SECRET: ${CAPABILITY_SECRET:-a-development-secret-at-least-16}
       OPS_TOKEN: ${OPS_TOKEN:-dev-ops-token}
       SERVICE_VERSION: ${GIT_SHA:-dev}
+      CONSOLE_URL: ${CONSOLE_URL:-}
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
     depends_on:
       postgres: { condition: service_healthy }
     healthcheck:

@@ -61,6 +61,8 @@ error NotFound { id: ID }
 error Forbidden { id: ID }
 """The upload named by a command was never there, or its lifetime ran out before the command arrived."""
 error UploadGone { upload: ID }
+"""The bytes are over the limit the platform sets for this service. Nothing was kept."""
+error UploadTooLarge { size: Int, limit: Int }
 
 """Raised on every change, with who made it, so another service can say so without asking this one."""
 event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID }
@@ -75,7 +77,7 @@ query revisions(documentId: ID, page: PageArgs = { first: 20 }): Page<Revision> 
 
 """Take an upload and keep it as a document. The upload is consumed: its bytes move, they are not copied and left."""
 command createDocument(upload: ID, name: String, projectId: ID): Document
-  throws UploadGone
+  throws UploadGone | UploadTooLarge
   emits DocumentChanged
   @allow(write: viewer != null)
 
@@ -84,7 +86,7 @@ Replace a document's bytes, keeping the old ones as a revision. Send `ifVersion`
 replace that would land on top of someone else's is refused with `version_conflict` instead.
 """
 command replaceContent(id: ID, upload: ID): Document
-  throws NotFound | Forbidden | UploadGone
+  throws NotFound | Forbidden | UploadGone | UploadTooLarge
   emits DocumentChanged
   @allow(write: viewer != null)
 
@@ -99,7 +101,7 @@ Hand someone a link to one document. What comes back is a capability token: it s
 this document and nothing else, it may call only the operations it names, and it stops working when it expires.
 No account is created, nothing is stored, and it cannot be widened by whoever holds it.
 """
-command shareDocument(id: ID, ttlMs: Int = 3600000 @range(min: 1000, max: 86400000)): Share
+command shareDocument(id: ID, ttlMs: Int = 3600000 @range(min: 1000, max: 3600000)): Share
   throws NotFound | Forbidden
   @allow(write: viewer != null)
 

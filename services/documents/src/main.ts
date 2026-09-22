@@ -44,7 +44,17 @@ const service = await startService({
   schema: schemaAt(new URL("./documents.rayfold", import.meta.url)),
   migrate: async (sql) => new DocumentStore(sql).migrate(),
   uploads: () => uploads,
-  resolvers: (deps) => resolvers({ store: new DocumentStore(deps.sql), files, uploads, caps: deps.caps }),
+  resolvers: (deps) =>
+    resolvers({
+      store: new DocumentStore(deps.sql),
+      files,
+      uploads,
+      caps: deps.caps,
+      platform: deps.platform,
+      selfUrl: deps.config.selfUrl,
+      // set in the console under documents / <environment> / uploads.maxBytes; this is the default until it is
+      limitBytes: () => deps.platform.config.number("uploads.maxBytes", 25 * 1024 * 1024),
+    }),
   viewer: (req, deps) => whoIs(req, new URLSearchParams((req.url ?? "").split("?")[1] ?? ""), deps),
 
   routes: (req: IncomingMessage, res: ServerResponse, deps: Deps) => {
