@@ -49,6 +49,8 @@ jobs:
     name: Every front end builds
     runs-on: ubuntu-latest
     strategy:
+      # every front end reports on its own; one failing must not hide what the others would have said
+      fail-fast: false
       matrix:
         app: [shell, documents-ui, workspace-ui]
     defaults:
