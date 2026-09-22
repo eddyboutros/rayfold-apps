@@ -1,0 +1,76 @@
+.count {
+  font-size: 12px;
+}
+
+.compose {
+  display: flex;
+  gap: 8px;
+  margin: 14px 16px 0;
+}
+
+.group {
+  margin: 12px 0 4px;
+}
+
+.list > .group:first-child {
+  margin-top: 0;
+}
+
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+ol .row:first-child {
+  border-top: 0;
+}
+
+.title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.done .title {
+  color: var(--ink-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--line-strong);
+}
+
+.who {
+  font-size: 12px;
+}
+
+/* the moves appear on hover or focus, so a list of twenty issues is a list and not forty buttons */
+.moves {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.row:hover .moves,
+.row:focus-within .moves {
+  opacity: 1;
+}
+
+.moves .btn {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.bad {
+  color: var(--bad);
+  font-size: 12.5px;
+}

@@ -172,11 +172,9 @@ main {
   align-items: start;
 }
 
-/* two panels side by side where there is room, stacked where there is not */
-@media (min-width: 1100px) {
-  main {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
+/* as many panels across as fit at a readable width: one column on a phone, three on a wide screen */
+main {
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
 }
 
 .slot {

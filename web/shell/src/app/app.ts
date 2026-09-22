@@ -112,6 +112,7 @@ export class App {
   );
 
   readonly panels = signal<Panel[]>([
+    { key: "issues", label: "Issues", remote: "workspace-ui", exposed: "./Issues", component: null, failed: null },
     { key: "documents", label: "Documents", remote: "documents-ui", exposed: "./Documents", component: null, failed: null },
     { key: "activity", label: "Activity", remote: "workspace-ui", exposed: "./Feed", component: null, failed: null },
   ]);

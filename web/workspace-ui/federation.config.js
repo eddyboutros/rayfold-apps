@@ -6,6 +6,7 @@ module.exports = withNativeFederation({
   // what the shell may load. the feed is the whole of this remote's public surface.
   exposes: {
     './Feed': './src/app/feed.ts',
+    './Issues': './src/app/issues.ts',
   },
 
   shared: {

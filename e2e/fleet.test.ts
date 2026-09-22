@@ -126,25 +126,36 @@ it("replacing a document adds a second line, and the feed keeps both in order", 
   expect(feed.items.map((i) => i.kind)).toEqual(["document.replaced", "document.added"]);
 });
 
-it("the workspace's own work and the other service's sit on one feed", async () => {
+it("the workspace's own work and the other service's sit on one feed, and an open feed hears both", async () => {
   const ada = workspace.client("ada");
-  const issue = await ada.command<{ id: string; title: string }>("createIssue", { projectId: PROJECT, title: "Sign the contract" }, { shape: "{ id title }" });
-  await ada.command("addComment", { issueId: issue.id, body: "waiting on the file" }, { shape: "{ id }" });
-  await documents.client("ada").command<Doc>("createDocument", { upload: await upload(text("the contract")), name: "contract.txt" }, { shape: "{ id }" });
+  // a feed already open, as a person's screen is: it has to hear this service's own commands, not only the relay.
+  // a new row touches no entity the feed has read, so this is what a command's `invOp` patch exists for
+  const seen = signal<Feed>();
+  const stop = ada.live<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text } }" }, (d) => seen.fire(d), (e) => {
+    throw e;
+  });
+  try {
+    expect((await seen.wait("the open feed's first answer")).items).toEqual([]);
 
-  const feed = await until(
-    "all three lines",
-    async () => {
-      const page = await ada.query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text } }" });
-      return page.items.length === 3 ? page : undefined;
-    },
-  );
+    const issue = await ada.command<{ id: string; title: string }>("createIssue", { projectId: PROJECT, title: "Sign the contract" }, { shape: "{ id title }" });
+    expect((await seen.wait("the feed to hear the issue")).items.map((i) => i.kind)).toEqual(["issue.created"]);
 
-  expect(feed.items.map((i) => `${i.source}:${i.kind}`)).toEqual([
-    "documents:document.added",
-    "workspace:comment.added",
-    "workspace:issue.created",
-  ]);
+    await ada.command("addComment", { issueId: issue.id, body: "waiting on the file" }, { shape: "{ id }" });
+    expect((await seen.wait("the feed to hear the comment")).items.map((i) => i.kind)).toEqual(["comment.added", "issue.created"]);
+
+    await documents.client("ada").command<Doc>("createDocument", { upload: await upload(text("the contract")), name: "contract.txt" }, { shape: "{ id }" });
+    const all = await until("the feed to hear the other service", async () => {
+      const next = await seen.wait("a feed update", 1_000).catch(() => undefined);
+      return next?.items.length === 3 ? next : undefined;
+    }, 8_000);
+    expect(all.items.map((i) => `${i.source}:${i.kind}`)).toEqual([
+      "documents:document.added",
+      "workspace:comment.added",
+      "workspace:issue.created",
+    ]);
+  } finally {
+    stop();
+  }
 });
 
 it("each service answers for itself, and says which it is", async () => {

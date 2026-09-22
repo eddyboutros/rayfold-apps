@@ -48,6 +48,12 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
     return { event: "ActivityHappened", payload: { ...entry } };
   };
 
+  /**
+   * What a command that wrote a feed line hands back beside its result. A new row touches no entity a live
+   * `activity` query has already read, so the patch names the operation itself: every open feed re-runs.
+   */
+  const feedChanged = [{ invOp: ["activity"] }];
+
   return {
     Query: {
       issue: ({ id: issueId }: { id: string }) => store.issue(issueId),
@@ -72,7 +78,7 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
       createIssue: async ({ projectId, title }: { projectId: string; title: string }, ctx) => {
         const issue: Issue = { id: id(), projectId, title, state: "open", assigneeId: (ctx.viewer as Viewer).id, version: 1, updatedAt: now() };
         await store.createIssue(issue);
-        return ok(issue, { emit: [await line({ projectId, source: "workspace", kind: "issue.created", text: title })] });
+        return ok(issue, { patch: feedChanged, emit: [await line({ projectId, source: "workspace", kind: "issue.created", text: title })] });
       },
 
       moveIssue: async ({ id: issueId, to }: { id: string; to: IssueState }, ctx) => {
@@ -89,6 +95,7 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
           throw RayfoldError.domain("NotFound", { id: issueId }, `Issue ${issueId} changed while this was running`);
         }
         return ok(next, {
+          patch: feedChanged,
           emit: [
             { event: "IssueMoved", payload: { issueId: issue.id, from: issue.state, to } },
             await line({ projectId: issue.projectId, source: "workspace", kind: "issue.moved", text: `${issue.title}: ${issue.state} → ${to}` }),
@@ -101,6 +108,7 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
         const comment: Comment = { id: id(), issueId, body, at: now(), byId: (ctx.viewer as Viewer).id };
         await store.addComment(comment);
         return ok(comment, {
+          patch: feedChanged,
           emit: [
             { event: "CommentAdded", payload: { issueId, commentId: comment.id } },
             await line({ projectId: issue.projectId, source: "workspace", kind: "comment.added", text: `${issue.title}: ${body.slice(0, 80)}` }),
