@@ -51,7 +51,7 @@ the bundles are identical in development and production.
 
 | | |
 |---|---|
-| `services/documents` | Files: upload, replace, keep every revision, share one with a capability token. |
+| `services/documents` | Files: upload, replace, keep every revision, file in folders, tag, remark on, share one with a capability token. |
 | `services/workspace` | Issues with priority, labels, due days and a partial-update command; comments; a project chat and each person's notifications over `stream` operations; the team's workload; and a project feed that carries what the rest of the fleet did. |
 | `services/catalogue` | Products, people and articles behind one search: an interface, a union shaped with `...on`, numbered pages, a lazy field. |
 | `packages/service-kit` | How every service is wired. The interesting file in the repository. |

@@ -26,37 +26,52 @@ const service = await startService({
   onStart: (server: RayfoldServer, deps: Deps) => {
     const store = new WorkspaceStore(deps.sql);
 
-    // raised by the documents service, delivered here by the relay. the bus delivers by name, so hearing another
-    // service's event costs one subscription and no coupling beyond agreeing what the event is called.
-    server.events.on("DocumentChanged", (payload) => {
-      // the event carries the project, so this service never asks the other which one: that is the whole of what
-      // one service knows about another, and it is enough
-      const { documentId, projectId, name, version, byId } = payload as { documentId: string; projectId: string; name: string; version: number; byId: string };
-      const line = {
-        // derived from what caused it, not random: this event reaches every instance of this service, and they
-        // must write one row between them rather than one each
-        id: `documents:${documentId}:${version}`,
-        projectId,
-        source: "documents",
-        kind: version === 1 ? "document.added" : "document.replaced",
-        // the name is what a person reads; the id stays at the end for anyone tracing it
-        text: version === 1 ? `${name} (${documentId})` : `${name}, now version ${version} (${documentId})`,
-        at: Date.now(),
-        // the same person in both services: the fleet has one roster
-        byId: byId ?? null,
-      };
-
+    /**
+     * Records a line for something another service did, once per fleet however many instances hear it. The id is
+     * derived from what caused it, not random: the event reaches every instance of this service, and they must write
+     * one row between them rather than one each. Delivered locally on every instance, written by only one: each has
+     * its own connected clients to wake. `deliver` rather than `publish` for the same reason the id is derived: the
+     * event is already on the relay, and sending anything back would multiply it by the fleet.
+     */
+    const heard = (id: string, projectId: string, kind: string, text: string, byId: string | null, about: Record<string, unknown>) => {
+      const line = { id, projectId, source: "documents", kind, text, at: Date.now(), byId };
       void store
         .record(line)
         .then((written) => {
-          if (written) deps.platform.log.info("recorded what the documents service did", { documentId, projectId, version, kind: line.kind });
-          // delivered locally on every instance, written by only one: each instance has its own connected clients,
-          // and each has to wake its own. `deliver` rather than `publish` for the same reason the id is derived —
-          // this event is already on the relay, and sending anything back would multiply it by the fleet.
-          server.events.deliver("ActivityHappened", { projectId: line.projectId, source: line.source, kind: line.kind, text: line.text, byId: line.byId });
+          if (written) deps.platform.log.info("recorded what the documents service did", { ...about, kind });
+          server.events.deliver("ActivityHappened", { projectId, source: line.source, kind, text, byId });
           server.changes.deliver({ keys: new Set(), ops: new Set(["activity"]) });
         })
-        .catch((e: unknown) => deps.platform.log.error("could not record a document change", { documentId, error: e instanceof Error ? e.message : String(e) }));
+        .catch((e: unknown) => deps.platform.log.error("could not record a document change", { ...about, error: e instanceof Error ? e.message : String(e) }));
+    };
+
+    // raised by the documents service, delivered here by the relay. the bus delivers by name, so hearing another
+    // service's event costs one subscription and no coupling beyond agreeing what the event is called. the event
+    // carries the project, so this service never asks the other which one: that is the whole of what one service
+    // knows about another, and it is enough. the name is what a person reads; the id stays at the end for tracing.
+    server.events.on("DocumentChanged", (payload) => {
+      const { documentId, projectId, name, version, byId } = payload as { documentId: string; projectId: string; name: string; version: number; byId: string };
+      heard(
+        `documents:${documentId}:${version}`,
+        projectId,
+        version === 1 ? "document.added" : "document.replaced",
+        version === 1 ? `${name} (${documentId})` : `${name}, now version ${version} (${documentId})`,
+        // the same person in both services: the fleet has one roster
+        byId ?? null,
+        { documentId, projectId, version },
+      );
+    });
+    server.events.on("DocumentFiled", (payload) => {
+      const { documentId, projectId, name, folder, byId } = payload as { documentId: string; projectId: string; name: string; folder: string | null; byId: string };
+      heard(`documents:${documentId}:filed:${folder ?? ""}:${Date.now()}`, projectId, "document.filed", `${name}: ${folder ?? "the root"} (${documentId})`, byId ?? null, { documentId, projectId, folder });
+    });
+    server.events.on("DocumentTagged", (payload) => {
+      const { documentId, projectId, name, tags, byId } = payload as { documentId: string; projectId: string; name: string; tags: string[]; byId: string };
+      heard(`documents:${documentId}:tagged:${tags.join(",")}`, projectId, "document.tagged", `${name}: ${tags.length ? tags.join(" ") : "no tags"} (${documentId})`, byId ?? null, { documentId, projectId, tags });
+    });
+    server.events.on("DocumentNoted", (payload) => {
+      const { documentId, projectId, name, excerpt, byId } = payload as { documentId: string; projectId: string; name: string; excerpt: string; byId: string };
+      heard(`documents:${documentId}:noted:${byId}:${excerpt}`, projectId, "document.noted", `${name}: ${excerpt} (${documentId})`, byId ?? null, { documentId, projectId });
     });
 
     // NEEDS THE RAYFOLD CONSOLE: this queue is the console's — a separate commercial product in a private

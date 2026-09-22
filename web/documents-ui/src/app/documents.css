@@ -90,16 +90,33 @@
   min-width: 0;
 }
 
-.meta a {
+/* the name is the way into the file, and looks like text until it is pointed at */
+.name {
   display: block;
-  font-weight: 550;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--ink);
+  font: inherit;
+  font-weight: 550;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
-.meta a:hover {
+.name:hover,
+.open .name {
+  color: var(--accent);
+}
+
+.sub a {
+  color: inherit;
+}
+
+.sub a:hover {
   color: var(--accent);
 }
 
@@ -124,19 +141,158 @@
   color: var(--accent);
 }
 
-.rename {
+.inline {
   display: flex;
   gap: 6px;
   align-items: center;
 }
 
-.rename .input {
+.inline .input {
   padding: 4px 9px;
 }
 
-.rename .btn {
+.inline .btn {
   padding: 4px 9px;
   font-size: 12px;
+}
+
+/* ---- the folder chips and the tag picker, under the drop zone */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 16px 0;
+}
+
+.folders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.chip.on {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.chip .n {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.glyph-folder {
+  display: inline-block;
+  width: 11px;
+  height: 9px;
+  border-radius: 2px 2px 1px 1px;
+  background: currentColor;
+  opacity: 0.55;
+  clip-path: polygon(0 0, 45% 0, 55% 22%, 100% 22%, 100% 100%, 0 100%);
+}
+
+.tagfilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.tagfilter select {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+/* ---- where a file is and what it is tagged, on its row */
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--sunken);
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 17px;
+  cursor: pointer;
+}
+
+.mark:hover {
+  color: var(--ink);
+}
+
+.mark.tag.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ---- the open file: three tabs, then what the tab shows */
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 0 6px 45px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tabs button {
+  padding: 5px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tabs button:hover {
+  color: var(--ink);
+}
+
+.tabs button.on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tabs .n {
+  color: var(--ink-faint);
+  font-size: 11px;
 }
 
 /* the actions sit over the row's right end while the pointer is there, taking no room from the name at other times */
@@ -163,6 +319,11 @@
   pointer-events: auto;
 }
 
+/* while a row's inline form is open the actions stay out of its way */
+.editing .row-actions {
+  display: none;
+}
+
 .row:hover .row-actions,
 .row:focus-within .row-actions {
   opacity: 1;
@@ -187,4 +348,14 @@
   color: var(--bad);
   font-size: 12.5px;
   padding-top: 0;
+}
+
+/* a share link the clipboard would not take: shown under the row, selected on focus, gone with Done */
+.sharelink {
+  margin: 0 0 8px 45px;
+}
+
+.sharelink .input {
+  font-family: var(--mono);
+  font-size: 11.5px;
 }

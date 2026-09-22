@@ -3,9 +3,10 @@ const { withNativeFederation, shareAll } = require('@angular-architects/native-f
 module.exports = withNativeFederation({
   name: 'documents-ui',
 
-  // what the shell may load. the panel is the whole of this remote's public surface.
+  // what the shell may load: the panel, and the page a share link opens
   exposes: {
     './Documents': './src/app/documents.ts',
+    './Shared': './src/app/shared.ts',
   },
 
   shared: {

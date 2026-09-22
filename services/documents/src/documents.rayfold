@@ -33,6 +33,25 @@ entity Document @cache(maxAge: 0s, scope: private) @allow(read: viewer.documentI
   version: Int @version
   updatedAt: Instant
   owner: Member
+  """Where it is filed, as a path like `contracts/2026`; null is the project's root."""
+  folder: String?
+  """Free words the team puts on it. Filter the list by one."""
+  tags: [String]
+}
+
+"""A remark on a document, by someone on the team. A share's holder sees none: a link reads the file, not the conversation about it."""
+entity Note @allow(read: viewer.documentId == null) {
+  id: ID
+  documentId: ID
+  body: String
+  at: Instant
+  by: Member
+}
+
+"""A folder a project's documents are filed in, and how many are in it."""
+object Folder {
+  name: String
+  count: Int
 }
 
 """What the document was before. Every replace keeps one, so nothing is overwritten in place."""
@@ -66,14 +85,25 @@ error UploadTooLarge { size: Int, limit: Int }
 
 """Raised on every change, with who made it, so another service can say so without asking this one."""
 event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID }
+"""Raised when a document is filed somewhere else. `folder` null is the root."""
+event DocumentFiled { documentId: ID, projectId: ID, name: String, folder: String?, byId: ID }
+event DocumentTagged { documentId: ID, projectId: ID, name: String, tags: [String], byId: ID }
+"""Raised when someone remarks on a document, with the start of what they said."""
+event DocumentNoted { documentId: ID, projectId: ID, name: String, excerpt: String, byId: ID }
 
 """Who is asking, as this service knows them. A share's holder is nobody here: a link is not an account."""
 query me: Member? @allow(read: viewer != null)
 
 query document(id: ID): Document? @allow(read: viewer != null)
-"""Everything on a project, newest first. A project's files are the team's, not the uploader's."""
-query documents(projectId: ID, page: PageArgs = { first: 20 }): Page<Document> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
+"""The one document a share's token is for. Nobody else has one, so for anyone signed in this is null."""
+query shared: Document? @allow(read: viewer.documentId != null)
+"""Everything on a project, newest first. A project's files are the team's, not the uploader's. Each filter narrows."""
+query documents(projectId: ID, folder: String?, tag: String?, page: PageArgs = { first: 20 }): Page<Document> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
+"""The folders a project's documents are filed in, with what each holds. The root is not a folder."""
+query folders(projectId: ID): [Folder] @allow(read: viewer != null)
 query revisions(documentId: ID, page: PageArgs = { first: 20 }): Page<Revision> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
+"""What the team has said about a document, oldest first. Not for a share: a link reads the file, not the talk about it."""
+query notes(documentId: ID, page: PageArgs = { first: 50 }): Page<Note> @allow(read: viewer.documentId == null) @cost(base: 1, perItem: 1)
 
 """Take an upload and keep it as a document. The upload is consumed: its bytes move, they are not copied and left."""
 command createDocument(upload: ID, name: String, projectId: ID): Document
@@ -95,6 +125,26 @@ command renameDocument(id: ID, name: String): Document
   emits DocumentChanged
   @allow(write: viewer != null)
   @simulate
+
+"""File a document in a folder, or at the root with null. The owner's to do; send `ifVersion`."""
+command moveDocument(id: ID, folder: String? @range(max: 200)): Document
+  throws NotFound | Forbidden
+  emits DocumentFiled
+  @allow(write: viewer != null)
+  @simulate
+
+"""Put words on a document. Anyone on the team may: tags are the team's, not the owner's. Send `ifVersion`."""
+command tagDocument(id: ID, tags: [String]): Document
+  throws NotFound
+  emits DocumentTagged
+  @allow(write: viewer != null)
+  @simulate
+
+"""Say something about a document. Everyone on the team reads it; the project's feed says it happened."""
+command addNote(documentId: ID, body: String @range(min: 1, max: 4000)): Note
+  throws NotFound
+  emits DocumentNoted
+  @allow(write: viewer.documentId == null)
 
 """
 Hand someone a link to one document. What comes back is a capability token: it speaks for a viewer that can read

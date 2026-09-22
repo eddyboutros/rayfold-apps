@@ -319,6 +319,16 @@ main.single {
   padding-top: 26px;
 }
 
+/* a share link's page: the brand, then the file, and nothing else on the page to sign in to */
+main.share {
+  max-width: 940px;
+  margin: 0 auto;
+}
+
+main.share .brand.big {
+  margin-bottom: 18px;
+}
+
 /* ---- narrow: the rail becomes a strip along the top */
 @media (max-width: 900px) {
   .shell {

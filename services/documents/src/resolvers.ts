@@ -9,7 +9,7 @@ import { RayfoldError, ok, type Resolvers, type UploadStore } from "@rayfold/ser
 import type { Capabilities } from "@rayfold/server";
 import type { Log, Platform } from "@apps/service-kit";
 import type { FileStore } from "./files.ts";
-import type { Document, Member, Revision } from "./store.ts";
+import type { Document, Member, Note, Revision } from "./store.ts";
 import type { DocumentStore } from "./store.ts";
 
 export interface Viewer {
@@ -28,7 +28,20 @@ export interface Share {
 }
 
 /** What a share's holder may call. Reading only: a share is a link, not an account. */
-export const SHARED_OPS = ["document", "revisions"];
+export const SHARED_OPS = ["document", "shared", "revisions"];
+
+/** Tags as the team sees them: trimmed, lower-cased, no blanks, each once. */
+const tidy = (tags: string[]): string[] => [...new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))];
+
+/** A folder path as it is kept: no leading or trailing slashes, no empty segments, null when there is nothing left. */
+const folderOf = (folder: string | null | undefined): string | null => {
+  const clean = (folder ?? "")
+    .split("/")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join("/");
+  return clean || null;
+};
 
 export interface Parts {
   store: DocumentStore;
@@ -158,9 +171,19 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
 
       document: ({ id: documentId }: { id: string }) => store.document(documentId),
 
-      documents: async ({ projectId, page }: { projectId: string; page: { first: number; after?: string | null } }) => {
-        const { items, total } = await store.documentsOf(projectId, page.first, page.after ?? null);
+      // the token says which one: the policy already refused anyone whose viewer names no document
+      shared: (_: unknown, ctx) => store.document((ctx.viewer as Viewer).documentId ?? ""),
+
+      documents: async ({ projectId, folder, tag, page }: { projectId: string; folder?: string | null; tag?: string | null; page: { first: number; after?: string | null } }) => {
+        const { items, total } = await store.documentsOf(projectId, { folder: folderOf(folder), tag: tag?.trim().toLowerCase() || null }, page.first, page.after ?? null);
         return pageOf(items, total, (d) => d.id);
+      },
+
+      folders: ({ projectId }: { projectId: string }) => store.folders(projectId),
+
+      notes: async ({ documentId, page }: { documentId: string; page: { first: number; after?: string | null } }) => {
+        const { items, total } = await store.notes(documentId, page.first, page.after ?? null);
+        return pageOf(items, total, (n) => n.id);
       },
 
       revisions: async ({ documentId, page }: { documentId: string; page: { first: number; after?: string | null } }) => {
@@ -184,6 +207,8 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
           version: 1,
           updatedAt: at,
           ownerId: viewer.id,
+          folder: null,
+          tags: [],
         };
         await store.create(doc, { id: revisionId, documentId: doc.id, version: 1, size, url: doc.url, at, byId: viewer.id });
         log.info("kept a document", { documentId: doc.id, name: doc.name, size, projectId, by: viewer.id });
@@ -224,6 +249,44 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
         return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: next.name, version: next.version, byId: viewer.id } }] });
       },
 
+      moveDocument: async ({ id: documentId, folder }: { id: string; folder?: string | null }, ctx) => {
+        const viewer = ctx.viewer as Viewer;
+        const doc = mine(await find(documentId), viewer);
+        ctx.checkVersion(`Document:${doc.id}`, doc.version, doc);
+        const next: Document = { ...doc, folder: folderOf(folder), version: doc.version + 1, updatedAt: now() };
+        if (ctx.simulate) return ok(next);
+        if (!(await store.file(doc.id, next.folder, doc.version, next.updatedAt))) {
+          const current = await find(documentId);
+          ctx.checkVersion(`Document:${doc.id}`, current.version, current);
+          throw RayfoldError.domain("NotFound", { id: documentId }, `Document ${documentId} changed while this was running`);
+        }
+        // every open list of the project re-runs: a document filed elsewhere leaves one folder's list and joins another's
+        return ok(next, { patch: [{ invOp: ["documents", "folders"] }], emit: [{ event: "DocumentFiled", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, folder: next.folder, byId: viewer.id } }] });
+      },
+
+      tagDocument: async ({ id: documentId, tags }: { id: string; tags: string[] }, ctx) => {
+        const viewer = ctx.viewer as Viewer;
+        const doc = await find(documentId);
+        ctx.checkVersion(`Document:${doc.id}`, doc.version, doc);
+        const next: Document = { ...doc, tags: tidy(tags), version: doc.version + 1, updatedAt: now() };
+        if (ctx.simulate) return ok(next);
+        if (!(await store.tag(doc.id, next.tags, doc.version, next.updatedAt))) {
+          const current = await find(documentId);
+          ctx.checkVersion(`Document:${doc.id}`, current.version, current);
+          throw RayfoldError.domain("NotFound", { id: documentId }, `Document ${documentId} changed while this was running`);
+        }
+        return ok(next, { patch: [{ invOp: ["documents"] }], emit: [{ event: "DocumentTagged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, tags: next.tags, byId: viewer.id } }] });
+      },
+
+      addNote: async ({ documentId, body }: { documentId: string; body: string }, ctx) => {
+        const viewer = ctx.viewer as Viewer;
+        const doc = await find(documentId);
+        const note: Note = { id: id(), documentId, body, at: now(), byId: viewer.id };
+        await store.addNote(note);
+        // a new Note: every open list of this document's notes re-runs by the type rule, so no patch is needed
+        return ok(note, { emit: [{ event: "DocumentNoted", payload: { documentId, projectId: doc.projectId, name: doc.name, excerpt: body.slice(0, 80), byId: viewer.id } }] });
+      },
+
       shareDocument: async ({ id: documentId, ttlMs }: { id: string; ttlMs: number }, ctx) => {
         const doc = mine(await find(documentId), ctx.viewer as Viewer);
         // the viewer the token speaks for is not an account: it exists only to satisfy the policy on Document,
@@ -255,7 +318,14 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
         return revisions.map((r) => members.get(r.byId) ?? null);
       },
     },
+
+    Note: {
+      by: async (notes: Note[]) => {
+        const members = await store.membersByIds([...new Set(notes.map((n) => n.byId))]);
+        return notes.map((n) => members.get(n.byId) ?? null);
+      },
+    },
   } satisfies Resolvers as Resolvers;
 }
 
-export type { Document, Member, Revision };
+export type { Document, Member, Note, Revision };

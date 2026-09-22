@@ -19,9 +19,15 @@ export interface Line {
   by: { id: string; name: string } | null;
 }
 
+/** Lines whose text is "<file>: <what>", like an issue's. */
+const FILED = new Set(["document.filed", "document.tagged", "document.noted"]);
+
 const KIND_LABEL: Record<string, string> = {
   "document.added": "added a file",
   "document.replaced": "replaced a file",
+  "document.filed": "filed",
+  "document.tagged": "tagged",
+  "document.noted": "remarked on",
   "document.indexed": "made searchable",
   "document.empty": "found nothing to index in",
   "issue.created": "opened",
@@ -131,7 +137,7 @@ export class Feed {
   subject(line: Line): string {
     const text = this.clean(line);
     if (line.kind === "document.replaced") return text.replace(/, now version \d+$/, "");
-    if (line.kind.startsWith("issue.") || line.kind.startsWith("comment.")) return text.split(": ")[0] ?? text;
+    if (line.kind.startsWith("issue.") || line.kind.startsWith("comment.") || FILED.has(line.kind)) return text.split(": ")[0] ?? text;
     return text;
   }
 
@@ -139,12 +145,13 @@ export class Feed {
   detail(line: Line): string {
     const text = this.clean(line);
     if (line.kind === "document.replaced") return text.match(/now version \d+$/)?.[0] ?? "";
-    if (line.kind.startsWith("issue.") || line.kind.startsWith("comment.")) {
+    if (line.kind.startsWith("issue.") || line.kind.startsWith("comment.") || FILED.has(line.kind)) {
       const i = text.indexOf(": ");
       if (i < 0) return "";
       const rest = text.slice(i + 2);
       if (line.kind === "issue.assigned") return `to ${rest}`;
-      if (line.kind === "comment.added") return `“${rest}”`;
+      if (line.kind === "document.filed") return `in ${rest}`;
+      if (line.kind === "comment.added" || line.kind === "document.noted") return `“${rest}”`;
       return rest;
     }
     return "";

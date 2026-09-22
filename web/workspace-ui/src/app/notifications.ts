@@ -139,15 +139,29 @@ export class Notifications {
     });
   }
 
+  /**
+   * Listens for as long as the bell is on the page. A stream ends when the service restarts or the socket drops; the
+   * bell opens it again after a pause that doubles up to half a minute, so a deploy costs a moment of silence and
+   * nothing a person has to do. The badge and the list are live queries and come back on their own.
+   */
   private async listen(signal: AbortSignal): Promise<void> {
-    try {
-      for await (const n of this.client.stream<Notified>("notified", {}, { signal })) {
-        this.toasts.update((ts) => [...ts.filter((t) => t.notificationId !== n.notificationId), n]);
-        setTimeout(() => this.dismiss(n.notificationId), TOAST_MS);
+    let pause = 1000;
+    while (!signal.aborted) {
+      try {
+        for await (const n of this.client.stream<Notified>("notified", {}, { signal })) {
+          pause = 1000;
+          this.toasts.update((ts) => [...ts.filter((t) => t.notificationId !== n.notificationId), n]);
+          setTimeout(() => this.dismiss(n.notificationId), TOAST_MS);
+        }
+      } catch {
+        // a toast that does not arrive is a toast; the stream is opened again below
       }
-    } catch (e: unknown) {
-      // the badge and the list still work on their own; a toast that does not arrive is a toast, not a bug shown
-      if (!signal.aborted) console.warn("the notification stream ended", e);
+      if (signal.aborted) return;
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, pause);
+        signal.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
+      });
+      pause = Math.min(pause * 2, 30_000);
     }
   }
 

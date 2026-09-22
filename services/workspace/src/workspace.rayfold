@@ -126,6 +126,10 @@ Raised by the **documents** service, not by this one. Declared here because the 
 every service in the fleet, and this service reacts to it: a changed document becomes a line in the feed.
 """
 event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID }
+"""Three more of the documents service's, heard the same way: filed, tagged, and remarked on."""
+event DocumentFiled { documentId: ID, projectId: ID, name: String, folder: String?, byId: ID }
+event DocumentTagged { documentId: ID, projectId: ID, name: String, tags: [String], byId: ID }
+event DocumentNoted { documentId: ID, projectId: ID, name: String, excerpt: String, byId: ID }
 
 """Everyone who can be assigned something, for a picker."""
 query members: [Member] @allow(read: viewer != null)

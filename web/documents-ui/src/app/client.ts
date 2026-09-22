@@ -7,8 +7,13 @@
  *
  * The origin comes from the document at runtime, so the same bundle serves development, staging and production
  * without being rebuilt.
+ *
+ * Two transports make one client. Batches, live queries and streams go over a WebSocket, so the panel's three
+ * subscriptions hold one connection between them rather than one each against the browser's limit of six per host.
+ * Uploads go over HTTP, because that is the route the bytes have (spec 04 §9) and a socket does not carry them.
+ * The session is a cookie on the page's origin, and the browser sends it with both.
  */
-import { RayfoldClient, createFetchTransport } from "@rayfold/client";
+import { RayfoldClient, createFetchTransport, createWebSocketTransport, type Transport } from "@rayfold/client";
 
 /**
  * Where the documents service is: `/api/documents` on the page's own origin. The gateway forwards it in production and
@@ -20,11 +25,19 @@ export function documentsBase(): string {
   return (tag?.content || "/api/documents").replace(/\/$/, "");
 }
 
+/** The socket's address: the base made absolute on the page's origin, with the scheme a socket uses. */
+function documentsSocket(): string {
+  const url = new URL(`${documentsBase()}/rayfold/ws`, location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}
+
 export function documentsClient(): RayfoldClient {
-  return new RayfoldClient({
-    // no credentials here: the session is a cookie on the page's origin, and the browser sends it on its own —
-    // to the batch, to the upload, and to a file link opened in a new tab
-    transport: createFetchTransport({ url: `${documentsBase()}/rayfold` }),
-    client: "documents-ui/0.1.0",
-  });
+  const socket = createWebSocketTransport({ url: documentsSocket() });
+  const http = createFetchTransport({ url: `${documentsBase()}/rayfold` });
+  const transport: Transport = {
+    send: (envelope, opts) => socket.send(envelope, opts),
+    upload: (body, meta, opts) => http.upload!(body, meta, opts),
+  };
+  return new RayfoldClient({ transport, client: "documents-ui/0.1.0" });
 }

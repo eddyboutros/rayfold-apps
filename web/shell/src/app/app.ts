@@ -31,7 +31,26 @@ const PROJECTS = [
   imports: [NgComponentOutlet],
   styleUrl: "./app.css",
   template: `
-    @if (!me()) {
+    @if (shareToken) {
+      <div class="frame">
+        <main class="single share">
+          <div class="brand big">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2 L21 8 V16 L12 22 L3 16 V8 Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+              <path d="M12 7 L16.5 9.8 V14.2 L12 17 L7.5 14.2 V9.8 Z" fill="currentColor" opacity="0.45" />
+            </svg>
+            <span class="name">Keel</span>
+          </div>
+          @if (sharePage().component; as component) {
+            <ng-container *ngComponentOutlet="component; inputs: { token: shareToken }" />
+          } @else if (sharePage().failed; as failed) {
+            <div class="card"><div class="body empty"><strong>The shared file cannot be shown</strong>{{ failed }}</div></div>
+          } @else {
+            <div class="card"><div class="body"><span class="skeleton" style="width: 60%"></span></div></div>
+          }
+        </main>
+      </div>
+    } @else if (!me()) {
       <div class="gate">
         <div class="gate-card card">
           <div class="brand big">
@@ -183,6 +202,14 @@ export class App {
     (document.documentElement.dataset["theme"] as "light" | "dark" | undefined) ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
   );
 
+  /**
+   * A share link: `?share=<token>` opens one document for whoever holds it, signed in or not. The page is the
+   * documents remote's own, so the shell never sees what the token is for; it only knows to show that page and no
+   * other, and to ask for no session.
+   */
+  readonly shareToken = new URLSearchParams(location.search).get("share");
+  readonly sharePage = signal<Panel>({ key: "share", label: "Shared file", remote: "documents-ui", exposed: "./Shared", component: null, failed: null });
+
   readonly panels = signal<Panel[]>([
     { key: "issues", label: "Issues", remote: "workspace-ui", exposed: "./Issues", component: null, failed: null },
     { key: "documents", label: "Documents", remote: "documents-ui", exposed: "./Documents", component: null, failed: null },
@@ -199,7 +226,8 @@ export class App {
   readonly bell = signal<Panel>({ key: "bell", label: "Notifications", remote: "workspace-ui", exposed: "./Notifications", component: null, failed: null });
 
   constructor() {
-    for (const panel of [...this.panels(), ...this.pages(), this.bell()]) {
+    // a share link loads one remote and nothing else: the person may not be on the team, and the rest of the page is theirs
+    for (const panel of this.shareToken ? [this.sharePage()] : [...this.panels(), ...this.pages(), this.bell()]) {
       // one remote failing is one panel missing, not a blank page: each is loaded and settled on its own
       void loadRemoteModule(panel.remote, panel.exposed)
         .then((m: Record<string, Type<unknown>>) => this.settle(panel.key, Object.values(m)[0] ?? null, null))
@@ -208,7 +236,8 @@ export class App {
   }
 
   private settle(key: string, component: Type<unknown> | null, failed: string | null): void {
-    if (key === this.bell().key) this.bell.update((p) => ({ ...p, component, failed }));
+    if (key === this.sharePage().key) this.sharePage.update((p) => ({ ...p, component, failed }));
+    else if (key === this.bell().key) this.bell.update((p) => ({ ...p, component, failed }));
     else if (this.pages().some((p) => p.key === key)) this.pages.update((pages) => pages.map((p) => (p.key === key ? { ...p, component, failed } : p)));
     else this.panels.update((panels) => panels.map((p) => (p.key === key ? { ...p, component, failed } : p)));
   }

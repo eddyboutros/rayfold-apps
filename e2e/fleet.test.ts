@@ -91,6 +91,24 @@ it("a document kept in one service shows up on the other service's feed, with wh
   expect(feedRows.rows.every((r) => r["source"] === "documents")).toBe(true);
 });
 
+it("filing, tagging and remarking on a document in one service are lines on the other's feed, each credited", async () => {
+  const doc = await documents.client("ada").command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("the contract")), name: "contract.txt" }, { shape: "{ id version }" });
+  await documents.client("ada").command("moveDocument", { id: doc.id, folder: "contracts" }, { shape: "{ id }", ifVersion: doc.version });
+  await documents.client("grace").command("tagDocument", { id: doc.id, tags: ["legal", "q4"] }, { shape: "{ id }", ifVersion: doc.version + 1 });
+  await documents.client("noor").command("addNote", { documentId: doc.id, body: "Signed copy is the one to keep." }, { shape: "{ id }" });
+
+  const feed = await until("the three lines to reach the workspace", async () => {
+    const page = await workspace.client("grace").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text by { name } } }" });
+    return page.items.length === 4 ? page : undefined;
+  });
+  expect(feed.items.map((i) => [i.kind, i.by?.name, i.text.replace(` (${doc.id})`, "")])).toEqual([
+    ["document.noted", "Noor Haddad", "contract.txt: Signed copy is the one to keep."],
+    ["document.tagged", "Grace Hopper", "contract.txt: legal q4"],
+    ["document.filed", "Ada Lovelace", "contract.txt: contracts"],
+    ["document.added", "Ada Lovelace", "contract.txt"],
+  ]);
+});
+
 it("a live query on the feed updates when the other service changes something", async () => {
   const ada = workspace.client("ada");
   const lines = signal<Feed>();

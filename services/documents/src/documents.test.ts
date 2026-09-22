@@ -127,7 +127,7 @@ it("a share reads that one document and its bytes, and nothing else", async () =
   const other = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("not for them")), name: "salaries.txt" }, { shape: SHAPE });
 
   const share = await ada.command<Share>("shareDocument", { id: doc.id }, { shape: "{ documentId token ops }" });
-  expect(share.ops).toEqual(["document", "revisions"]);
+  expect(share.ops).toEqual(["document", "shared", "revisions"]);
 
   const guest = client(share.token);
   expect(await guest.query<Document>("document", { id: doc.id }, { shape: "{ name }" })).toMatchObject({ name: "contract.txt" });
@@ -136,6 +136,74 @@ it("a share reads that one document and its bytes, and nothing else", async () =
   // a refused entity at a nullable position is not there, so a share cannot be used to learn what else exists
   expect(await guest.query<Document | null>("document", { id: other.id }, { shape: "{ name }" })).toBeNull();
   expect((await download(other.url, share.token)).status).toBe(404);
+});
+
+it("a share's token says which document it is for, and the team's own session says none", async () => {
+  const ada = client("ada");
+  const doc = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("for the lawyer")), name: "contract.txt" }, { shape: SHAPE });
+  const share = await ada.command<Share>("shareDocument", { id: doc.id }, { shape: "{ token }" });
+  // the landing page asks this, with nothing but the token: no id travels in the link
+  expect(await client(share.token).query<Document>("shared", {}, { shape: "{ id name size }" })).toMatchObject({ id: doc.id, name: "contract.txt", size: 14 });
+  // a signed-in person has no share: the policy refuses rather than answering null, so a page cannot mistake one for the other
+  const mine = await ada.query("shared", {}, { shape: "{ id }" }).then(() => null, (e: RayfoldClientError) => e);
+  expect(mine?.code).toBe("permission_denied");
+});
+
+it("a document is filed in a folder and tagged; the list narrows by either; the folders count what they hold", async () => {
+  const ada = client("ada");
+  const grace = client("grace");
+  const F = "{ id version folder tags }";
+  const msa = await ada.command<Document & { folder: string | null; tags: string[] }>("createDocument", { projectId: "p1", upload: await upload("ada", text("msa")), name: "msa.pdf" }, { shape: F });
+  const dpa = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("dpa")), name: "dpa.pdf" }, { shape: F });
+  const plan = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("plan")), name: "plan.md" }, { shape: F });
+  expect(msa).toMatchObject({ folder: null, tags: [] });
+
+  // the path is tidied, the version moves, and only the owner files
+  const filed = await ada.command<Document & { folder: string | null }>("moveDocument", { id: msa.id, folder: " /contracts/2026/ " }, { shape: F, ifVersion: msa.version });
+  expect(filed).toMatchObject({ folder: "contracts/2026", version: 2 });
+  await ada.command("moveDocument", { id: dpa.id, folder: "contracts/2026" }, { shape: F, ifVersion: dpa.version });
+  const notOwner = await grace.command("moveDocument", { id: plan.id, folder: "plans" }, { shape: F, ifVersion: plan.version }).then(() => null, (e: RayfoldClientError) => e);
+  expect(notOwner).toMatchObject({ code: "domain", type: "Forbidden" });
+  // but anyone on the team tags, and the tags are tidied too
+  const tagged = await grace.command<Document & { tags: string[] }>("tagDocument", { id: plan.id, tags: ["Legal", " legal", "Q4"] }, { shape: F, ifVersion: plan.version });
+  expect(tagged).toMatchObject({ tags: ["legal", "q4"], version: 2 });
+  await ada.command("tagDocument", { id: msa.id, tags: ["legal"] }, { shape: F, ifVersion: 2 });
+
+  const names = async (args: Record<string, unknown>) => (await ada.query<{ items: Array<{ name: string }> }>("documents", { projectId: "p1", ...args }, { shape: "{ items { name } }" })).items.map((d) => d.name).sort();
+  expect(await names({})).toEqual(["dpa.pdf", "msa.pdf", "plan.md"]);
+  expect(await names({ folder: "contracts/2026" })).toEqual(["dpa.pdf", "msa.pdf"]);
+  expect(await names({ tag: "Legal" })).toEqual(["msa.pdf", "plan.md"]);
+  expect(await names({ folder: "contracts/2026", tag: "legal" })).toEqual(["msa.pdf"]);
+  // guard: a folder nobody used narrows to nothing rather than to everything
+  expect(await names({ folder: "nope" })).toEqual([]);
+  expect(await ada.query("folders", { projectId: "p1" }, { shape: "{ name count }" })).toEqual([{ name: "contracts/2026", count: 2 }]);
+
+  // back to the root with null, and the folder is gone with its last document
+  await ada.command("moveDocument", { id: msa.id, folder: null }, { shape: F, ifVersion: 3 });
+  await ada.command("moveDocument", { id: dpa.id, folder: "" }, { shape: F, ifVersion: 2 });
+  expect(await ada.query("folders", { projectId: "p1" }, { shape: "{ name count }" })).toEqual([]);
+});
+
+it("a note on a document is the team's to read and write, and a share sees none of them", async () => {
+  const ada = client("ada");
+  const doc = await ada.command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("draft")), name: "draft.txt" }, { shape: SHAPE });
+  await ada.command("addNote", { documentId: doc.id, body: "Section 3 needs the export clause." }, { shape: "{ id }" });
+  await client("grace").command("addNote", { documentId: doc.id, body: "Added it, see v2." }, { shape: "{ id }" });
+  const notes = await client("noor").query<{ items: Array<{ body: string; by: { name: string } }>; total: number }>("notes", { documentId: doc.id }, { shape: "{ items { body by { name } } total }" });
+  expect(notes.total).toBe(2);
+  expect(notes.items.map((n) => [n.by.name, n.body])).toEqual([
+    ["Ada Lovelace", "Section 3 needs the export clause."],
+    ["Grace Hopper", "Added it, see v2."],
+  ]);
+
+  const share = await ada.command<Share>("shareDocument", { id: doc.id }, { shape: "{ token }" });
+  const guest = client(share.token);
+  const read = await guest.query("notes", { documentId: doc.id }, { shape: "{ total }" }).then(() => null, (e: RayfoldClientError) => e);
+  expect(read?.code).toBe("permission_denied");
+  const wrote = await guest.command("addNote", { documentId: doc.id, body: "hello" }, { shape: "{ id }" }).then(() => null, (e: RayfoldClientError) => e);
+  expect(wrote?.code).toBe("permission_denied");
+  // guard: the same token still reads the document itself
+  expect(await guest.query<Document>("document", { id: doc.id }, { shape: "{ name }" })).toMatchObject({ name: "draft.txt" });
 });
 
 it("a share cannot change anything, and cannot be widened", async () => {

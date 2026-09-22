@@ -23,6 +23,26 @@ export interface Document {
   version: number;
   updatedAt: number;
   ownerId: string;
+  folder: string | null;
+  tags: string[];
+}
+
+export interface Note {
+  id: string;
+  documentId: string;
+  body: string;
+  at: number;
+  byId: string;
+}
+
+export interface Folder {
+  name: string;
+  count: number;
+}
+
+export interface DocumentFilter {
+  folder: string | null;
+  tag: string | null;
 }
 
 export interface Revision {
@@ -55,6 +75,18 @@ export const SCHEMA = `
   -- added after the first deploy: rows from before it belong to the first project
   alter table documents add column if not exists project_id text not null default 'p1';
   create index if not exists documents_project on documents (project_id, updated_at desc, id);
+  -- added later: everything from before sits at the root with no tags
+  alter table documents add column if not exists folder text;
+  alter table documents add column if not exists tags text[] not null default '{}';
+
+  create table if not exists notes (
+    id text primary key,
+    document_id text not null references documents(id) on delete cascade,
+    body text not null,
+    at bigint not null,
+    by_id text not null references members(id)
+  );
+  create index if not exists notes_document on notes (document_id, at, id);
 
   create table if not exists revisions (
     id text primary key,
@@ -82,6 +114,16 @@ const toDocument = (r: Record<string, unknown>): Document => ({
   version: r["version"] as number,
   updatedAt: Number(r["updated_at"]),
   ownerId: r["owner_id"] as string,
+  folder: (r["folder"] as string | null) ?? null,
+  tags: (r["tags"] as string[] | null) ?? [],
+});
+
+const toNote = (r: Record<string, unknown>): Note => ({
+  id: r["id"] as string,
+  documentId: r["document_id"] as string,
+  body: r["body"] as string,
+  at: Number(r["at"]),
+  byId: r["by_id"] as string,
 });
 
 const toRevision = (r: Record<string, unknown>): Revision => ({
@@ -107,16 +149,36 @@ export class DocumentStore {
     return rows[0] ? toDocument(rows[0]) : null;
   }
 
-  /** A project's documents, most recently changed first. */
-  async documentsOf(projectId: string, first: number, after: string | null): Promise<{ items: Document[]; total: number }> {
+  /** A project's documents, most recently changed first; in one folder or under one tag when asked. */
+  async documentsOf(projectId: string, filter: DocumentFilter, first: number, after: string | null): Promise<{ items: Document[]; total: number }> {
+    const where = "project_id = $1 and ($2::text is null or folder = $2) and ($3::text is null or $3 = any(tags))";
+    const args = [projectId, filter.folder, filter.tag];
     const { rows } = await this.sql.query(
-      `select * from documents where project_id = $1
-         and ($2::text is null or (updated_at, id) < (select updated_at, id from documents where id = $2))
-       order by updated_at desc, id desc limit $3`,
-      [projectId, after, first],
+      `select * from documents where ${where}
+         and ($4::text is null or (updated_at, id) < (select updated_at, id from documents where id = $4))
+       order by updated_at desc, id desc limit $5`,
+      [...args, after, first],
     );
-    const { rows: counted } = await this.sql.query("select count(*)::int as n from documents where project_id = $1", [projectId]);
+    const { rows: counted } = await this.sql.query(`select count(*)::int as n from documents where ${where}`, args);
     return { items: rows.map(toDocument), total: (counted[0]?.["n"] as number) ?? 0 };
+  }
+
+  async folders(projectId: string): Promise<Folder[]> {
+    const { rows } = await this.sql.query("select folder as name, count(*)::int as count from documents where project_id = $1 and folder is not null group by folder order by folder", [projectId]);
+    return rows.map((r) => ({ name: r["name"] as string, count: r["count"] as number }));
+  }
+
+  async notes(documentId: string, first: number, after: string | null): Promise<{ items: Note[]; total: number }> {
+    const { rows } = await this.sql.query(
+      "select * from notes where document_id = $1 and ($2::text is null or (at, id) > (select at, id from notes where id = $2)) order by at, id limit $3",
+      [documentId, after, first],
+    );
+    const { rows: counted } = await this.sql.query("select count(*)::int as n from notes where document_id = $1", [documentId]);
+    return { items: rows.map(toNote), total: (counted[0]?.["n"] as number) ?? 0 };
+  }
+
+  async addNote(note: Note): Promise<void> {
+    await this.sql.query("insert into notes (id, document_id, body, at, by_id) values ($1,$2,$3,$4,$5)", [note.id, note.documentId, note.body, note.at, note.byId]);
   }
 
   async revisionsOf(documentId: string, first: number, after: string | null): Promise<{ items: Revision[]; total: number }> {
@@ -158,8 +220,8 @@ export class DocumentStore {
     try {
       await client.query("begin");
       await client.query(
-        "insert into documents (id, name, project_id, content_type, size, url, version, updated_at, owner_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
-        [doc.id, doc.name, doc.projectId, doc.contentType, doc.size, doc.url, doc.version, doc.updatedAt, doc.ownerId],
+        "insert into documents (id, name, project_id, content_type, size, url, version, updated_at, owner_id, folder, tags) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+        [doc.id, doc.name, doc.projectId, doc.contentType, doc.size, doc.url, doc.version, doc.updatedAt, doc.ownerId, doc.folder, doc.tags],
       );
       await client.query("insert into revisions (id, document_id, version, size, url, at, by_id) values ($1,$2,$3,$4,$5,$6,$7)", [
         revision.id,
@@ -216,6 +278,17 @@ export class DocumentStore {
 
   async rename(id: string, name: string, version: number, updatedAt: number): Promise<void> {
     await this.sql.query("update documents set name = $2, version = $3, updated_at = $4 where id = $1", [id, name, version, updatedAt]);
+  }
+
+  /** Lands only while the version is what the caller read, like a replace. */
+  async file(id: string, folder: string | null, fromVersion: number, updatedAt: number): Promise<boolean> {
+    const { rowCount } = await this.sql.query("update documents set folder = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4", [id, folder, updatedAt, fromVersion]);
+    return !!rowCount;
+  }
+
+  async tag(id: string, tags: string[], fromVersion: number, updatedAt: number): Promise<boolean> {
+    const { rowCount } = await this.sql.query("update documents set tags = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4", [id, tags, updatedAt, fromVersion]);
+    return !!rowCount;
   }
 
   /** Deletes the document and answers with the revision ids, so their bytes can go too. */
