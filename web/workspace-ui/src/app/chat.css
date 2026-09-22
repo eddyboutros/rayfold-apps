@@ -1,0 +1,133 @@
+:host .card > .body {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+  max-height: min(72vh, 760px);
+}
+
+.log {
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+  display: grid;
+  align-content: end;
+  gap: 10px;
+  min-height: 180px;
+  max-height: min(56vh, 600px);
+  overflow-y: auto;
+}
+
+.none {
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+}
+
+/* what you said sits on the right, as a conversation reads */
+.line.mine {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.line.mine .avatar {
+  order: 2;
+}
+
+.line.mine .bubble {
+  order: 1;
+  text-align: right;
+}
+
+.line.mine .meta {
+  justify-content: flex-end;
+}
+
+.line.mine .text {
+  background: var(--accent-soft);
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--sunken);
+  color: var(--ink-muted);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.avatar[data-person="u1"] { background: rgba(39, 87, 214, 0.14); color: #2757d6; }
+.avatar[data-person="u2"] { background: rgba(23, 117, 61, 0.14); color: #17753d; }
+.avatar[data-person="u3"] { background: rgba(138, 90, 0, 0.14); color: #8a5a00; }
+.avatar[data-person="u4"] { background: rgba(122, 62, 178, 0.14); color: #7a3eb2; }
+
+:root[data-theme="dark"] .avatar[data-person="u1"] { color: #7c9cff; }
+:root[data-theme="dark"] .avatar[data-person="u2"] { color: #4ec97f; }
+:root[data-theme="dark"] .avatar[data-person="u3"] { color: #e0ad4e; }
+:root[data-theme="dark"] .avatar[data-person="u4"] { color: #c79bff; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .avatar[data-person="u1"] { color: #7c9cff; }
+  :root:not([data-theme="light"]) .avatar[data-person="u2"] { color: #4ec97f; }
+  :root:not([data-theme="light"]) .avatar[data-person="u3"] { color: #e0ad4e; }
+  :root:not([data-theme="light"]) .avatar[data-person="u4"] { color: #c79bff; }
+}
+
+.bubble {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.meta {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.meta time {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.text {
+  display: inline-block;
+  max-width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  background: var(--sunken);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.say {
+  display: flex;
+  gap: 8px;
+}
+
+.say .input {
+  flex: 1;
+}
+
+.bad {
+  margin: 0;
+  color: var(--bad);
+  font-size: 12.5px;
+}
+
+.bad .btn {
+  margin-left: 6px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+}

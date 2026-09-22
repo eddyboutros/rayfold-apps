@@ -12,6 +12,8 @@
 .rail {
   position: sticky;
   top: 0;
+  /* above the topbar: what the rail opens (the bell's list) is drawn over the page, not under its header */
+  z-index: 3;
   align-self: start;
   height: 100vh;
   display: flex;

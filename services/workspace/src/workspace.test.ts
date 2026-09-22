@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
 import { RayfoldClient, createFetchTransport, type RayfoldClientError } from "@rayfold/client";
 import { startTestService, type TestService } from "../../../e2e/harness.ts";
-import { signal } from "../../../e2e/wait.ts";
+import { signal, until } from "../../../e2e/wait.ts";
 
 /**
  * The workspace service as it runs. Two promises a person relies on: a conversation they are looking at hears a
@@ -123,6 +123,133 @@ it("an issue is handed to someone, and the feed says so", async () => {
     ["issue.assigned", "Sign the contract: Noor Haddad"],
     ["issue.created", "Sign the contract"],
   ]);
+});
+
+/** Runs a stream consumer; the abort that ends it at the end of a test is the expected ending, anything else is a failure. */
+const listen = (consume: () => Promise<void>): Promise<void> =>
+  consume().catch((e: unknown) => {
+    if (!(e instanceof Error && e.name === "AbortError")) throw e;
+  });
+
+/*
+ * Skipped until @rayfold/server 0.2.1: in 0.2.0 a live query keeps the batch's loader memo across its re-runs, so a
+ * field loaded once (the assignee) is answered from the first run for as long as the query stays open. The runtime
+ * fix and its own test are in the rayfold repository; this one turns on with the version bump.
+ */
+it.skip("an open issue list hears a hand-over made on another screen", async () => {
+  const ada = svc.client("ada");
+  const issue = await ada.command<Issue>("createIssue", { projectId: PROJECT, title: "Sign the contract" }, { shape: "{ id version }" });
+  const members = await ada.query<Array<{ id: string; name: string }>>("members", {}, { shape: "{ id name }" });
+  const noor = members.find((m) => m.name === "Noor Haddad")!;
+
+  const seen = signal<{ items: Array<{ id: string; assignee: { name: string } | null }> }>();
+  const stop = svc.client("grace").live<{ items: Array<{ id: string; assignee: { name: string } | null }> }>("issues", { projectId: PROJECT }, { shape: "{ items { id assignee { name } } }" }, (d) => seen.fire(d), (e) => {
+    throw e;
+  });
+  try {
+    expect((await seen.wait("the list's first answer")).items).toEqual([{ $type: "Issue", id: issue.id, assignee: null }]);
+    await ada.command("assignIssue", { id: issue.id, assigneeId: noor.id }, { shape: "{ id }", ifVersion: issue.version });
+    const next = await seen.wait("Grace's list to hear the hand-over");
+    expect(next.items).toEqual([{ $type: "Issue", id: issue.id, assignee: { $type: "Member", name: "Noor Haddad" } }]);
+  } finally {
+    stop();
+  }
+});
+
+it("a hand-over tells the person it went to, on a stream of their own, and a badge counts it until they read it", async () => {
+  const ada = svc.client("ada");
+  const noor = svc.client("noor");
+  const members = await ada.query<Array<{ id: string; name: string }>>("members", {}, { shape: "{ id name }" });
+  const noorId = members.find((m) => m.name === "Noor Haddad")!.id;
+
+  // Noor's screen: a live badge, and the stream that carries each notification as it is written
+  const unread = signal<number>();
+  const stopBadge = noor.live<number>("unread", {}, {}, (n) => unread.fire(n), (e) => {
+    throw e;
+  });
+  const ac = new AbortController();
+  const heard: Array<{ kind: string; text: string }> = [];
+  const listening = listen(async () => {
+    for await (const n of noor.stream<{ kind: string; text: string }>("notified", {}, { signal: ac.signal })) heard.push(n);
+  });
+  // Ada's screen too: the stream is per person, so hers stays silent through all of it
+  const adaHeard: unknown[] = [];
+  const adaListening = listen(async () => {
+    for await (const n of ada.stream("notified", {}, { signal: ac.signal })) adaHeard.push(n);
+  });
+  try {
+    expect(await unread.wait("the badge's first answer")).toBe(0);
+
+    const issue = await ada.command<Issue>("createIssue", { projectId: PROJECT, title: "Write the wave two comms" }, { shape: "{ id version }" });
+    await ada.command("assignIssue", { id: issue.id, assigneeId: noorId }, { shape: "{ id }", ifVersion: issue.version });
+    expect(await unread.wait("the badge to count the hand-over")).toBe(1);
+    await until("the stream to carry it", async () => heard.length || undefined);
+    expect(heard[0]).toMatchObject({ kind: "issue.assigned", text: "Ada Lovelace handed you Write the wave two comms" });
+
+    // a reply on the issue Noor holds is hers to hear; her own reply is not
+    await ada.command("addComment", { issueId: issue.id, body: "Draft is in the folder" }, { shape: "{ id }" });
+    expect(await unread.wait("the badge to count the reply")).toBe(2);
+    await noor.command("addComment", { issueId: issue.id, body: "Thanks" }, { shape: "{ id }" });
+    // taking it herself tells nobody
+    const held = await noor.query<Issue>("issue", { id: issue.id }, { shape: "{ version }" });
+    await noor.command("assignIssue", { id: issue.id, assigneeId: noorId }, { shape: "{ id }", ifVersion: held.version });
+    const mine = await noor.query<{ items: Array<{ kind: string; readAt: number | null }>; total: number }>("notifications", {}, { shape: "{ items { kind text readAt } total }" });
+    expect(mine.total).toBe(2);
+    expect(mine.items.map((n) => n.kind)).toEqual(["comment.added", "issue.assigned"]);
+    expect(mine.items.every((n) => n.readAt === null)).toBe(true);
+
+    // reading them takes no key, by declaration (@idempotent(false)): done twice is done once by its nature
+    const read = await noor.command<number>("markRead", { upTo: new Date().toISOString() }, {});
+    expect(read).toBe(2);
+    expect(await unread.wait("the badge to drop")).toBe(0);
+    expect(await noor.command<number>("markRead", { upTo: new Date().toISOString() }, {})).toBe(0);
+    // guard: a command that did not opt out still needs its key
+    const unkeyed = await noor.command("say", { projectId: PROJECT, body: "hi" }, { shape: "{ id }", key: "short" }).then(() => null, (e: RayfoldClientError) => e);
+    expect(unkeyed?.code).toBe("invalid_argument");
+
+    // guard: Ada, who did the handing over, was told nothing, and cannot read Noor's
+    expect((await ada.query<{ total: number }>("notifications", {}, { shape: "{ total }" })).total).toBe(0);
+    expect(adaHeard).toEqual([]);
+  } finally {
+    stopBadge();
+    ac.abort();
+    await Promise.all([listening, adaListening]);
+  }
+});
+
+it("a project's chat: what is said arrives on every open chat as it is said, and the history reads downwards", async () => {
+  const ada = svc.client("ada");
+  const grace = svc.client("grace");
+  const ac = new AbortController();
+  const heard: Array<{ body: string; byName: string }> = [];
+  const listening = listen(async () => {
+    for await (const said of grace.stream<{ body: string; byName: string }>("chat", { projectId: PROJECT }, { signal: ac.signal })) heard.push(said);
+  });
+  try {
+    await ada.command("say", { projectId: PROJECT, body: "Is the mirror caught up?" }, { shape: "{ id }" });
+    await until("Grace's chat to hear Ada", async () => heard.length || undefined);
+    await grace.command("say", { projectId: PROJECT, body: "Four minutes behind, closing" }, { shape: "{ id }" });
+    await until("Grace's chat to hear herself", async () => (heard.length === 2 ? true : undefined));
+    expect(heard.map((s) => [s.byName, s.body])).toEqual([
+      ["Ada Lovelace", "Is the mirror caught up?"],
+      ["Grace Hopper", "Four minutes behind, closing"],
+    ]);
+    // another project's chat hears none of it
+    await ada.command("say", { projectId: "p2", body: "elsewhere" }, { shape: "{ id }" });
+    await ada.command("say", { projectId: PROJECT, body: "Good" }, { shape: "{ id }" });
+    await until("the third line", async () => (heard.length === 3 ? true : undefined));
+    expect(heard.map((s) => s.body)).not.toContain("elsewhere");
+
+    const history = await ada.query<{ items: Array<{ body: string; by: { name: string } }>; total: number }>("messages", { projectId: PROJECT }, { shape: "{ items { body by { name } } total }" });
+    expect(history.total).toBe(3);
+    expect(history.items.map((m) => m.body)).toEqual(["Is the mirror caught up?", "Four minutes behind, closing", "Good"]);
+    // an empty line is refused before any resolver runs
+    const empty = await ada.command("say", { projectId: PROJECT, body: "" }, { shape: "{ id }" }).then(() => null, (e: RayfoldClientError) => e);
+    expect(empty?.code).toBe("invalid_argument");
+  } finally {
+    ac.abort();
+    await listening;
+  }
 });
 
 it("a browser's session cookie is the same person as a bearer token", async () => {

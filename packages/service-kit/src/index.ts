@@ -21,6 +21,7 @@ import {
   Capabilities,
   MemoryCounters,
   MemoryUsage,
+  attachWebSocket,
   createHttpHandler,
   createRayfoldServer,
   shutdown,
@@ -224,6 +225,13 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
       if (!res.headersSent) res.writeHead(500).end();
       else res.end();
     });
+  });
+  // the same schema on a socket, at /rayfold/ws: a browser page with several live queries and streams open holds one
+  // connection rather than one per subscription, which is what a browser's per-host limit of six makes necessary.
+  // the viewer is read from the handshake the way it is from a request, so a cookie session is the same person here.
+  attachWebSocket(http, server, {
+    ...(opts.viewer ? { viewer: (req: IncomingMessage) => opts.viewer!(req, deps) } : {}),
+    allowedOrigins: config.allowedOrigins,
   });
   await new Promise<void>((resolve) => http.listen(config.port, resolve));
 

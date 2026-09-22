@@ -45,7 +45,39 @@ entity Activity @allow(read: viewer != null) {
   by: Member?
 }
 
+"""A line in a project's chat: what someone said, when. The conversation nobody files an issue for."""
+entity Message @allow(read: viewer != null) {
+  id: ID
+  projectId: ID
+  body: String
+  at: Instant
+  by: Member
+}
+
+"""
+Something that happened to you: an issue handed over, a reply on one you hold, a file of yours made searchable.
+Yours alone: the policy reads the recipient, so a notification is never seen by anyone else.
+"""
+entity Notification @cache(maxAge: 0s, scope: private) @allow(read: viewer.id == recipientId) {
+  id: ID
+  recipientId: ID
+  """issue.assigned, comment.added, document.indexed."""
+  kind: String
+  text: String
+  projectId: ID
+  issueId: ID?
+  at: Instant
+  """Null until it has been read."""
+  readAt: Instant?
+}
+
 error NotFound { id: ID }
+
+"""Raised when a message is said, so an open chat hears it as it happens."""
+event Said { projectId: ID, messageId: ID, body: String, byId: ID, byName: String, at: Instant }
+
+"""Raised when a notification is written, carried to the one person it is for."""
+event Notified { recipientId: ID, notificationId: ID, kind: String, text: String, projectId: ID, issueId: ID?, at: Instant }
 
 """Raised here when anything lands on a project's feed, so a stream can carry it without polling the table."""
 event ActivityHappened { projectId: ID, source: String, kind: String, text: String, byId: ID? }
@@ -74,10 +106,10 @@ command createIssue(projectId: ID, title: String @range(min: 1, max: 200), assig
   emits ActivityHappened
   @allow(write: viewer != null)
 
-"""Hand an issue to someone, or to nobody. Send `ifVersion` as with a move."""
+"""Hand an issue to someone, or to nobody. Send `ifVersion` as with a move. Whoever it went to is notified."""
 command assignIssue(id: ID, assigneeId: ID?): Issue
   throws NotFound
-  emits ActivityHappened
+  emits ActivityHappened Notified
   @allow(write: viewer != null)
   @simulate
 
@@ -88,10 +120,37 @@ command moveIssue(id: ID, to: IssueState): Issue
   @allow(write: viewer != null)
   @simulate
 
+"""Reply on an issue. Whoever holds the issue is notified, unless the reply is theirs."""
 command addComment(issueId: ID, body: String @range(min: 1, max: 4000)): Comment
   throws NotFound
-  emits CommentAdded ActivityHappened
+  emits CommentAdded ActivityHappened Notified
   @allow(write: viewer != null)
 
 """Every line as it lands, without polling. Carries what other services did, too."""
 stream activityFeed(projectId: ID): ActivityHappened @allow(read: viewer != null)
+
+"""A project's chat so far, newest last."""
+query messages(projectId: ID, page: PageArgs = { first: 50 }): Page<Message> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
+
+"""Say something in a project's chat. Everyone with the chat open hears it through the stream."""
+command say(projectId: ID, body: String @range(min: 1, max: 2000)): Message
+  emits Said
+  @allow(write: viewer != null)
+
+"""Each message as it is said, in order: what a chat is, rather than a list that re-runs."""
+stream chat(projectId: ID): Said @allow(read: viewer != null)
+
+"""Your notifications, newest first."""
+query notifications(page: PageArgs = { first: 30 }): Page<Notification> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
+
+"""How many of yours are unread. Live, so a badge is right without asking again."""
+query unread: Int @allow(read: viewer != null)
+
+"""Each notification for you, as it is written."""
+stream notified: Notified @allow(read: viewer != null)
+
+"""
+Marks everything of yours up to a moment as read, and says how many that was. Doing it twice is the same as once by
+its nature, so it takes no idempotency key — and refuses one, which is what @idempotent(false) means.
+"""
+command markRead(upTo: Instant): Int @idempotent(false) @allow(write: viewer != null)

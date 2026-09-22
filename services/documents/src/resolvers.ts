@@ -79,6 +79,8 @@ export interface ExtractJob {
   url: string;
   /** Where the bytes are fetched from, with a capability token that reads this document and nothing else. */
   fetchUrl: string;
+  /** Who kept it, so the last step can tell them. */
+  byId: string;
 }
 
 export function resolvers({ store, files, uploads, caps, platform, log, selfUrl, limitBytes, id = () => crypto.randomUUID(), now = Date.now }: Parts): Resolvers {
@@ -121,7 +123,7 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
    * minted. A platform that is down does not fail the upload; the document is kept and the run is the platform's to
    * start when it is back.
    */
-  const extractLater = async (doc: Document): Promise<void> => {
+  const extractLater = async (doc: Document, byId: string): Promise<void> => {
     const token = caps.mint({ id: `job:${doc.id}`, documentId: doc.id }, { ops: ["document"], ttlMs: 60 * 60 * 1000, iss: "documents" });
     const job: ExtractJob = {
       documentId: doc.id,
@@ -132,6 +134,7 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
       size: doc.size,
       url: doc.url,
       fetchUrl: `${selfUrl}${doc.url}?token=${encodeURIComponent(token)}`,
+      byId,
     };
     try {
       // one run per revision: a retry of the command replays, and a second instance's start finds this one
@@ -184,7 +187,7 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
         };
         await store.create(doc, { id: revisionId, documentId: doc.id, version: 1, size, url: doc.url, at, byId: viewer.id });
         log.info("kept a document", { documentId: doc.id, name: doc.name, size, projectId, by: viewer.id });
-        await extractLater(doc);
+        await extractLater(doc, viewer.id);
         return ok(doc, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: 1, byId: viewer.id } }] });
       },
 
@@ -207,7 +210,7 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
           throw RayfoldError.domain("NotFound", { id: documentId }, `Document ${documentId} changed while this was running`);
         }
         log.info("replaced a document's bytes", { documentId: doc.id, version: next.version, size, by: viewer.id });
-        await extractLater(next);
+        await extractLater(next, viewer.id);
         return ok(next, { emit: [{ event: "DocumentChanged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, version: next.version, byId: viewer.id } }] });
       },
 

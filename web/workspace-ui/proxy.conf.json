@@ -9,6 +9,7 @@
     "target": "http://localhost:4002",
     "pathRewrite": {
       "^/api/workspace": ""
-    }
+    },
+    "ws": true
   }
 }

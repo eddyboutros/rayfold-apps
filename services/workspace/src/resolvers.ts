@@ -7,7 +7,7 @@
  * service's, and nothing here reads another service's tables to build it.
  */
 import { RayfoldError, ok, type Resolvers } from "@rayfold/server";
-import type { Activity, Comment, Issue, IssueState, Member, WorkspaceStore } from "./store.ts";
+import type { Activity, Comment, Issue, IssueState, Member, Message, Notification, WorkspaceStore } from "./store.ts";
 
 export interface Viewer {
   id: string;
@@ -60,6 +60,19 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
   const did = (ctx: { viewer: unknown }, projectId: string, kind: string, text: string) =>
     line({ projectId, source: "workspace", kind, text, byId: (ctx.viewer as Viewer).id });
 
+  /**
+   * Tells one person something happened to them, and answers the event that carries it to their open screen. The id
+   * is derived from the cause, so the same cause reaching two instances writes one notification.
+   */
+  const tell = async (recipientId: string, cause: string, n: Omit<Notification, "id" | "recipientId" | "at" | "readAt">): Promise<{ event: string; payload: Record<string, unknown> }> => {
+    const notification: Notification = { id: `${cause}:${recipientId}`, recipientId, at: now(), readAt: null, ...n };
+    await store.notify(notification);
+    return { event: "Notified", payload: { recipientId, notificationId: notification.id, kind: n.kind, text: n.text, projectId: n.projectId, issueId: n.issueId, at: notification.at } };
+  };
+
+  /** What a command that wrote a notification hands back beside its result, so an open badge re-counts. */
+  const unreadChanged = [{ invOp: ["unread", "notifications"] }];
+
   return {
     Query: {
       members: () => store.members(),
@@ -80,6 +93,19 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
         const { items, total } = await store.activity(projectId, page.first, page.after ?? null);
         return pageOf(items, total, (a) => a.id);
       },
+
+      messages: async ({ projectId, page }: { projectId: string; page: { first: number; after?: string | null } }) => {
+        const { items, total } = await store.messages(projectId, page.first, page.after ?? null);
+        // the cursor is the oldest shown: the next page is what came before it
+        return pageOf(items, total, (m) => m.id);
+      },
+
+      notifications: async ({ page }: { page: { first: number; after?: string | null } }, ctx) => {
+        const { items, total } = await store.notifications((ctx.viewer as Viewer).id, page.first, page.after ?? null);
+        return pageOf(items, total, (n) => n.id);
+      },
+
+      unread: (_: unknown, ctx) => store.unread((ctx.viewer as Viewer).id),
     },
 
     Command: {
@@ -103,7 +129,14 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
           throw RayfoldError.domain("NotFound", { id: issueId }, `Issue ${issueId} changed while this was running`);
         }
         const who = to ? ((await store.membersByIds([to])).get(to)?.name ?? to) : "nobody";
-        return ok(next, { patch: feedChanged, emit: [await did(ctx, issue.projectId, "issue.assigned", `${issue.title}: ${who}`)] });
+        const viewer = ctx.viewer as Viewer;
+        const emit = [await did(ctx, issue.projectId, "issue.assigned", `${issue.title}: ${who}`)];
+        // the person it was handed to is told, unless they handed it to themselves
+        const told = to !== null && to !== viewer.id;
+        if (told) {
+          emit.push(await tell(to, `issue:${issue.id}:v${next.version}`, { kind: "issue.assigned", text: `${viewer.name ?? "Someone"} handed you ${issue.title}`, projectId: issue.projectId, issueId: issue.id }));
+        }
+        return ok(next, { patch: [...feedChanged, ...(told ? unreadChanged : [])], emit });
       },
 
       moveIssue: async ({ id: issueId, to }: { id: string; to: IssueState }, ctx) => {
@@ -130,17 +163,38 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
 
       addComment: async ({ issueId, body }: { issueId: string; body: string }, ctx) => {
         const issue = await find(issueId);
-        const comment: Comment = { id: id(), issueId, body, at: now(), byId: (ctx.viewer as Viewer).id };
+        const viewer = ctx.viewer as Viewer;
+        const comment: Comment = { id: id(), issueId, body, at: now(), byId: viewer.id };
         await store.addComment(comment);
+        const emit = [
+          { event: "CommentAdded", payload: { issueId, commentId: comment.id } },
+          await did(ctx, issue.projectId, "comment.added", `${issue.title}: ${body.slice(0, 80)}`),
+        ];
+        // whoever holds the issue hears about a reply on it, unless the reply is their own
+        const holder = issue.assigneeId !== null && issue.assigneeId !== viewer.id ? issue.assigneeId : null;
+        if (holder) {
+          emit.push(await tell(holder, `comment:${comment.id}`, { kind: "comment.added", text: `${viewer.name ?? "Someone"} replied on ${issue.title}: ${body.slice(0, 60)}`, projectId: issue.projectId, issueId: issue.id }));
+        }
         return ok(comment, {
-          // the feed only. an open thread re-runs on its own: this patch sets a Comment, and Comment is the type
-          // the thread returns, which is the conservative rule the protocol applies (spec 08 section 2)
-          patch: feedChanged,
-          emit: [
-            { event: "CommentAdded", payload: { issueId, commentId: comment.id } },
-            await did(ctx, issue.projectId, "comment.added", `${issue.title}: ${body.slice(0, 80)}`),
-          ],
+          // the feed, and the badge. an open thread re-runs on its own: this patch sets a Comment, and Comment is
+          // the type the thread returns, which is the conservative rule the protocol applies (spec 08 section 2)
+          patch: [...feedChanged, ...(holder ? unreadChanged : [])],
+          emit,
         });
+      },
+
+      say: async ({ projectId, body }: { projectId: string; body: string }, ctx) => {
+        const viewer = ctx.viewer as Viewer;
+        const message: Message = { id: id(), projectId, body, at: now(), byId: viewer.id };
+        await store.say(message);
+        // a new Message: every open history of this project re-runs by the type rule; the stream carries the line
+        return ok(message, { emit: [{ event: "Said", payload: { projectId, messageId: message.id, body, byId: viewer.id, byName: viewer.name ?? viewer.id, at: message.at } }] });
+      },
+
+      markRead: async ({ upTo }: { upTo: string }, ctx) => {
+        // an Instant argument arrives as RFC 3339 text; the store keeps epoch milliseconds
+        const n = await store.markRead((ctx.viewer as Viewer).id, Date.parse(upTo), now());
+        return ok(n, { patch: n ? unreadChanged : [] });
       },
     },
 
@@ -151,6 +205,30 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
         return (async function* () {
           for await (const happened of source) if (happened.projectId === projectId) yield happened;
         })();
+      },
+
+      /** Each message in this project's chat, as it is said. */
+      chat: ({ projectId }: { projectId: string }, ctx) => {
+        const source = ctx.events.subscribe<{ projectId: string }>("Said", ctx.signal);
+        return (async function* () {
+          for await (const said of source) if (said.projectId === projectId) yield said;
+        })();
+      },
+
+      /** Each notification for the caller, as it is written: the event carries the recipient, and this is the filter. */
+      notified: (_: unknown, ctx) => {
+        const me = (ctx.viewer as Viewer).id;
+        const source = ctx.events.subscribe<{ recipientId: string }>("Notified", ctx.signal);
+        return (async function* () {
+          for await (const n of source) if (n.recipientId === me) yield n;
+        })();
+      },
+    },
+
+    Message: {
+      by: async (messages: Message[]) => {
+        const members = await store.membersByIds([...new Set(messages.map((m) => m.byId))]);
+        return messages.map((m) => members.get(m.byId) ?? null);
       },
     },
 
@@ -177,4 +255,4 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
   } satisfies Resolvers as Resolvers;
 }
 
-export type { Activity, Comment, Issue, Member };
+export type { Activity, Comment, Issue, Member, Message, Notification };

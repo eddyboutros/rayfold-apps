@@ -9,7 +9,7 @@ services, which are on another.
 | `design/` | Tokens and base styles every app here builds from. Nobody owns the palette; teams own components. |
 | `shell` | The page, the project switcher, the theme, sign-in and the session. Owns no features and no client. |
 | `documents-ui` | Files: upload, share. Owned by the team that owns the documents service. |
-| `workspace-ui` | Issues, hand-overs, conversations, and the activity feed. Owned by the team that owns the workspace service. |
+| `workspace-ui` | Issues, hand-overs, conversations, the activity feed, the project chat, and the bell with each person's notifications. Owned by the team that owns the workspace service. |
 | `catalogue-ui` | The catalogue: one search over products, people and articles, and a catalogue to leaf through. A whole page, not a panel. |
 
 ```sh
@@ -37,6 +37,14 @@ remote provides the client for the service it was built against — `providers: 
 on the exposed component — and the shell provides none. A service is a path on the page's own origin,
 `/api/documents`, in development and production alike: the gateway forwards it in one, `proxy.conf.json` in the
 other. No bundle knows a host, and nothing a browser does is cross-origin.
+
+**A remote with many subscriptions holds one socket.** The workspace panels keep the feed, the issues, the chat
+stream, the bell's count and its stream open at once. Over plain HTTP each is a connection, and a browser allows six
+per host — shared with everything else the page loads — so the sixth subscription stalled the page. The workspace
+client is `createWebSocketTransport` on `/api/workspace/rayfold/ws` instead: every op is an id on one socket, a live
+query's re-runs and a stream's items arrive as frames, and a cancel is a message rather than a closed connection.
+The session cookie goes with the handshake as it goes with a request. The documents client stays on HTTP because it
+uploads, which the socket does not carry.
 
 **No bundle handles a credential.** The shell's sign-in sets a session cookie on the page's origin and the browser
 sends it with every same-origin request — the batch, the upload, a file link opened in a new tab. A remote's client

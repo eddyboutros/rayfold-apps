@@ -3,10 +3,12 @@ const { withNativeFederation, shareAll } = require('@angular-architects/native-f
 module.exports = withNativeFederation({
   name: 'workspace-ui',
 
-  // what the shell may load. the feed is the whole of this remote's public surface.
+  // what the shell may load: the project panels, and the bell that follows the person around the page
   exposes: {
     './Feed': './src/app/feed.ts',
     './Issues': './src/app/issues.ts',
+    './Chat': './src/app/chat.ts',
+    './Notifications': './src/app/notifications.ts',
   },
 
   shared: {

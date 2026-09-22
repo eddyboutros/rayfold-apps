@@ -139,11 +139,28 @@
   font-size: 12px;
 }
 
+/* the actions sit over the row's right end while the pointer is there, taking no room from the name at other times */
+.row {
+  position: relative;
+}
+
 .row-actions {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   gap: 2px;
+  padding-left: 10px;
+  background: linear-gradient(to right, transparent, var(--surface) 10px);
   opacity: 0;
   transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+
+.row:hover .row-actions,
+.row:focus-within .row-actions {
+  pointer-events: auto;
 }
 
 .row:hover .row-actions,

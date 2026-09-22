@@ -32,6 +32,25 @@ export interface Comment {
   byId: string;
 }
 
+export interface Message {
+  id: string;
+  projectId: string;
+  body: string;
+  at: number;
+  byId: string;
+}
+
+export interface Notification {
+  id: string;
+  recipientId: string;
+  kind: string;
+  text: string;
+  projectId: string;
+  issueId: string | null;
+  at: number;
+  readAt: number | null;
+}
+
 export interface Activity {
   id: string;
   projectId: string;
@@ -80,6 +99,27 @@ export const SCHEMA = `
   -- added after the first deploy. no reference to members: a line relayed from another service may name someone
   -- this service has not heard of yet, and the line is still worth keeping
   alter table activity add column if not exists by_id text;
+
+  create table if not exists messages (
+    id text primary key,
+    project_id text not null,
+    body text not null,
+    at bigint not null,
+    by_id text not null references members(id)
+  );
+  create index if not exists messages_project on messages (project_id, at, id);
+
+  create table if not exists notifications (
+    id text primary key,
+    recipient_id text not null references members(id),
+    kind text not null,
+    text text not null,
+    project_id text not null,
+    issue_id text,
+    at bigint not null,
+    read_at bigint
+  );
+  create index if not exists notifications_recipient on notifications (recipient_id, at desc);
 `;
 
 export const SEED = membersSeed();
@@ -100,6 +140,25 @@ const toComment = (r: Record<string, unknown>): Comment => ({
   body: r["body"] as string,
   at: Number(r["at"]),
   byId: r["by_id"] as string,
+});
+
+const toMessage = (r: Record<string, unknown>): Message => ({
+  id: r["id"] as string,
+  projectId: r["project_id"] as string,
+  body: r["body"] as string,
+  at: Number(r["at"]),
+  byId: r["by_id"] as string,
+});
+
+const toNotification = (r: Record<string, unknown>): Notification => ({
+  id: r["id"] as string,
+  recipientId: r["recipient_id"] as string,
+  kind: r["kind"] as string,
+  text: r["text"] as string,
+  projectId: r["project_id"] as string,
+  issueId: (r["issue_id"] as string | null) ?? null,
+  at: Number(r["at"]),
+  readAt: r["read_at"] === null ? null : Number(r["read_at"]),
 });
 
 const toActivity = (r: Record<string, unknown>): Activity => ({
@@ -152,6 +211,54 @@ export class WorkspaceStore {
     );
     const { rows: n } = await this.sql.query("select count(*)::int as n from activity where project_id = $1", [projectId]);
     return { items: rows.map(toActivity), total: (n[0]?.["n"] as number) ?? 0 };
+  }
+
+  async messages(projectId: string, first: number, after: string | null): Promise<{ items: Message[]; total: number }> {
+    // newest last, so a chat reads downwards; the page walks backwards from the newest, as a person scrolls up
+    const { rows } = await this.sql.query(
+      `select * from (
+         select * from messages where project_id = $1 and ($2::text is null or (at, id) < (select at, id from messages where id = $2))
+         order by at desc, id desc limit $3
+       ) page order by at, id`,
+      [projectId, after, first],
+    );
+    const { rows: n } = await this.sql.query("select count(*)::int as n from messages where project_id = $1", [projectId]);
+    return { items: rows.map(toMessage), total: (n[0]?.["n"] as number) ?? 0 };
+  }
+
+  async say(m: Message): Promise<void> {
+    await this.sql.query("insert into messages (id, project_id, body, at, by_id) values ($1,$2,$3,$4,$5)", [m.id, m.projectId, m.body, m.at, m.byId]);
+  }
+
+  async notifications(recipientId: string, first: number, after: string | null): Promise<{ items: Notification[]; total: number }> {
+    const { rows } = await this.sql.query(
+      `select * from notifications where recipient_id = $1
+         and ($2::text is null or (at, id) < (select at, id from notifications where id = $2))
+       order by at desc, id desc limit $3`,
+      [recipientId, after, first],
+    );
+    const { rows: n } = await this.sql.query("select count(*)::int as n from notifications where recipient_id = $1", [recipientId]);
+    return { items: rows.map(toNotification), total: (n[0]?.["n"] as number) ?? 0 };
+  }
+
+  async unread(recipientId: string): Promise<number> {
+    const { rows } = await this.sql.query("select count(*)::int as n from notifications where recipient_id = $1 and read_at is null", [recipientId]);
+    return (rows[0]?.["n"] as number) ?? 0;
+  }
+
+  /** Written once however many instances react: the id is derived from the cause, as the feed's lines are. */
+  async notify(n: Notification): Promise<boolean> {
+    const { rowCount } = await this.sql.query(
+      "insert into notifications (id, recipient_id, kind, text, project_id, issue_id, at) values ($1,$2,$3,$4,$5,$6,$7) on conflict (id) do nothing",
+      [n.id, n.recipientId, n.kind, n.text, n.projectId, n.issueId, n.at],
+    );
+    return !!rowCount;
+  }
+
+  /** Marks everything up to a moment as read, answering how many that was. Nothing is unmarked; done twice is done once. */
+  async markRead(recipientId: string, upTo: number, at: number): Promise<number> {
+    const { rowCount } = await this.sql.query("update notifications set read_at = $3 where recipient_id = $1 and at <= $2 and read_at is null", [recipientId, upTo, at]);
+    return rowCount ?? 0;
   }
 
   async members(): Promise<Member[]> {

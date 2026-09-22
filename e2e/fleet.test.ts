@@ -201,6 +201,14 @@ it("a document kept in one service is found by a search in another, and the thir
   expect(line).toMatchObject({ source: "catalogue", by: null });
   expect(line.text).toContain("Rollout notes.txt");
 
+  // and Ada, who kept the file in the documents service, is told by the workspace: one notification, hers alone
+  const told = await until("Ada to be told her file is searchable", async () => {
+    const page = await workspace.client("ada").query<{ items: Array<{ kind: string; text: string; projectId: string }> }>("notifications", {}, { shape: "{ items { kind text projectId } }" });
+    return page.items.find((n) => n.kind === "document.indexed");
+  }, 10_000);
+  expect(told).toMatchObject({ text: "Rollout notes.txt is searchable now", projectId: PROJECT });
+  expect((await workspace.client("grace").query<{ total: number }>("notifications", {}, { shape: "{ total }" })).total).toBe(0);
+
   // what the platform recorded: one run, keyed to the revision, each step done by the service that owns the work
   const run = platform.runs.find((r) => r.key === `${doc.id}:1`)!;
   const steps = platform.jobs.filter((j) => j.flowRun === run.id);
@@ -219,6 +227,8 @@ it("a file with no text is not indexed, and the feed says so: a condition betwee
     return page.items.find((i) => i.kind === "document.empty");
   }, 10_000);
   expect(line.text).toContain("empty.txt");
+  // nothing became searchable, so nobody is told
+  expect((await workspace.client("ada").query<{ total: number }>("notifications", {}, { shape: "{ total }" })).total).toBe(0);
   const run = platform.runs.find((r) => r.key === `${doc.id}:1`)!;
   expect(platform.jobs.filter((j) => j.flowRun === run.id).map((j) => [j.step, j.state])).toEqual([
     ["extract", "done"],

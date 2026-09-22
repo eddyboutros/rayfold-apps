@@ -9,7 +9,8 @@
     "target": "http://localhost:4002",
     "pathRewrite": {
       "^/api/workspace": ""
-    }
+    },
+    "ws": true
   },
   "/api/catalogue": {
     "target": "http://localhost:4003",

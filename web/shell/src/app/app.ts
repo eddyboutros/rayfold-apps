@@ -91,6 +91,9 @@ const PROJECTS = [
           <span class="spacer"></span>
 
           <div class="account">
+            @if (bell().component; as component) {
+              <ng-container *ngComponentOutlet="component" />
+            }
             <button type="button" class="nav" (click)="toggleTheme()">
               <span class="glyph">{{ theme() === "dark" ? "☾" : "☀" }}</span>
               {{ theme() === "dark" ? "Dark" : "Light" }}
@@ -182,12 +185,15 @@ export class App {
     { key: "issues", label: "Issues", remote: "workspace-ui", exposed: "./Issues", component: null, failed: null },
     { key: "documents", label: "Documents", remote: "documents-ui", exposed: "./Documents", component: null, failed: null },
     { key: "activity", label: "Activity", remote: "workspace-ui", exposed: "./Feed", component: null, failed: null },
+    { key: "chat", label: "Chat", remote: "workspace-ui", exposed: "./Chat", component: null, failed: null },
   ]);
   /** A whole page from one remote, rather than a panel among others. */
   readonly catalogue = signal<Panel>({ key: "catalogue", label: "Catalogue", remote: "catalogue-ui", exposed: "./Catalogue", component: null, failed: null });
+  /** The bell in the rail: the person's, not a project's, so it is on every page. A missing remote is a missing bell. */
+  readonly bell = signal<Panel>({ key: "bell", label: "Notifications", remote: "workspace-ui", exposed: "./Notifications", component: null, failed: null });
 
   constructor() {
-    for (const panel of [...this.panels(), this.catalogue()]) {
+    for (const panel of [...this.panels(), this.catalogue(), this.bell()]) {
       // one remote failing is one panel missing, not a blank page: each is loaded and settled on its own
       void loadRemoteModule(panel.remote, panel.exposed)
         .then((m: Record<string, Type<unknown>>) => this.settle(panel.key, Object.values(m)[0] ?? null, null))
@@ -197,6 +203,7 @@ export class App {
 
   private settle(key: string, component: Type<unknown> | null, failed: string | null): void {
     if (key === this.catalogue().key) this.catalogue.update((p) => ({ ...p, component, failed }));
+    else if (key === this.bell().key) this.bell.update((p) => ({ ...p, component, failed }));
     else this.panels.update((panels) => panels.map((p) => (p.key === key ? { ...p, component, failed } : p)));
   }
 

@@ -66,10 +66,18 @@ const service = await startService({
     // the last step of the document-kept flow, worked here because the feed is this service's: the platform hands
     // it what the steps before produced, so it can say whether the file became searchable or had nothing to index
     void deps.platform.defineQueue("notify-workspace", { maxAttempts: 3, leaseMs: 15_000 });
-    deps.platform.work<{ documentId: string; projectId: string; name: string; version: number; results: { index: { indexed: boolean } | null } }>(
+    deps.platform.work<{ documentId: string; projectId: string; name: string; version: number; byId?: string; results: { index: { indexed: boolean } | null } }>(
       "notify-workspace",
       async ({ payload: job }) => {
         const indexed = job.results.index?.indexed === true;
+        // the person who kept the file is told it is searchable now: a notification from one service about another's work
+        if (indexed && job.byId) {
+          const notification = { id: `document:${job.documentId}:v${job.version}:indexed`, recipientId: job.byId, kind: "document.indexed", text: `${job.name} is searchable now`, projectId: job.projectId, issueId: null, at: Date.now(), readAt: null };
+          if (await store.notify(notification)) {
+            server.events.deliver("Notified", { recipientId: job.byId, notificationId: notification.id, kind: notification.kind, text: notification.text, projectId: job.projectId, issueId: null, at: notification.at });
+            server.changes.deliver({ keys: new Set(), ops: new Set(["unread", "notifications"]) });
+          }
+        }
         const line = {
           id: `documents:${job.documentId}:${job.version}:indexed`,
           projectId: job.projectId,
