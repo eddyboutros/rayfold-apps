@@ -43,7 +43,9 @@ for (const { pkg, reason } of NEEDED) {
 }
 
 if (broken) {
-  console.error("\nnpm/cli#4828. one command fixes it:\n\n  rm -rf node_modules package-lock.json && npm install\n");
+  // the committed lockfile lists every platform's binding, so installing exactly from it is the fix; only a lockfile
+  // that has itself lost them (after an npm install on one platform) needs regenerating
+  console.error("\nnpm/cli#4828. reinstall from the committed lockfile:\n\n  rm -rf node_modules && npm ci\n\nif that still fails, the lockfile has lost them too:\n\n  rm -rf node_modules package-lock.json && npm install\n");
   process.exit(1);
 }
 console.log("native bindings are installed");

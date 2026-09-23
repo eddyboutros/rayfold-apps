@@ -13,11 +13,20 @@ services, which are on another.
 | `catalogue-ui` | The catalogue: one search over products, people and articles, a catalogue to leaf through, a page for each product and person, and an article's history with restore. A whole page, not a panel. |
 
 ```sh
-cd web/documents-ui && npm install && npx ng serve --port 4202   # the remotes first
+npm run web          # from the repository root: installs each project the first time, then serves all four
+```
+
+Or one at a time, remotes first, which is what that does:
+
+```sh
+cd web/documents-ui && npm install && npx ng serve --port 4202
 cd web/workspace-ui && npm install && npx ng serve --port 4201
 cd web/catalogue-ui && npm install && npx ng serve --port 4203
 cd web/shell        && npm install && npx ng serve --port 4200
 ```
+
+They proxy `/api/<service>` to the services `npm run dev` starts (see the root README), so the page has one origin
+in development as it does behind the gateway.
 
 The product is called Keel. Nothing in it says Rayfold: a customer sees documents, a feed, and a page that stays
 current — the protocol is what makes that ordinary.

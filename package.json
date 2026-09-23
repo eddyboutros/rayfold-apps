@@ -16,6 +16,9 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "db": "node scripts/db.mjs",
+    "dev": "node scripts/dev.mjs",
+    "web": "node scripts/web.mjs",
     "seed": "tsx scripts/seed-demo.mts",
     "up": "docker compose up --build",
     "down": "docker compose down -v",

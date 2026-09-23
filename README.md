@@ -6,19 +6,86 @@ several services and several apps would build it — not as demos.
 Everything here depends on the **published** `@rayfold/*` packages from npm, the same ones anyone installs. Nothing
 reaches into a checkout of the protocol, which is the point: if a service compiles here, it compiles for you.
 
+## Getting started
+
+You need **Node 22 or newer** and **Docker**. The Kotlin service also needs a **JDK 21 or newer**; without one, run
+everything else (`--no-jvm` below). Nothing needs the Rayfold protocol's own repository, and nothing needs the
+Rayfold Console — see [The platform's console](#the-platforms-console) for what that one is.
+
 ```sh
-docker compose up --build        # postgres, every service, every front end, and a gateway on http://localhost:8080
-DOCUMENTS_URL=http://localhost:8080/api/documents WORKSPACE_URL=http://localhost:8080/api/workspace npm run seed
-npm test                         # each service against a real postgres
+git clone https://github.com/eddyboutros/rayfold-apps && cd rayfold-apps
+npm install
 ```
 
-Open http://localhost:8080 and sign in as anyone on the team. Add a file in the Documents panel and watch it appear
-on the Activity feed, which is served by a different service, without the page reloading. For development,
-`web/README.md` says how to run the front ends on their own dev servers against the same services.
+Then pick one of the two ways to run it.
 
-`npm run seed` gives a fresh environment a team's first week of work — files, issues, hand-overs, conversations —
-through the same operations the front ends use, so a demo shows what the product does and nothing else. It leaves a
-project alone once it has work on it.
+### All of it in Docker
+
+The quickest way to see it, and the way it is deployed: Postgres, every service, every front end, and one gateway.
+
+```sh
+npm run up                        # docker compose up --build; the first build takes a few minutes
+```
+
+Open **http://localhost:8080**. To start with a team's first week of work in it instead of an empty page, in
+another terminal:
+
+```sh
+DOCUMENTS_URL=http://localhost:8080/api/documents WORKSPACE_URL=http://localhost:8080/api/workspace npm run seed
+```
+
+`npm run down` stops it and deletes its data.
+
+### Developing, with each piece on its own
+
+The way to work on it: the services and the front ends run from source and reload as you edit. Three terminals.
+
+```sh
+npm run db                        # Postgres in Docker on 127.0.0.1:55432; start it once, it keeps its data
+npm run dev                       # the four services: documents :4001, workspace :4002, catalogue :4003, approvals :4004
+npm run web                       # the four front ends; the first run installs them, which takes a few minutes
+```
+
+Open **http://localhost:4200** once the shell says it is ready. Then, once, fill it with work:
+
+```sh
+npm run seed
+```
+
+`npm run dev -- --no-jvm` leaves out the Kotlin service when there is no JDK; the sign-offs tab says it is
+unavailable and everything else works. The first `npm run dev` builds that service's jar, which takes a minute.
+
+### What to try
+
+Sign in as anyone on the team; the sign-in page asks no password (see below). Then:
+
+- **Add a file** in Documents and watch it appear on the Activity feed, served by a different service, without the
+  page reloading.
+- **Open Keel in a second window as someone else** and hand them an issue: their bell rings, their People page moves.
+- **Open an issue** to edit it, reply on it, or attach one of the project's documents to it.
+- **Ask for a sign-off** on a file: the Kotlin service raises it and the workspace's feed and bell hear it.
+- **Open a product** in the Catalogue as Noor, then as anyone else: only the product team sees its margin.
+- **Change a project's settings** from its page header; the rail follows.
+- **What this shows**, in the rail, maps every Rayfold feature to the place on the page that uses it and the file
+  that does it. It is the best place to start reading code.
+
+`npm run field` and `npm run agent` are two more clients, run against the dev fleet; [Two more clients](#two-more-clients)
+says what each does.
+
+### Tests
+
+```sh
+npm run db                        # if it is not running already
+npm test                          # every service against a real Postgres, and the flows that cross them
+cd services/approvals && ./mvnw verify    # the Kotlin service's own tests (mvnw.cmd on Windows)
+```
+
+The tests use their own database, `apps_test`, beside the one `npm run dev` uses, so running them never wipes what
+you were looking at. They expect Postgres on 55432, where `npm run db` puts it; with the Docker Compose Postgres
+instead (55433), set `TEST_DATABASE_URL=postgres://postgres:rayfold@127.0.0.1:55433/apps_test`.
+
+`npm run schema:check` compares each service's schema with its committed contract (`rayfold.lock.json`) and refuses
+a breaking change; `npm run schema:lock` records a deliberate one. CI runs both, and everything above.
 
 ## Who is signed in
 
@@ -59,7 +126,6 @@ the bundles are identical in development and production.
 | `e2e/` | The harness services are started with, and the flows that cross them. |
 | `web/` | Keel: the page, and the panels loaded into it at runtime — one per team. Its guide page, "What this shows", maps every Rayfold feature to where it is on the page and the file that does it. See [web/README.md](web/README.md). |
 
-More services and the front ends follow; the shape below is what they plug into.
 
 ## What one service knows about another
 
@@ -201,6 +267,18 @@ mints is honoured by the next — scoped to the operations it names and expiring
 **A service is tested the way it is deployed.** The harness sets the environment and imports the service's own
 `main.ts`: the real migration, the real routes, the real shutdown, against a real Postgres. There is no second code
 path for tests.
+
+## When something does not work
+
+| What you see | Why, and what fixes it |
+|---|---|
+| `npm test` or `npm run dev` fails with `ECONNREFUSED 127.0.0.1:55432` | Postgres is not running. `npm run db`, and start Docker first if that says it is not running. |
+| `npm test` stops before running, saying a native binding is missing | npm left a platform binary out of `node_modules`, a known npm bug with optional packages; the message names it. `rm -rf node_modules && npm ci` installs exactly what the committed lockfile lists. |
+| After adding a package to a front end, CI's `npm ci` fails with `Missing: @emnapi/... from lock file` | The same npm bug: an `npm install` on one platform wrote a lockfile without another platform's binaries. In that `web/*` project, `rm -rf node_modules package-lock.json && npm install`, and commit the new lockfile. |
+| A panel says it is unavailable, with a 404 for a `-dev.js` file | That remote's dev server is serving an old build. Stop `npm run web`, delete the remote's `dist/` folder, start it again. A new file a remote exposes, or a new package it imports, needs the same. |
+| The sign-offs tab is unavailable | The Kotlin service is not running: `npm run dev` without `--no-jvm`, which needs a JDK 21. |
+| A port is already in use | Something else holds 4001–4004, 4200–4203, 8080 or 55432. Stop it, or change the port in `scripts/dev.mjs`, `scripts/web.mjs` or `docker-compose.yml`. |
+| A service logs `no CONSOLE_URL: running without the platform` | That is normal: the console is a separate product this repository does not include. Files are not made searchable and there are no queues, traces or live configuration; everything else works. |
 
 ## Configuration
 

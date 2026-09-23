@@ -4,7 +4,7 @@
  * a fact about the document and the person looking at it is here. The list is live: a decision made on another
  * screen, or a version kept in the documents service that makes a pending sign-off stale, lands as it happens.
  */
-import { ChangeDetectionStrategy, Component, computed, input, signal } from "@angular/core";
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, signal } from "@angular/core";
 import { RayfoldClient, createWebSocketTransport } from "@rayfold/client";
 import { injectCommand, injectLive, injectQuery, provideRayfold } from "@rayfold/angular";
 
@@ -48,6 +48,8 @@ const LABEL: Record<Approval["decision"], string> = { pending: "Waiting", approv
     <div class="approvals">
       @if (list.error(); as e) {
         <p class="bad" role="alert">The sign-offs could not be loaded: {{ describe(e) }}</p>
+      } @else if (list.loading() && !items().length && slow()) {
+        <p class="bad" role="status">The sign-offs service is not answering. It is retrying on its own; the rest of the file works without it.</p>
       } @else if (list.loading() && !items().length) {
         <span class="skeleton" style="width: 48%"></span>
       } @else if (!items().length) {
@@ -115,6 +117,24 @@ export class Approvals {
   readonly roster = injectQuery<Member[]>("members", {}, { shape: "{ id name }" });
   readonly items = computed(() => this.list.data() ?? []);
   readonly others = computed(() => (this.roster.data() ?? []).filter((m) => m.id !== this.meId()));
+
+  /**
+   * True once the list has been loading for a few seconds. A live query to a service that is down retries quietly
+   * rather than failing, which is right for a blip and wrong for a service that is not running: after a moment the
+   * panel says so instead of showing a placeholder for ever.
+   */
+  readonly slow = signal(false);
+
+  constructor() {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    effect(() => {
+      const waiting = this.list.loading() && !this.items().length;
+      clearTimeout(timer);
+      if (!waiting) this.slow.set(false);
+      else timer = setTimeout(() => this.slow.set(true), 4000);
+    });
+    inject(DestroyRef).onDestroy(() => clearTimeout(timer));
+  }
 
   readonly request = injectCommand<Approval>("requestApproval");
   readonly decide = injectCommand<Approval>("decide");
