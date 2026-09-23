@@ -152,31 +152,10 @@ export function schemaAt(url: URL | string): string {
   return readFileSync(url, "utf8");
 }
 
-export { FileUploadStore, type FileUploadOptions } from "./upload-file.ts";
+// re-exported so a service keeps one import for what the platform gives it; it is the runtime's own since 0.2.1
+export { FileUploadStore, type FileUploadOptions } from "@rayfold/server";
 export { SESSION_COOKIE, TEAM, membersSeed, personOf, type Person } from "./team.ts";
 export { connectPlatform, type Condition, type FlowStep, type LiveConfig, type Job, type Log, type Platform, type WorkOptions } from "./platform.ts";
-
-/**
- * Answers a browser's preflight for the upload route with the upload headers allowed.
- *
- * @rayfold/server 0.2.0 leaves `Rayfold-Upload-Name` and `Rayfold-Upload-Type` out of its allow list, so a page on
- * another origin can never upload: the browser refuses the request before the server sees a byte. Fixed upstream
- * for 0.2.1 with a test; this answers the one preflight itself until that ships, and goes away then.
- */
-function uploadPreflight(req: IncomingMessage, res: ServerResponse, allowedOrigins: string[]): boolean {
-  if (req.method !== "OPTIONS" || !(req.url ?? "").split("?")[0]?.endsWith("/rayfold/uploads")) return false;
-  const origin = req.headers.origin;
-  if (!origin || !(allowedOrigins.includes(origin) || allowedOrigins.includes("*"))) return false; // Rayfold's own answer applies
-  res.writeHead(204, {
-    "access-control-allow-origin": origin,
-    "access-control-allow-methods": "POST, OPTIONS",
-    "access-control-allow-headers": "Content-Type, Authorization, Rayfold-Client, Rayfold-Upload-Name, Rayfold-Upload-Type",
-    "access-control-max-age": "600",
-    vary: "Origin",
-  });
-  res.end();
-  return true;
-}
 
 export async function startService(opts: ServiceOptions): Promise<RunningService> {
   const config = configFrom(opts.name);
@@ -255,7 +234,6 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
   // the service's own routes first, then the bindings, then Rayfold: a service owns its port, and Rayfold is what
   // most of it answers
   const http = createServer((req, res) => {
-    if (uploadPreflight(req, res, config.allowedOrigins)) return;
     if (opts.routes?.(req, res, deps)) return;
     void bindings(req, res)
       .then((answered) => answered || mcp(req, res))
