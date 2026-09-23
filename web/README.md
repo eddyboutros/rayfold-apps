@@ -90,6 +90,6 @@ readonly feed = injectLive("activity", () => ({ projectId: this.projectId() }), 
 `styles` list counts. Editing `architect.build.options.styles` produces a build with no stylesheet at all and no
 warning — the design system went missing that way once.
 
-**A browser on another origin could not upload against `@rayfold/server` 0.2.0.** Its preflight allow list omits
-`Rayfold-Upload-Name` and `Rayfold-Upload-Type`, so the browser refuses the request before the server sees it.
-Fixed upstream for 0.2.1 with a test; `service-kit` answers that one preflight itself until then.
+**A browser on another origin could not upload against `@rayfold/server` 0.2.0.** Its preflight allow list omitted
+`Rayfold-Upload-Name` and `Rayfold-Upload-Type`, so the browser refused the request before the server saw it.
+Fixed upstream in 0.2.1 with a test; `service-kit` answered that one preflight itself until the fleet moved to it.
