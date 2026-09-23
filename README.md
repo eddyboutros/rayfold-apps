@@ -76,6 +76,11 @@ The relay delivers it. No shared table, no polling, no webhook to register — a
 feed updates because of something that happened in a service on another port with its own database tables.
 `e2e/fleet.test.ts` asserts exactly that, and four of its tests fail if that one subscription is removed.
 
+The same subscription keeps a link right. An issue's attachment is a document that lives in the documents service;
+the workspace keeps only the link, with the name and address it was shown, and when the file is renamed over there
+the same `DocumentChanged` renames every pin of it here — the workspace never asks the documents service anything.
+The panel that pins one keeps a client to each service, as the sign-offs panel does for the approvals service.
+
 **A reaction runs on every instance, so it has to be written for that.** The event reaches all of them, and each
 one has its own connected clients to wake — that part is right. What must not happen once per instance is the
 *write*. So a reaction gives the row an id derived from what caused it (`documents:<id>:<version>`) and writes with

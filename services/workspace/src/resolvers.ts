@@ -7,7 +7,7 @@
  * service's, and nothing here reads another service's tables to build it.
  */
 import { RayfoldError, ok, type Capabilities, type Resolvers } from "@rayfold/server";
-import type { Activity, Comment, Issue, IssueChanges, IssueState, Member, Message, Notification, Priority, WorkspaceStore } from "./store.ts";
+import type { Activity, Attachment, Comment, Issue, IssueChanges, IssueState, Member, Message, Notification, Priority, WorkspaceStore } from "./store.ts";
 
 export interface Viewer {
   id: string;
@@ -83,6 +83,16 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
   /** Today as the day an issue's `dueOn` is compared with: a date, not an instant, so a due day is the whole day. */
   const today = () => new Date(now()).toISOString().slice(0, 10);
 
+  /**
+   * Issues with their pins, one read for the page. Done in the query rather than as a batch loader on the field on
+   * purpose: Rayfold 0.2.0 keeps a loader's answer for the life of a live query, so a pin added under an open list
+   * would never reach it (fixed after 0.2.0). A query re-runs whole, so this is what an open list follows.
+   */
+  const withPins = async <T extends Issue>(issues: T[]): Promise<Array<T & { attachments: Attachment[] }>> => {
+    const pins = await store.attachmentsOf(issues.map((i) => i.id));
+    return issues.map((i) => ({ ...i, attachments: pins.get(i.id) ?? [] }));
+  };
+
   /** The one line every command writes: what happened, on which project, by the person calling. */
   const did = (ctx: { viewer: unknown }, projectId: string, kind: string, text: string) =>
     line({ projectId, source: "workspace", kind, text, byId: (ctx.viewer as Viewer).id });
@@ -106,11 +116,14 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
 
       me: async (_: unknown, ctx) => (await store.membersByIds([(ctx.viewer as Viewer).id])).get((ctx.viewer as Viewer).id) ?? null,
 
-      issue: ({ id: issueId }: { id: string }) => store.issue(issueId),
+      issue: async ({ id: issueId }: { id: string }) => {
+        const issue = await store.issue(issueId);
+        return issue ? (await withPins([issue]))[0]! : null;
+      },
 
       issues: async ({ projectId, state, assigneeId, label, page }: { projectId: string; state?: IssueState | null; assigneeId?: string | null; label?: string | null; page: { first: number; after?: string | null } }) => {
         const { items, total } = await store.issues(projectId, { state: state ?? null, assigneeId: assigneeId ?? null, label: label ?? null }, page.first, page.after ?? null);
-        return pageOf(items, total, (i) => i.id);
+        return pageOf(await withPins(items), total, (i) => i.id);
       },
 
       workload: () => store.workload(today()),
@@ -267,6 +280,24 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
         });
       },
 
+      attachDocument: async ({ issueId, documentId, name, url }: { issueId: string; documentId: string; name: string; url: string }, ctx) => {
+        const issue = await find(issueId);
+        const viewer = ctx.viewer as Viewer;
+        const { pin, inserted } = await store.attach({ id: id(), issueId, documentId, name, url, at: now(), byId: viewer.id });
+        // pinning twice is once: the row already there, and no second line on the feed
+        if (!inserted) return ok(pin);
+        // the issue's attachments changed under every open list: the patch names the issue, whose type the lists return
+        return ok(pin, { patch: [{ inv: [`Issue:${issueId}`] }, ...feedChanged], emit: [await did(ctx, issue.projectId, "document.attached", `${issue.title}: ${name}`)] });
+      },
+
+      detachDocument: async ({ id: attachmentId }: { id: string }, ctx) => {
+        const gone = await store.detach(attachmentId);
+        if (!gone) return ok(null);
+        const issue = await find(gone.issueId);
+        // no `del` of the pin: the answer is that very entity, and a client that deleted it would answer null
+        return ok(gone, { patch: [{ inv: [`Issue:${gone.issueId}`] }, ...feedChanged], emit: [await did(ctx, issue.projectId, "document.detached", `${issue.title}: ${gone.name}`)] });
+      },
+
       say: async ({ projectId, body }: { projectId: string; body: string }, ctx) => {
         const viewer = ctx.viewer as Viewer;
         const message: Message = { id: id(), projectId, body, at: now(), byId: viewer.id };
@@ -339,6 +370,13 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
         ),
     },
 
+    Attachment: {
+      by: async (pins: Attachment[]) => {
+        const members = await store.membersByIds([...new Set(pins.map((p) => p.byId))]);
+        return pins.map((p) => members.get(p.byId) ?? null);
+      },
+    },
+
     Comment: {
       by: async (comments: Comment[]) => {
         const members = await store.membersByIds([...new Set(comments.map((c) => c.byId))]);
@@ -355,4 +393,4 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
   } satisfies Resolvers as Resolvers;
 }
 
-export type { Activity, Comment, Issue, Member, Message, Notification };
+export type { Activity, Attachment, Comment, Issue, Member, Message, Notification };

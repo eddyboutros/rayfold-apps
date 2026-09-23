@@ -8,7 +8,7 @@
  */
 export const WORKSPACE_SHAPES: readonly string[] = [
   // web/workspace-ui
-  "{ items { id title state version updatedAt priority labels dueOn description assignee { id name } } }",
+  "{ items { id title state version updatedAt priority labels dueOn description assignee { id name } attachments { id documentId name url } } }",
   "{ items { labels } }",
   "{ id name }",
   "{ items { id body at by { name } } }",

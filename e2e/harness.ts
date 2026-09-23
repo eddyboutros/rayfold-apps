@@ -60,7 +60,7 @@ const OPS_TOKEN = "test-ops-token";
 /** The tables each service owns, emptied between tests. The platform's own are added to every list. */
 const TABLES: Record<string, string[]> = {
   documents: ["notes", "revisions", "documents"],
-  workspace: ["comments", "activity", "issues", "messages", "notifications"],
+  workspace: ["attachments", "comments", "activity", "issues", "messages", "notifications"],
   // the catalogue's own tables are reference data, seeded at start and kept; the files it indexes are the fleet's
   catalogue: ["files"],
 };

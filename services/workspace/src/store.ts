@@ -82,6 +82,16 @@ export interface Notification {
   readAt: number | null;
 }
 
+export interface Attachment {
+  id: string;
+  issueId: string;
+  documentId: string;
+  name: string;
+  url: string;
+  at: number;
+  byId: string;
+}
+
 export interface Activity {
   id: string;
   projectId: string;
@@ -157,6 +167,19 @@ export const SCHEMA = `
     read_at bigint
   );
   create index if not exists notifications_recipient on notifications (recipient_id, at desc);
+
+  -- a document pinned to an issue: a link to the documents service, once per pair
+  create table if not exists attachments (
+    id text primary key,
+    issue_id text not null references issues(id) on delete cascade,
+    document_id text not null,
+    name text not null,
+    url text not null,
+    at bigint not null,
+    by_id text not null references members(id),
+    unique (issue_id, document_id)
+  );
+  create index if not exists attachments_document on attachments (document_id);
 `;
 
 export const SEED = membersSeed();
@@ -186,6 +209,16 @@ const toComment = (r: Record<string, unknown>): Comment => ({
   id: r["id"] as string,
   issueId: r["issue_id"] as string,
   body: r["body"] as string,
+  at: Number(r["at"]),
+  byId: r["by_id"] as string,
+});
+
+const toAttachment = (r: Record<string, unknown>): Attachment => ({
+  id: r["id"] as string,
+  issueId: r["issue_id"] as string,
+  documentId: r["document_id"] as string,
+  name: r["name"] as string,
+  url: r["url"] as string,
   at: Number(r["at"]),
   byId: r["by_id"] as string,
 });
@@ -385,6 +418,38 @@ export class WorkspaceStore {
       [id, assigneeId, at, fromVersion],
     );
     return !!rowCount;
+  }
+
+  /** Pins a document to an issue. The same pair pinned again answers the row already there, and says so. */
+  async attach(a: Attachment): Promise<{ pin: Attachment; inserted: boolean }> {
+    // xmax is zero on a row this statement inserted and not on one it updated: postgres's own way to tell the two apart
+    const { rows } = await this.sql.query(
+      `insert into attachments (id, issue_id, document_id, name, url, at, by_id) values ($1,$2,$3,$4,$5,$6,$7)
+       on conflict (issue_id, document_id) do update set name = excluded.name, url = excluded.url
+       returning *, (xmax = 0) as inserted`,
+      [a.id, a.issueId, a.documentId, a.name, a.url, a.at, a.byId],
+    );
+    return { pin: toAttachment(rows[0]!), inserted: rows[0]!["inserted"] as boolean };
+  }
+
+  async detach(id: string): Promise<Attachment | null> {
+    const { rows } = await this.sql.query("delete from attachments where id = $1 returning *", [id]);
+    return rows[0] ? toAttachment(rows[0]) : null;
+  }
+
+  /** Every pin on each of these issues, oldest first: one read for a page of issues. */
+  async attachmentsOf(issueIds: string[]): Promise<Map<string, Attachment[]>> {
+    const out = new Map<string, Attachment[]>(issueIds.map((id) => [id, []]));
+    if (!issueIds.length) return out;
+    const { rows } = await this.sql.query("select * from attachments where issue_id = any($1::text[]) order by at, id", [issueIds]);
+    for (const r of rows) out.get(r["issue_id"] as string)?.push(toAttachment(r));
+    return out;
+  }
+
+  /** A document renamed in its own service: every pin of it here follows. Answers the pins that changed. */
+  async renameAttachments(documentId: string, name: string): Promise<Attachment[]> {
+    const { rows } = await this.sql.query("update attachments set name = $2 where document_id = $1 and name <> $2 returning *", [documentId, name]);
+    return rows.map(toAttachment);
   }
 
   async addComment(comment: Comment): Promise<void> {

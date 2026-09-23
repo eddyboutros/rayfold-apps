@@ -70,6 +70,14 @@ const service = await startService({
     // knows about another, and it is enough. the name is what a person reads; the id stays at the end for tracing.
     server.events.on("DocumentChanged", (payload) => {
       const { documentId, projectId, name, version, byId } = payload as { documentId: string; projectId: string; name: string; version: number; byId: string };
+      // a pin of this document on an issue here follows the rename: the row once for the fleet, and every open list
+      // of issues on this instance re-runs, because the pins it read are the entities named
+      void store
+        .renameAttachments(documentId, name)
+        .then((pins) => {
+          if (pins.length) server.changes.deliver({ keys: new Set(pins.flatMap((p) => [`Attachment:${p.id}`, `Issue:${p.issueId}`])), ops: new Set() });
+        })
+        .catch((e: unknown) => deps.platform.log.error("could not rename a pinned document", { documentId, error: e instanceof Error ? e.message : String(e) }));
       heard(
         `documents:${documentId}:${version}`,
         projectId,

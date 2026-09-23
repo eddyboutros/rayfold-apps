@@ -11,6 +11,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from "@angular/core";
 import { injectCommand, injectLive, injectQuery, provideRayfold } from "@rayfold/angular";
 import { workspaceClient } from "./client";
+import { Attachments, type Pin } from "./attachments";
 import { Thread } from "./thread";
 
 export type State = "open" | "doing" | "done";
@@ -32,6 +33,7 @@ export interface Issue {
   labels: string[];
   dueOn: string | null;
   description: string | null;
+  attachments: Pin[];
 }
 
 /** What the detail form sends: the keys present are the fields touched. */
@@ -53,7 +55,7 @@ const RANK: Record<Priority, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
   selector: "workspace-issues",
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [provideRayfold(workspaceClient())],
-  imports: [Thread],
+  imports: [Thread, Attachments],
   styleUrl: "./issues.css",
   template: `
     <section class="card">
@@ -188,6 +190,7 @@ const RANK: Record<Priority, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
                             }
                           </span>
                         </form>
+                        <workspace-attachments [issueId]="issue.id" [projectId]="projectId()" [pins]="issue.attachments" />
                         <workspace-thread [issueId]="issue.id" />
                       </div>
                     }
@@ -221,7 +224,7 @@ export class Issues {
     "issues",
     () => ({ projectId: this.projectId(), assigneeId: this.holder() || null, label: this.label() || null }),
     {
-      shape: "{ items { id title state version updatedAt priority labels dueOn description assignee { id name } } }",
+      shape: "{ items { id title state version updatedAt priority labels dueOn description assignee { id name } attachments { id documentId name url } } }",
       enabled: () => this.projectId() !== "",
     },
   );

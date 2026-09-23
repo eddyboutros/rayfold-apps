@@ -28,6 +28,22 @@ export function workspaceSocket(): string {
   return url.toString();
 }
 
+/**
+ * The documents service, for the one thing this panel asks it: which documents a project has, so one can be pinned
+ * to an issue. Its own client, on its own socket, like the sign-offs panel over in documents-ui keeps one to the
+ * approvals service: a panel that talks to two services keeps two clients rather than routing one through the other.
+ */
+export function documentsBase(): string {
+  const tag = document.querySelector<HTMLMetaElement>('meta[name="documents-base"]');
+  return (tag?.content || "/api/documents").replace(/\/$/, "");
+}
+
+export function documentsClient(): RayfoldClient {
+  const url = new URL(`${documentsBase()}/rayfold/ws`, location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return new RayfoldClient({ transport: createWebSocketTransport({ url: url.toString() }), client: "workspace-ui/0.1.0 documents" });
+}
+
 export function workspaceClient(): RayfoldClient {
   return new RayfoldClient({
     // no credentials here: the session is a cookie on the page's origin, and the browser sends it with the handshake

@@ -37,6 +37,23 @@ entity Issue @allow(read: viewer != null) {
   updatedAt: Instant
   """The conversation. Long and not for a list, so it arrives in a later frame unless a shape asks for it eagerly."""
   comments(page: PageArgs = { first: 20 }): Page<Comment> @lazy @cost(base: 1, perItem: 1)
+  """Documents from the documents service pinned to this issue. Loaded once for the whole page of issues."""
+  attachments: [Attachment]
+}
+
+"""
+A document attached to an issue. The document itself lives in the documents service; this is the link, with the name
+and address the attacher was shown. A rename over there reaches here over the relay, the way the feed does, so the
+name stays right without this service ever asking the other.
+"""
+entity Attachment @allow(read: viewer != null) {
+  id: ID
+  issueId: ID
+  documentId: ID
+  name: String
+  url: String
+  at: Instant
+  by: Member
 }
 
 """What an agent holds: a capability token for the same person, narrowed to the operations it names, and marked."""
@@ -196,6 +213,17 @@ command moveIssue(id: ID, to: IssueState): Issue
   emits IssueMoved ActivityHappened
   @allow(write: viewer != null)
   @simulate
+
+"""Pin a document to an issue: the id, name and address the documents service gave it. Pinning it twice is once."""
+command attachDocument(issueId: ID, documentId: ID, name: String @range(min: 1, max: 200), url: String @range(min: 1, max: 2000)): Attachment
+  throws NotFound
+  emits ActivityHappened
+  @allow(write: viewer != null)
+
+"""Unpin a document from its issue. Null when it was not pinned."""
+command detachDocument(id: ID): Attachment?
+  emits ActivityHappened
+  @allow(write: viewer != null)
 
 """Reply on an issue. Whoever holds the issue is notified, unless the reply is theirs."""
 command addComment(issueId: ID, body: String @range(min: 1, max: 4000)): Comment

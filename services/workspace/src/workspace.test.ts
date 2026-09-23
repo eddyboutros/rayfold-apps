@@ -424,3 +424,59 @@ it("a browser's session cookie is the same person as a bearer token", async () =
   const refused = await stranger.command("createIssue", { projectId: PROJECT, title: "Let me in" }, { shape: "{ id }" }).then(() => null, (e: RayfoldClientError) => e);
   expect(refused?.code).toBe("unauthenticated");
 });
+
+it("a document pinned to an issue is on every open list of issues, follows a rename made in the documents service, and comes off again", async () => {
+  const ada = svc.client("ada");
+  const grace = svc.client("grace");
+  const issue = await ada.command<Issue>("createIssue", { projectId: PROJECT, title: "Sign the contract" }, { shape: "{ id }" });
+  const other = await ada.command<Issue>("createIssue", { projectId: PROJECT, title: "Renew the lease" }, { shape: "{ id }" });
+
+  // Grace has the list open; the pins are loaded with the page, not per issue
+  type Pin = { id: string; documentId: string; name: string; url: string };
+  const seen = signal<{ items: Array<{ id: string; attachments: Pin[] }> }>();
+  const stop = grace.live<{ items: Array<{ id: string; attachments: Pin[] }> }>("issues", { projectId: PROJECT }, { shape: "{ items { id attachments { id documentId name url } } }" }, (d) => seen.fire(d), (e) => {
+    throw e;
+  });
+  try {
+    expect((await seen.wait("the list's first answer")).items.map((i) => i.attachments)).toEqual([[], []]);
+
+    const pinned = await ada.command<Pin>("attachDocument", { issueId: issue.id, documentId: "d1", name: "MSA v3.pdf", url: "/files/d1/r1" }, { shape: "{ id documentId name url by { name } }" });
+    expect(pinned).toMatchObject({ documentId: "d1", name: "MSA v3.pdf", url: "/files/d1/r1", by: { name: "Ada Lovelace" } });
+    // the same pair again is the same pin, not a second row
+    const again = await ada.command<Pin>("attachDocument", { issueId: issue.id, documentId: "d1", name: "MSA v3.pdf", url: "/files/d1/r1" }, { shape: "{ id }" });
+    expect(again.id).toBe(pinned.id);
+    // the other issue is left alone
+    const withPin = await seen.wait("Grace's list to show the pin");
+    expect(Object.fromEntries(withPin.items.map((i) => [i.id, i.attachments.map((p) => p.name)]))).toEqual({ [issue.id]: ["MSA v3.pdf"], [other.id]: [] });
+
+    // the documents service keeps a new version under a new name: the event reaches here over the relay, as it does
+    // for the feed, and the pin follows without this service asking the other
+    await svc.sql.query("select pg_notify('rayfold', $1)", [
+      JSON.stringify({ from: "documents-test", event: { name: "DocumentChanged", payload: { documentId: "d1", projectId: PROJECT, name: "MSA v4.pdf", version: 2, byId: "u1" } } }),
+    ]);
+    const renamed = await seen.wait("the pin to follow the rename");
+    expect(renamed.items.find((i) => i.id === issue.id)?.attachments).toEqual([{ $type: "Attachment", id: pinned.id, documentId: "d1", name: "MSA v4.pdf", url: "/files/d1/r1" }]);
+    // guard: a rename of a document nobody pinned wakes nothing
+    await svc.sql.query("select pg_notify('rayfold', $1)", [
+      JSON.stringify({ from: "documents-test", event: { name: "DocumentChanged", payload: { documentId: "d9", projectId: PROJECT, name: "Nothing.pdf", version: 2, byId: "u1" } } }),
+    ]);
+
+    const gone = await ada.command<Pin | null>("detachDocument", { id: pinned.id }, { shape: "{ id name }" });
+    expect(gone).toMatchObject({ id: pinned.id, name: "MSA v4.pdf" });
+    expect((await seen.wait("the pin to come off Grace's list")).items.map((i) => i.attachments)).toEqual([[], []]);
+    // detaching what is not there is null, not an error
+    expect(await ada.command<Pin | null>("detachDocument", { id: pinned.id }, { shape: "{ id }" })).toBeNull();
+    // and the feed says what happened, once each: the second pin of the same pair wrote no line
+    const feed = await ada.query<{ items: Array<{ kind: string; text: string }> }>("activity", { projectId: PROJECT }, { shape: "{ items { kind text } }" });
+    expect(feed.items.filter((l) => l.kind.startsWith("document.")).map((l) => `${l.kind} ${l.text}`)).toEqual([
+      "document.detached Sign the contract: MSA v4.pdf",
+      "document.replaced Nothing.pdf, now version 2 (d9)",
+      "document.replaced MSA v4.pdf, now version 2 (d1)",
+      "document.attached Sign the contract: MSA v3.pdf",
+    ]);
+  } finally {
+    stop();
+  }
+  // an issue that does not exist cannot take a pin
+  await expect(ada.command("attachDocument", { issueId: "nope", documentId: "d1", name: "x", url: "/x" })).rejects.toMatchObject({ type: "NotFound" });
+});
