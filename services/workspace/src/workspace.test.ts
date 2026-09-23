@@ -477,3 +477,57 @@ it("a document pinned to an issue is on every open list of issues, follows a ren
   // an issue that does not exist cannot take a pin
   await expect(ada.command("attachDocument", { issueId: "nope", documentId: "d1", name: "x", url: "/x" })).rejects.toMatchObject({ type: "NotFound" });
 });
+
+it("a project's settings are the team's: an edit needs the version it read, reaches an open list, and its default assignee takes new issues", async () => {
+  const ada = svc.client("ada");
+  const grace = svc.client("grace");
+  type P = { id: string; name: string; color: string; version: number; defaultAssignee: { name: string } | null };
+  const shape = "{ id name color version defaultAssignee { name } }";
+
+  // the two the fleet always had, in order, and nobody takes their issues yet
+  const seen = signal<P[]>();
+  const stop = grace.live<P[]>("projects", {}, { shape }, (d) => seen.fire(d), (e) => {
+    throw e;
+  });
+  try {
+    const first = await seen.wait("the list's first answer");
+    expect(first.map((p) => [p.id, p.name, p.color, p.defaultAssignee])).toEqual([
+      ["p1", "Northwind rollout", "indigo", null],
+      ["p2", "Q3 compliance", "amber", null],
+    ]);
+    // guard: an issue opened now stays with nobody
+    expect(await ada.command("createIssue", { projectId: "p1", title: "Before" }, { shape: "{ assignee { name } }" })).toMatchObject({ assignee: null });
+
+    const p1 = first[0]!;
+    const changed = await ada.command<P>("updateProject", { id: "p1", changes: { name: "Northwind cutover", color: "teal", defaultAssigneeId: "u2" } }, { shape, ifVersion: p1.version });
+    expect(changed).toMatchObject({ name: "Northwind cutover", color: "teal", version: p1.version + 1, defaultAssignee: { name: "Grace Hopper" } });
+    expect((await seen.wait("Grace's list to hear the edit"))[0]).toMatchObject({ name: "Northwind cutover", color: "teal" });
+
+    // the same version again is someone else's edit landing on this one: refused
+    await expect(grace.command("updateProject", { id: "p1", changes: { name: "Mine" } }, { ifVersion: p1.version })).rejects.toMatchObject({ code: "failed_precondition", type: "VersionConflict" });
+    // a name cannot be emptied, and nobody who is not on the team can take the issues
+    await expect(ada.command("updateProject", { id: "p1", changes: { name: " " } })).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(ada.command("updateProject", { id: "p1", changes: { defaultAssigneeId: "u99" } })).rejects.toMatchObject({ code: "invalid_argument" });
+
+    // what the setting does: an issue that names nobody goes to Grace; one that names Noor, or null on purpose, does not
+    expect(await ada.command("createIssue", { projectId: "p1", title: "After" }, { shape: "{ assignee { name } }" })).toMatchObject({ assignee: { name: "Grace Hopper" } });
+    expect(await ada.command("createIssue", { projectId: "p1", title: "For Noor", assigneeId: "u3" }, { shape: "{ assignee { name } }" })).toMatchObject({ assignee: { name: "Noor Haddad" } });
+    expect(await ada.command("createIssue", { projectId: "p1", title: "Unowned", assigneeId: null }, { shape: "{ assignee { name } }" })).toMatchObject({ assignee: null });
+    // guard: the other project has no default, so its issues stay with nobody
+    expect(await ada.command("createIssue", { projectId: "p2", title: "Elsewhere" }, { shape: "{ assignee { name } }" })).toMatchObject({ assignee: null });
+
+    // the edit is on the feed, and the rail's REST route answers the same list without a Rayfold client
+    const feed = await ada.query<{ items: Array<{ kind: string; text: string }> }>("activity", { projectId: "p1" }, { shape: "{ items { kind text } }" });
+    expect(feed.items.find((l) => l.kind === "project.edited")?.text).toBe("Northwind cutover: renamed, colour teal, default assignee");
+    const rest = await fetch(`${svc.base}/projects`, { headers: { authorization: "Bearer grace" } });
+    expect(rest.status).toBe(200);
+    expect(((await rest.json()) as Array<{ id: string; name: string; color: string }>).map((p) => [p.id, p.name, p.color])).toEqual([
+      ["p1", "Northwind cutover", "teal"],
+      ["p2", "Q3 compliance", "amber"],
+    ]);
+    // guard: nobody signed in gets nothing from it
+    expect((await fetch(`${svc.base}/projects`)).status).toBe(401);
+  } finally {
+    stop();
+  }
+});

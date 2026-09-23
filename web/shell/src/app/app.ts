@@ -23,9 +23,20 @@ interface Panel {
   failed: string | null;
 }
 
-const PROJECTS = [
-  { id: "p1", name: "Northwind rollout" },
-  { id: "p2", name: "Q3 compliance" },
+/** A project as the rail needs it: what to call it, and its colour. */
+interface ProjectRow {
+  id: string;
+  name: string;
+  color: string;
+}
+
+/**
+ * What the rail shows before the workspace service answers, and if it cannot: the two projects the fleet starts
+ * with. The real list, with whatever names and colours the team gave them, replaces it as soon as it arrives.
+ */
+const PROJECTS: ProjectRow[] = [
+  { id: "p1", name: "Northwind rollout", color: "indigo" },
+  { id: "p2", name: "Q3 compliance", color: "amber" },
 ];
 
 /** Where the page opens: what the settings say, and the last project looked at when they say "last". */
@@ -111,9 +122,9 @@ function safeGet(key: string): string | null {
           </div>
 
           <p class="eyebrow group">Projects</p>
-          @for (project of projects; track project.id) {
-            <button type="button" class="nav" [class.on]="view() === 'project' && project.id === projectId()" (click)="openProject(project.id)">
-              <span class="swatch" [attr.data-project]="project.id"></span>
+          @for (project of projects(); track project.id) {
+            <button type="button" class="nav" [class.on]="(view() === 'project' || view() === 'project-settings') && project.id === projectId()" (click)="openProject(project.id)">
+              <span class="swatch" [attr.data-color]="project.color"></span>
               {{ project.name }}
             </button>
           }
@@ -164,11 +175,29 @@ function safeGet(key: string): string | null {
         <div class="frame">
           @if (view() === "settings") {
             <main class="single">
-              <keel-settings [value]="settings()" [projects]="projects" (changed)="applySettings($event)" />
+              <keel-settings [value]="settings()" [projects]="projects()" (changed)="applySettings($event)" />
             </main>
           } @else if (view() === "guide") {
             <main class="single">
               <keel-guide (open)="goFromGuide($event)" />
+            </main>
+          } @else if (view() === "project-settings") {
+            <main class="single" (keel-projects)="loadProjects()">
+              @if (projectSettings().component; as component) {
+                <ng-container *ngComponentOutlet="component; inputs: { projectId: projectId() }" />
+              } @else if (projectSettings().failed; as failed) {
+                <div class="card">
+                  <div class="body empty">
+                    <strong>Project settings are unavailable</strong>
+                    {{ failed }}
+                  </div>
+                </div>
+              } @else {
+                <div class="card">
+                  <header><span class="skeleton" style="width: 120px"></span></header>
+                  <div class="body"><span class="skeleton" style="width: 80%"></span></div>
+                </div>
+              }
             </main>
           } @else if (page(); as page) {
             <main class="single">
@@ -191,9 +220,12 @@ function safeGet(key: string): string | null {
           } @else {
             <header class="topbar">
               <div>
-                <h1>{{ project().name }}</h1>
+                <h1><span class="swatch big" [attr.data-color]="project().color" aria-hidden="true"></span>{{ project().name }}</h1>
                 <p class="path">Projects <span aria-hidden="true">/</span> {{ project().name }}</p>
               </div>
+              <button type="button" class="btn quiet" (click)="view.set('project-settings')">
+                <span aria-hidden="true">⚙</span> Project settings
+              </button>
             </header>
 
             <main>
@@ -248,12 +280,13 @@ export class App {
   readonly me = signal<Person | null>(current());
   readonly initials = initials;
 
-  readonly projects = PROJECTS;
+  /** The rail's projects: the workspace service's list, read from its plain REST route, with the fallback until then. */
+  readonly projects = signal<ProjectRow[]>(PROJECTS);
   readonly settings = signal<Settings>(loadSettings());
   readonly projectId = signal(startProject(loadSettings()));
   /** What fills the page: a project's panels, or one of the company-wide pages by its key. */
   readonly view = signal<string>("project");
-  readonly project = computed(() => this.projects.find((p) => p.id === this.projectId()) ?? this.projects[0]!);
+  readonly project = computed(() => this.projects().find((p) => p.id === this.projectId()) ?? this.projects()[0]!);
   // what is actually on screen: a chosen theme if there is one, otherwise whatever the system decided
   readonly theme = signal<"light" | "dark">(
     (document.documentElement.dataset["theme"] as "light" | "dark" | undefined) ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
@@ -283,6 +316,8 @@ export class App {
   readonly bell = signal<Panel>({ key: "bell", label: "Notifications", remote: "workspace-ui", exposed: "./Notifications", component: null, failed: null });
   /** The palette's "do" entries come from the workspace team, like a panel: the shell has no client to do them with. */
   readonly quick = signal<Panel>({ key: "quick", label: "Quick actions", remote: "workspace-ui", exposed: "./Quick", component: null, failed: null });
+  /** A project's own settings page, from the workspace team like the panels. */
+  readonly projectSettings = signal<Panel>({ key: "project-settings", label: "Project settings", remote: "workspace-ui", exposed: "./ProjectSettings", component: null, failed: null });
 
   readonly palette = signal(false);
   readonly paletteInitial = signal("");
@@ -293,7 +328,8 @@ export class App {
 
   /** Everything the shell itself can do, for the palette. */
   readonly actions = computed<Action[]>(() => [
-    ...this.projects.map((p, i) => ({ id: `project:${p.id}`, label: p.name, hint: "Project", keys: ["g", String(i + 1)], run: () => this.openProject(p.id) })),
+    ...this.projects().map((p, i) => ({ id: `project:${p.id}`, label: p.name, hint: "Project", keys: ["g", String(i + 1)], run: () => this.openProject(p.id) })),
+    { id: "project-settings", label: "Project settings", hint: this.project().name, run: () => this.view.set("project-settings") },
     ...this.pages().map((p) => ({ id: `page:${p.key}`, label: p.label, hint: "Company", keys: ["g", p.key[0]!], run: () => this.view.set(p.key) })),
     { id: "guide", label: "What this shows", hint: "The guide to every Rayfold feature on this page", keys: ["?"], run: () => this.view.set("guide") },
     { id: "settings", label: "Settings", hint: "Theme, toasts, where the page opens", keys: ["g", "s"], run: () => this.view.set("settings") },
@@ -303,7 +339,8 @@ export class App {
 
   constructor() {
     // a share link loads one remote and nothing else: the person may not be on the team, and the rest of the page is theirs
-    for (const panel of this.shareToken ? [this.sharePage()] : [...this.panels(), ...this.pages(), this.bell(), this.quick()]) {
+    if (!this.shareToken) void this.loadProjects();
+    for (const panel of this.shareToken ? [this.sharePage()] : [...this.panels(), ...this.pages(), this.bell(), this.quick(), this.projectSettings()]) {
       // one remote failing is one panel missing, not a blank page: each is loaded and settled on its own
       void loadRemoteModule(panel.remote, panel.exposed)
         .then((m: Record<string, Type<unknown>>) => this.settle(panel.key, Object.values(m)[0] ?? null, null))
@@ -315,8 +352,25 @@ export class App {
     if (key === this.sharePage().key) this.sharePage.update((p) => ({ ...p, component, failed }));
     else if (key === this.bell().key) this.bell.update((p) => ({ ...p, component, failed }));
     else if (key === this.quick().key) this.quick.update((p) => ({ ...p, component, failed }));
+    else if (key === this.projectSettings().key) this.projectSettings.update((p) => ({ ...p, component, failed }));
     else if (this.pages().some((p) => p.key === key)) this.pages.update((pages) => pages.map((p) => (p.key === key ? { ...p, component, failed } : p)));
     else this.panels.update((panels) => panels.map((p) => (p.key === key ? { ...p, component, failed } : p)));
+  }
+
+  /**
+   * The rail's list from the workspace service. A plain GET on a route the schema binds (`@http`), because the shell
+   * keeps no Rayfold client of its own: the session cookie goes with it like any same-origin request. A service that
+   * does not answer leaves the rail as it was.
+   */
+  async loadProjects(): Promise<void> {
+    try {
+      const res = await fetch("/api/workspace/projects", { headers: { accept: "application/json" } });
+      if (!res.ok) return;
+      const rows = (await res.json()) as ProjectRow[];
+      if (rows.length) this.projects.set(rows.map((p) => ({ id: p.id, name: p.name, color: p.color })));
+    } catch {
+      // the fallback list stays; the panels still work, only a renamed project shows its old name
+    }
   }
 
   openProject(id: string): void {
@@ -371,7 +425,7 @@ export class App {
     if (this.chord === "g") {
       this.chord = null;
       const n = Number(event.key);
-      if (n >= 1 && n <= this.projects.length) return this.openProject(this.projects[n - 1]!.id);
+      if (n >= 1 && n <= this.projects().length) return this.openProject(this.projects()[n - 1]!.id);
       if (event.key === "s") return this.view.set("settings");
       const page = this.pages().find((p) => p.key[0] === event.key);
       if (page) this.view.set(page.key);

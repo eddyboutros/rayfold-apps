@@ -15,6 +15,33 @@ entity Member {
 
 enum IssueState { open, doing, done }
 
+"""The colour a project is known by, in the rail and on its page."""
+enum ProjectColor { indigo, amber, teal, rose, violet, slate }
+
+"""
+A project: what the rail lists and what issues, files and chat belong to. Its settings are the team's to change,
+and one of them does work: a new issue opened without an assignee goes to the project's default one.
+"""
+entity Project @allow(read: viewer != null) {
+  id: ID
+  name: String
+  description: String?
+  color: ProjectColor
+  """Who a new issue goes to when whoever opens it names nobody. Null: it stays with nobody."""
+  defaultAssignee: Member?
+  """Bumped on every change. Send it back as ifVersion so two people editing the settings cannot both win."""
+  version: Int @version
+  updatedAt: Instant
+}
+
+"""What to change on a project. Absent stays as it is; null clears the two that may be empty."""
+input ProjectChanges {
+  name: String? @range(min: 1, max: 80)
+  description: String? @range(max: 500)
+  color: ProjectColor?
+  defaultAssigneeId: ID?
+}
+
 """How soon. `urgent` sorts first on every screen; `normal` is what an issue gets unless someone says otherwise."""
 enum Priority { low, normal, high, urgent }
 
@@ -162,6 +189,19 @@ event DocumentNoted { documentId: ID, projectId: ID, name: String, excerpt: Stri
 event ApprovalRequested { approvalId: ID, documentId: ID, projectId: ID, documentName: String, requesterId: ID, approverId: ID }
 event ApprovalDecided { approvalId: ID, documentId: ID, projectId: ID, documentName: String, decision: String, byId: ID, note: String? }
 
+"""
+Every project, in the order the rail shows them. Also a plain GET on /projects for a page that keeps no Rayfold client — the shell reads
+its rail from it.
+"""
+query projects: [Project] @allow(read: viewer != null) @http(method: GET, path: "/projects")
+query project(id: ID): Project? @allow(read: viewer != null)
+
+"""Change a project's settings. Send `ifVersion`: an edit on top of someone else's is refused."""
+command updateProject(id: ID, changes: ProjectChanges): Project
+  throws NotFound
+  emits ActivityHappened
+  @allow(write: viewer != null)
+
 """Everyone who can be assigned something, for a picker."""
 query members: [Member] @allow(read: viewer != null)
 
@@ -187,7 +227,7 @@ query comments(issueId: ID, page: PageArgs = { first: 50 }): Page<Comment> @allo
 """What has happened on this project, newest first. Ask for it `live` and it stays current by itself."""
 query activity(projectId: ID, page: PageArgs = { first: 20 }): Page<Activity> @allow(read: viewer != null) @cost(base: 1, perItem: 1)
 
-"""Open an issue. Unassigned and of normal priority unless the arguments say otherwise."""
+"""Open an issue. Of normal priority unless the arguments say otherwise, and with the project's default assignee when it names none."""
 command createIssue(projectId: ID, title: String @range(min: 1, max: 200), assigneeId: ID?, priority: Priority = normal, labels: [String] = [], dueOn: Date?, description: String?): Issue
   emits ActivityHappened
   @allow(write: viewer != null)

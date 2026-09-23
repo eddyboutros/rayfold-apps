@@ -371,6 +371,9 @@ export const SEED = `
     ${PRODUCTS.map((p) => `(${q(p.id)}, ${q(p.name)}, ${q(p.sku)}, ${q(p.summary)}, ${q(p.category)}, ${p.price}, ${q(p.availability)}, ${p.updatedAt})`).join(",\n    ")}
   on conflict (id) do nothing;
 
+  -- what each costs us, from its price: the rows the insert above just made, and any kept from before the column
+  update products set cost = case category when 'Services' then price * 62 / 100 when 'Platform' then price * 28 / 100 else price * 35 / 100 end where cost is null;
+
   insert into people (id, name, title, department, email, location, updated_at) values
     ${PEOPLE.map((p) => `(${q(p.id)}, ${q(p.name)}, ${q(p.title)}, ${q(p.department)}, ${q(p.email)}, ${q(p.location)}, ${p.updatedAt})`).join(",\n    ")}
   on conflict (id) do nothing;

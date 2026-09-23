@@ -286,3 +286,11 @@ time {
     transition: none !important;
   }
 }
+
+/* ---- a project's colour: the rail's swatch, the settings page's picker, anything else that names a project */
+[data-color="indigo"] { --project: #2757d6; }
+[data-color="amber"] { --project: #b7791f; }
+[data-color="teal"] { --project: #0f8a7a; }
+[data-color="rose"] { --project: #c2416c; }
+[data-color="violet"] { --project: #6d4bd6; }
+[data-color="slate"] { --project: #5b6778; }

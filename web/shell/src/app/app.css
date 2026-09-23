@@ -78,15 +78,17 @@
   height: 7px;
   border-radius: 2px;
   flex: none;
-  background: var(--ink-faint);
+  background: var(--project, var(--ink-faint));
 }
 
-.swatch[data-project="p1"] {
-  background: #2757d6;
-}
-
-.swatch[data-project="p2"] {
-  background: #8a5a00;
+/* the same colour beside the project's name at the top of its page */
+.swatch.big {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 9px;
+  border-radius: 3px;
+  vertical-align: 2px;
 }
 
 .nav .glyph {

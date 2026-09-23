@@ -92,6 +92,25 @@ export interface Attachment {
   byId: string;
 }
 
+export type ProjectColor = "indigo" | "amber" | "teal" | "rose" | "violet" | "slate";
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  color: ProjectColor;
+  defaultAssigneeId: string | null;
+  version: number;
+  updatedAt: number;
+}
+
+export interface ProjectChanges {
+  name?: string;
+  description?: string | null;
+  color?: ProjectColor;
+  defaultAssigneeId?: string | null;
+}
+
 export interface Activity {
   id: string;
   projectId: string;
@@ -168,6 +187,17 @@ export const SCHEMA = `
   );
   create index if not exists notifications_recipient on notifications (recipient_id, at desc);
 
+  -- the projects the rail lists; the two the fleet started with are seeded, and their settings are the team's
+  create table if not exists projects (
+    id text primary key,
+    name text not null,
+    description text,
+    color text not null,
+    default_assignee_id text references members(id) on delete set null,
+    version int not null,
+    updated_at bigint not null
+  );
+
   -- a document pinned to an issue: a link to the documents service, once per pair
   create table if not exists attachments (
     id text primary key,
@@ -182,7 +212,12 @@ export const SCHEMA = `
   create index if not exists attachments_document on attachments (document_id);
 `;
 
-export const SEED = membersSeed();
+export const SEED = `${membersSeed()}
+  insert into projects (id, name, description, color, version, updated_at) values
+    ('p1', 'Northwind rollout', 'Moving the Northwind tenants to Order desk in three waves.', 'indigo', 1, (extract(epoch from now()) * 1000)::bigint),
+    ('p2', 'Q3 compliance', 'The quarter''s access review, retention checks and the audit pack.', 'amber', 1, (extract(epoch from now()) * 1000)::bigint)
+  -- a row seeded before the seed carried a time says 1970; it gets today instead, and nothing else about it changes
+  on conflict (id) do update set updated_at = excluded.updated_at where projects.updated_at < 1000000000000;`;
 
 const toIssue = (r: Record<string, unknown>): Issue => ({
   id: r["id"] as string,
@@ -211,6 +246,16 @@ const toComment = (r: Record<string, unknown>): Comment => ({
   body: r["body"] as string,
   at: Number(r["at"]),
   byId: r["by_id"] as string,
+});
+
+const toProject = (r: Record<string, unknown>): Project => ({
+  id: r["id"] as string,
+  name: r["name"] as string,
+  description: (r["description"] as string | null) ?? null,
+  color: r["color"] as ProjectColor,
+  defaultAssigneeId: (r["default_assignee_id"] as string | null) ?? null,
+  version: r["version"] as number,
+  updatedAt: Number(r["updated_at"]),
 });
 
 const toAttachment = (r: Record<string, unknown>): Attachment => ({
@@ -417,6 +462,30 @@ export class WorkspaceStore {
       "update issues set assignee_id = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4",
       [id, assigneeId, at, fromVersion],
     );
+    return !!rowCount;
+  }
+
+  async projects(): Promise<Project[]> {
+    const { rows } = await this.sql.query("select * from projects order by id");
+    return rows.map(toProject);
+  }
+
+  async project(id: string): Promise<Project | null> {
+    const { rows } = await this.sql.query("select * from projects where id = $1", [id]);
+    return rows[0] ? toProject(rows[0]) : null;
+  }
+
+  /** Writes only the settings named, and only while the version is what the caller read. */
+  async updateProject(id: string, changes: ProjectChanges, fromVersion: number, at: number): Promise<boolean> {
+    const columns: Record<keyof ProjectChanges, string> = { name: "name", description: "description", color: "color", defaultAssigneeId: "default_assignee_id" };
+    const sets: string[] = [];
+    const args: unknown[] = [id, at, fromVersion];
+    for (const key of Object.keys(columns) as Array<keyof ProjectChanges>) {
+      if (!(key in changes)) continue;
+      args.push(changes[key]);
+      sets.push(`${columns[key]} = $${args.length}`);
+    }
+    const { rowCount } = await this.sql.query(`update projects set ${[...sets, "version = version + 1", "updated_at = $2"].join(", ")} where id = $1 and version = $3`, args);
     return !!rowCount;
   }
 

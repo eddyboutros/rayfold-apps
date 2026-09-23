@@ -18,6 +18,8 @@ export interface Product {
   summary: string;
   category: string;
   price: number;
+  /** What it costs us, in cents. The schema decides who reads it. */
+  cost: number;
   availability: Availability;
   updatedAt: number;
 }
@@ -86,6 +88,8 @@ export const SCHEMA = `
     availability text not null,
     updated_at bigint not null
   );
+  -- added after the first deploy: what each costs us; the seed fills it for rows that have none
+  alter table products add column if not exists cost int;
 
   create table if not exists people (
     id text primary key,
@@ -164,6 +168,7 @@ const toProduct = (r: Record<string, unknown>): Product => ({
   summary: r["summary"] as string,
   category: r["category"] as string,
   price: r["price"] as number,
+  cost: Number(r["cost"] ?? 0),
   availability: r["availability"] as Availability,
   updatedAt: Number(r["updated_at"]),
 });

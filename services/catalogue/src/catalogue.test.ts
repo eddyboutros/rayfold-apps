@@ -316,3 +316,29 @@ it("says who it is", async () => {
   expect(stats.status).toBe(200);
   expect(((await stats.json()) as { identity: { name: string } }).identity.name).toBe("catalogue");
 });
+
+it("a product's cost is the product team's: anyone else still gets the product, with that one field null and its refusal in the frame", async () => {
+  const shape = "{ id name price cost }";
+  // Noor is on the product team
+  expect(await svc.client("noor").query("product", { id: "pr-core" }, { shape })).toEqual({ $type: "Product", id: "pr-core", name: "Order desk", price: 240000, cost: 67200 });
+
+  // Grace is not: the product still answers, and only the cost is withheld
+  expect(await svc.client("grace").query("product", { id: "pr-core" }, { shape })).toEqual({ $type: "Product", id: "pr-core", name: "Order desk", price: 240000, cost: null });
+
+  // what the wire says, beside the null: why it is null, and where
+  const res = await fetch(`${svc.base}/rayfold`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer grace" },
+    body: JSON.stringify({ ops: [{ id: 1, op: "product", args: { id: "pr-core" }, shape }] }),
+  });
+  const frame = JSON.parse((await res.text()).split("\n")[0]!) as { data: { cost: unknown }; errors?: Array<{ code: string; path: string }> };
+  expect(frame.data.cost).toBeNull();
+  expect(frame.errors).toEqual([expect.objectContaining({ code: "permission_denied", path: "cost" })]);
+  // guard: the one allowed to read it gets no error at all
+  const own = await fetch(`${svc.base}/rayfold`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer noor" },
+    body: JSON.stringify({ ops: [{ id: 1, op: "product", args: { id: "pr-core" }, shape }] }),
+  });
+  expect(JSON.parse((await own.text()).split("\n")[0]!)).not.toHaveProperty("errors");
+});

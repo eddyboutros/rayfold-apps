@@ -15,7 +15,7 @@ import { textOf } from "./extract.ts";
 
 function whoIs(req: Parameters<typeof personOf>[0]): Viewer | null {
   const person = personOf(req);
-  return person ? { id: person.id, name: person.name } : null;
+  return person ? { id: person.id, name: person.name, title: person.title } : null;
 }
 
 /** What the documents service starts the flow with; see its `ExtractJob`. */

@@ -1,6 +1,6 @@
 {
   "rayfold": "0.1",
-  "hash": "730d1fbb8678274f955417efcdc233634a2cd17ec2b7930720f5f99e638f0ed1",
+  "hash": "2d8e8b48670df83b3ccfe83503ef54e02166b811653ef8c68d04ec559657cdeb",
   "ir": {
     "rayfold": "0.1",
     "types": {
@@ -249,6 +249,225 @@
             "name": "done",
             "annotations": [],
             "ordinal": 3
+          }
+        ]
+      },
+      "ProjectColor": {
+        "kind": "enum",
+        "name": "ProjectColor",
+        "annotations": [],
+        "values": [
+          {
+            "name": "indigo",
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "amber",
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "teal",
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "rose",
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "violet",
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "slate",
+            "annotations": [],
+            "ordinal": 6
+          }
+        ],
+        "description": "The colour a project is known by, in the rail and on its page."
+      },
+      "Project": {
+        "kind": "entity",
+        "name": "Project",
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "A project: what the rail lists and what issues, files and chat belong to. Its settings are the team's to change,\nand one of them does work: a new issue opened without an assignee goes to the project's default one.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "description",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "color",
+            "type": {
+              "kind": "named",
+              "name": "ProjectColor",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "defaultAssignee",
+            "type": {
+              "kind": "named",
+              "name": "Member",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5,
+            "description": "Who a new issue goes to when whoever opens it names nobody. Null: it stays with nobody."
+          },
+          {
+            "name": "version",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "version",
+                "args": {}
+              }
+            ],
+            "ordinal": 6,
+            "description": "Bumped on every change. Send it back as ifVersion so two people editing the settings cannot both win."
+          },
+          {
+            "name": "updatedAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7
+          }
+        ],
+        "implements": []
+      },
+      "ProjectChanges": {
+        "kind": "input",
+        "name": "ProjectChanges",
+        "annotations": [],
+        "description": "What to change on a project. Absent stays as it is; null clears the two that may be empty.",
+        "fields": [
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 80
+                }
+              }
+            ],
+            "ordinal": 1
+          },
+          {
+            "name": "description",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "max": 500
+                }
+              }
+            ],
+            "ordinal": 2
+          },
+          {
+            "name": "color",
+            "type": {
+              "kind": "named",
+              "name": "ProjectColor",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "defaultAssigneeId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
           }
         ]
       },
@@ -502,6 +721,129 @@
             ],
             "ordinal": 12,
             "description": "The conversation. Long and not for a list, so it arrives in a later frame unless a shape asks for it eagerly."
+          },
+          {
+            "name": "attachments",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "Attachment",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 13,
+            "description": "Documents from the documents service pinned to this issue. Loaded once for the whole page of issues."
+          }
+        ],
+        "implements": []
+      },
+      "Attachment": {
+        "kind": "entity",
+        "name": "Attachment",
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "A document attached to an issue. The document itself lives in the documents service; this is the link, with the name\nand address the attacher was shown. A rename over there reaches here over the relay, the way the feed does, so the\nname stays right without this service ever asking the other.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "issueId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "url",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "by",
+            "type": {
+              "kind": "named",
+              "name": "Member",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7
           }
         ],
         "implements": []
@@ -1834,6 +2176,156 @@
       }
     },
     "ops": {
+      "projects": {
+        "kind": "query",
+        "name": "projects",
+        "args": [],
+        "returns": {
+          "kind": "list",
+          "of": {
+            "kind": "named",
+            "name": "Project",
+            "nullable": false
+          },
+          "nullable": false
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "http",
+            "args": {
+              "method": {
+                "$ident": "GET"
+              },
+              "path": "/projects"
+            }
+          }
+        ],
+        "description": "Every project, in the order the rail shows them. Also a plain GET on /projects for a page that keeps no Rayfold client — the shell reads\nits rail from it."
+      },
+      "project": {
+        "kind": "query",
+        "name": "project",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Project",
+          "nullable": true
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "updateProject": {
+        "kind": "command",
+        "name": "updateProject",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "changes",
+            "type": {
+              "kind": "named",
+              "name": "ProjectChanges",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Project",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound"
+        ],
+        "emits": [
+          "ActivityHappened"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Change a project's settings. Send `ifVersion`: an edit on top of someone else's is refused."
+      },
       "members": {
         "kind": "query",
         "name": "members",
@@ -2439,7 +2931,7 @@
             "args": {}
           }
         ],
-        "description": "Open an issue. Unassigned and of normal priority unless the arguments say otherwise."
+        "description": "Open an issue. Of normal priority unless the arguments say otherwise, and with the project's default assignee when it names none."
       },
       "updateIssue": {
         "kind": "command",
@@ -2628,6 +3120,145 @@
           }
         ],
         "description": "Move an issue. Send `ifVersion` with the version you read and a move that would overwrite someone else's is refused."
+      },
+      "attachDocument": {
+        "kind": "command",
+        "name": "attachDocument",
+        "args": [
+          {
+            "name": "issueId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 200
+                }
+              }
+            ]
+          },
+          {
+            "name": "url",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 2000
+                }
+              }
+            ]
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Attachment",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound"
+        ],
+        "emits": [
+          "ActivityHappened"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Pin a document to an issue: the id, name and address the documents service gave it. Pinning it twice is once."
+      },
+      "detachDocument": {
+        "kind": "command",
+        "name": "detachDocument",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Attachment",
+          "nullable": true
+        },
+        "throws": [],
+        "emits": [
+          "ActivityHappened"
+        ],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Unpin a document from its issue. Null when it was not pinned."
       },
       "addComment": {
         "kind": "command",
@@ -3108,5 +3739,5 @@
     },
     "views": {}
   },
-  "lockedAt": "2026-09-22T23:42:57.613Z"
+  "lockedAt": "2026-09-23T14:28:03.524Z"
 }

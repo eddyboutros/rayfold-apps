@@ -1,6 +1,6 @@
 {
   "rayfold": "0.1",
-  "hash": "8a4575132697a8307bd07c0adad7e2bd17c4d988fb6376958aaf2800cddd76ee",
+  "hash": "7aba3b0fc0708e96cd53919570b93fb4328f31073236f153da78bf3d0c845edc",
   "ir": {
     "rayfold": "0.1",
     "types": {
@@ -387,6 +387,51 @@
             ],
             "ordinal": 9,
             "description": "The others in its category, newest first: what a buyer of this one also looks at. Loaded once for a whole page."
+          },
+          {
+            "name": "cost",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [
+              {
+                "name": "unit",
+                "args": {
+                  "value": "EUR cents"
+                }
+              },
+              {
+                "name": "allow",
+                "args": {
+                  "read": {
+                    "$expr": {
+                      "k": "bin",
+                      "op": "==",
+                      "l": {
+                        "k": "path",
+                        "root": "viewer",
+                        "path": [
+                          "title"
+                        ]
+                      },
+                      "r": {
+                        "k": "lit",
+                        "v": "Product"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "name": "partial",
+                "args": {}
+              }
+            ],
+            "ordinal": 10,
+            "description": "What one costs us to deliver, in cents: the product team's number, and nobody else's. Partial, so a page that asks\nfor it on behalf of someone else still answers — this one field is null, with its refusal in the frame's errors —\nrather than the whole product failing because of one figure."
           }
         ],
         "implements": [
@@ -1657,5 +1702,5 @@
       }
     }
   },
-  "lockedAt": "2026-09-22T23:42:57.726Z"
+  "lockedAt": "2026-09-23T14:28:03.614Z"
 }

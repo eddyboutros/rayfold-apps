@@ -100,6 +100,11 @@ export async function startTestService(name: string, env: Record<string, string>
       // the seed rows stay: they are part of the service, not of any one test
       const tables = TABLES[name] ?? [];
       if (tables.length) await sql.query(`truncate ${tables.join(", ")} restart identity cascade`);
+      // the workspace's projects are seed rows a test may change: put them back as the service starts them
+      if (name === "workspace") {
+        await sql.query("delete from projects");
+        await sql.query((await import("../services/workspace/src/store.ts")).SEED);
+      }
       await sql.query("truncate rayfold_idempotency, rayfold_relay restart identity");
     },
     stop: async () => {

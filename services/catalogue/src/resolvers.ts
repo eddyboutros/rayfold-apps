@@ -11,6 +11,8 @@ import type { Article, ArticleRevision, CatalogueStore, Kind, Person, Product } 
 export interface Viewer {
   id: string;
   name?: string;
+  /** What they do; the product team's title is what reads a product's cost. */
+  title?: string;
 }
 
 export interface Parts {

@@ -7,7 +7,7 @@
  * service's, and nothing here reads another service's tables to build it.
  */
 import { RayfoldError, ok, type Capabilities, type Resolvers } from "@rayfold/server";
-import type { Activity, Attachment, Comment, Issue, IssueChanges, IssueState, Member, Message, Notification, Priority, WorkspaceStore } from "./store.ts";
+import type { Activity, Attachment, Comment, Issue, IssueChanges, IssueState, Member, Message, Notification, Priority, Project, ProjectChanges, WorkspaceStore } from "./store.ts";
 
 export interface Viewer {
   id: string;
@@ -106,6 +106,9 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
 
       me: async (_: unknown, ctx) => (await store.membersByIds([(ctx.viewer as Viewer).id])).get((ctx.viewer as Viewer).id) ?? null,
 
+      projects: () => store.projects(),
+      project: ({ id: projectId }: { id: string }) => store.project(projectId),
+
       issue: ({ id: issueId }: { id: string }) => store.issue(issueId),
 
       issues: async ({ projectId, state, assigneeId, label, page }: { projectId: string; state?: IssueState | null; assigneeId?: string | null; label?: string | null; page: { first: number; after?: string | null } }) => {
@@ -144,12 +147,15 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
         { projectId, title, assigneeId, priority, labels, dueOn, description }: { projectId: string; title: string; assigneeId?: string | null; priority: Priority; labels: string[]; dueOn?: string | null; description?: string | null },
         ctx,
       ) => {
+        // named nobody: the project's default assignee takes it, when the project has one. named null on purpose, or
+        // named someone, is kept as it is
+        const fallback = assigneeId === undefined ? ((await store.project(projectId))?.defaultAssigneeId ?? null) : null;
         const issue: Issue = {
           id: id(),
           projectId,
           title,
           state: "open",
-          assigneeId: assigneeId ?? null,
+          assigneeId: assigneeId ?? fallback,
           priority,
           labels: tidy(labels),
           dueOn: dueOn ?? null,
@@ -161,6 +167,38 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
         if (ctx.simulate) return ok(issue);
         await store.createIssue(issue);
         return ok(issue, { patch: feedChanged, emit: [await did(ctx, projectId, "issue.created", title)] });
+      },
+
+      updateProject: async ({ id: projectId, changes }: { id: string; changes: ProjectChanges }, ctx) => {
+        const project = await store.project(projectId);
+        if (!project) throw RayfoldError.domain("NotFound", { id: projectId }, `No project ${projectId}`);
+        ctx.checkVersion(`Project:${project.id}`, project.version, project);
+        const applied: ProjectChanges = {};
+        const sent = (key: keyof ProjectChanges) => key in changes && changes[key] !== undefined;
+        if (sent("name")) {
+          if (changes.name === null || !changes.name!.trim()) throw new RayfoldError("invalid_argument", "updateProject().changes.name: a project needs a name");
+          applied.name = changes.name!.trim();
+        }
+        if (sent("description")) applied.description = changes.description?.trim() || null;
+        if (sent("color")) {
+          if (changes.color === null) throw new RayfoldError("invalid_argument", "updateProject().changes.color: cannot be null");
+          applied.color = changes.color!;
+        }
+        if (sent("defaultAssigneeId")) {
+          const who = changes.defaultAssigneeId ?? null;
+          if (who !== null && !(await store.membersByIds([who])).has(who)) throw new RayfoldError("invalid_argument", `updateProject().changes.defaultAssigneeId: nobody is ${who}`);
+          applied.defaultAssigneeId = who;
+        }
+        const next: Project = { ...project, ...applied, version: project.version + 1, updatedAt: now() };
+        const won = await store.updateProject(project.id, applied, project.version, next.updatedAt);
+        if (!won) {
+          const current = await store.project(projectId);
+          if (current) ctx.checkVersion(`Project:${project.id}`, current.version, current);
+          throw RayfoldError.domain("NotFound", { id: projectId }, `Project ${projectId} changed while this was running`);
+        }
+        const said = (Object.keys(applied) as Array<keyof ProjectChanges>).map((k) => ({ name: "renamed", description: "description", color: `colour ${next.color}`, defaultAssigneeId: "default assignee" })[k]);
+        // every open list of projects re-runs by the patch on this one; the rail, which reads the REST route, is told by the page
+        return ok(next, { patch: feedChanged, emit: [await did(ctx, project.id, "project.edited", `${next.name}: ${said.join(", ") || "nothing"}`)] });
       },
 
       updateIssue: async ({ id: issueId, changes }: { id: string; changes: IssueChanges }, ctx) => {
@@ -339,6 +377,13 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
       by: async (messages: Message[]) => {
         const members = await store.membersByIds([...new Set(messages.map((m) => m.byId))]);
         return messages.map((m) => members.get(m.byId) ?? null);
+      },
+    },
+
+    Project: {
+      defaultAssignee: async (projects: Project[]) => {
+        const members = await store.membersByIds([...new Set(projects.map((p) => p.defaultAssigneeId).filter((x): x is string => !!x))]);
+        return projects.map((p) => (p.defaultAssigneeId ? (members.get(p.defaultAssigneeId) ?? null) : null));
       },
     },
 

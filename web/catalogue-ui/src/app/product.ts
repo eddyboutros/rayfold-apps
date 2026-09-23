@@ -14,6 +14,8 @@ export interface ProductDetail {
   summary: string;
   category: string;
   price: number;
+  /** Null for anyone outside the product team: the field is partial, so the page still loads without it. */
+  cost: number | null;
   availability: "available" | "limited" | "waitlist" | "retired";
   updatedAt: number;
   related: Array<{ id: string; name: string; sku: string; price: number; availability: ProductDetail["availability"]; summary: string }>;
@@ -58,6 +60,14 @@ const WHAT_IT_MEANS: Record<ProductDetail["availability"], string> = {
             <div><dt class="muted">Category</dt><dd>{{ p.category }}</dd></div>
             <div><dt class="muted">SKU</dt><dd class="mono">{{ p.sku }}</dd></div>
             <div><dt class="muted">Availability</dt><dd>{{ means(p.availability) }}</dd></div>
+            <div>
+              <dt class="muted">Margin</dt>
+              @if (p.cost !== null) {
+                <dd>{{ margin(p) }}% <span class="muted">· costs us {{ money(p.cost) }}</span></dd>
+              } @else {
+                <dd class="muted">Shown to the product team</dd>
+              }
+            </div>
           </dl>
 
           @if (p.related.length) {
@@ -89,10 +99,15 @@ export class ProductView {
   readonly open = output<string>();
 
   readonly page = injectQuery<ProductDetail | null>("product", () => ({ id: this.id() }), {
-    shape: "{ id name sku summary category price availability updatedAt related { id name sku price availability summary } }",
+    shape: "{ id name sku summary category price cost availability updatedAt related { id name sku price availability summary } }",
     enabled: () => this.id() !== "",
   });
   readonly product = computed(() => this.page.data() ?? null);
+
+  /** What is left of the price once the cost is paid, as a whole percentage. */
+  margin(p: ProductDetail): number {
+    return p.price > 0 && p.cost !== null ? Math.round(((p.price - p.cost) / p.price) * 100) : 0;
+  }
 
   describe(e: unknown): string {
     return e instanceof Error ? e.message : String(e);

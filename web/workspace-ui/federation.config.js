@@ -11,6 +11,7 @@ module.exports = withNativeFederation({
     './Notifications': './src/app/notifications.ts',
     './People': './src/app/people.ts',
     './Quick': './src/app/quick.ts',
+    './ProjectSettings': './src/app/project-settings.ts',
   },
 
   shared: {

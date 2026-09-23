@@ -27,6 +27,12 @@ entity Product implements Item @cache(maxAge: 60s, scope: public) {
   updatedAt: Instant
   """The others in its category, newest first: what a buyer of this one also looks at. Loaded once for a whole page."""
   related: [Product] @cost(base: 2)
+  """
+  What one costs us to deliver, in cents: the product team's number, and nobody else's. Partial, so a page that asks
+  for it on behalf of someone else still answers — this one field is null, with its refusal in the frame's errors —
+  rather than the whole product failing because of one figure.
+  """
+  cost: Int? @unit("EUR cents") @allow(read: viewer.title == "Product") @partial
 }
 
 """Someone who works here. The directory, as the identity provider and HR agree on it."""
