@@ -26,7 +26,7 @@
     "agent": "tsx clients/agent/agent.mts"
   },
   "devDependencies": {
-    "@rayfold/cli": "^0.2.0",
+    "@rayfold/cli": "^0.2.1",
     "@types/node": "^26.5.1",
     "@types/pg": "^8.23.1",
     "tsx": "^4.20.0",

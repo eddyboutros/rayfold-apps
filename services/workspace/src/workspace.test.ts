@@ -131,12 +131,9 @@ const listen = (consume: () => Promise<void>): Promise<void> =>
     if (!(e instanceof Error && e.name === "AbortError")) throw e;
   });
 
-/*
- * Skipped until @rayfold/server 0.2.1: in 0.2.0 a live query keeps the batch's loader memo across its re-runs, so a
- * field loaded once (the assignee) is answered from the first run for as long as the query stays open. The runtime
- * fix and its own test are in the rayfold repository; this one turns on with the version bump.
- */
-it.skip("an open issue list hears a hand-over made on another screen", async () => {
+// a loaded field (the assignee) follows a hand-over under an open list: 0.2.0 kept the batch's loader memo across a
+// live query's re-runs and answered it from the first run; 0.2.1 loads it again
+it("an open issue list hears a hand-over made on another screen", async () => {
   const ada = svc.client("ada");
   const issue = await ada.command<Issue>("createIssue", { projectId: PROJECT, title: "Sign the contract" }, { shape: "{ id version }" });
   const members = await ada.query<Array<{ id: string; name: string }>>("members", {}, { shape: "{ id name }" });

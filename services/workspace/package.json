@@ -11,10 +11,10 @@
   },
   "dependencies": {
     "@apps/service-kit": "*",
-    "@rayfold/server": "^0.2.0",
+    "@rayfold/server": "^0.2.1",
     "pg": "^8.23.0"
   },
   "devDependencies": {
-    "@rayfold/client": "^0.2.0"
+    "@rayfold/client": "^0.2.1"
   }
 }

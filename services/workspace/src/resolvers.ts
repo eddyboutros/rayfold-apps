@@ -83,16 +83,6 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
   /** Today as the day an issue's `dueOn` is compared with: a date, not an instant, so a due day is the whole day. */
   const today = () => new Date(now()).toISOString().slice(0, 10);
 
-  /**
-   * Issues with their pins, one read for the page. Done in the query rather than as a batch loader on the field on
-   * purpose: Rayfold 0.2.0 keeps a loader's answer for the life of a live query, so a pin added under an open list
-   * would never reach it (fixed after 0.2.0). A query re-runs whole, so this is what an open list follows.
-   */
-  const withPins = async <T extends Issue>(issues: T[]): Promise<Array<T & { attachments: Attachment[] }>> => {
-    const pins = await store.attachmentsOf(issues.map((i) => i.id));
-    return issues.map((i) => ({ ...i, attachments: pins.get(i.id) ?? [] }));
-  };
-
   /** The one line every command writes: what happened, on which project, by the person calling. */
   const did = (ctx: { viewer: unknown }, projectId: string, kind: string, text: string) =>
     line({ projectId, source: "workspace", kind, text, byId: (ctx.viewer as Viewer).id });
@@ -116,14 +106,11 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
 
       me: async (_: unknown, ctx) => (await store.membersByIds([(ctx.viewer as Viewer).id])).get((ctx.viewer as Viewer).id) ?? null,
 
-      issue: async ({ id: issueId }: { id: string }) => {
-        const issue = await store.issue(issueId);
-        return issue ? (await withPins([issue]))[0]! : null;
-      },
+      issue: ({ id: issueId }: { id: string }) => store.issue(issueId),
 
       issues: async ({ projectId, state, assigneeId, label, page }: { projectId: string; state?: IssueState | null; assigneeId?: string | null; label?: string | null; page: { first: number; after?: string | null } }) => {
         const { items, total } = await store.issues(projectId, { state: state ?? null, assigneeId: assigneeId ?? null, label: label ?? null }, page.first, page.after ?? null);
-        return pageOf(await withPins(items), total, (i) => i.id);
+        return pageOf(items, total, (i) => i.id);
       },
 
       workload: () => store.workload(today()),
@@ -359,6 +346,12 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
       assignee: async (issues: Issue[]) => {
         const members = await store.membersByIds([...new Set(issues.map((i) => i.assigneeId).filter((x): x is string => !!x))]);
         return issues.map((i) => (i.assigneeId ? (members.get(i.assigneeId) ?? null) : null));
+      },
+      // one read for the page: a batch loader over every issue's id, the way `assignee` is. a live list's re-runs load
+      // it again (Rayfold 0.2.1), so a pin made under an open list reaches it
+      attachments: async (issues: Issue[]) => {
+        const pins = await store.attachmentsOf(issues.map((i) => i.id));
+        return issues.map((i) => pins.get(i.id) ?? []);
       },
       // one read per issue on the page: a thread is its own list, and the field is lazy so a list of issues never pays for it
       comments: async (issues: Issue[], { page }: { page: { first: number; after?: string | null } }) =>
