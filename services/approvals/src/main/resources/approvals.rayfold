@@ -49,9 +49,9 @@ query inbox: [Approval] @allow(read: viewer != null) @cost(base: 2)
 """Who can be asked, for a picker."""
 query members: [Member] @allow(read: viewer != null)
 
-"""Ask someone to sign off on a document as it is now. Asking yourself is refused as NotYours."""
+"""Ask someone to sign off on a document as it is now. Asking yourself is refused as NotYours, asking someone not on the team as NotFound."""
 command requestApproval(documentId: ID, projectId: ID, documentName: String @range(min: 1, max: 200), version: Int @range(min: 1), approverId: ID): Approval
-  throws NotYours
+  throws NotFound | NotYours
   emits ApprovalRequested
   @allow(write: viewer != null)
 

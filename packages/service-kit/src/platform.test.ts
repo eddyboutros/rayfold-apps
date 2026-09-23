@@ -214,6 +214,41 @@ describe("the queue", () => {
     expect(console_.jobs.find((j) => j.id === put!.id)).toMatchObject({ error: "the file is not there", attempts: 2 });
   });
 
+  it("a console that is down holds nothing back: the service has its defaults, and a worker keeps asking until it is back", async () => {
+    // where a console was, and is not any more
+    const gone = await startStandInConsole();
+    const port = Number(new URL(gone.url).port);
+    await gone.stop();
+
+    const said: string[] = [];
+    const platform = connectPlatform({ url: gone.url, token: gone.token, app: "catalogue", environment: "test", instance: "catalogue-1", log: (l) => said.push(l) });
+    platforms.push(platform);
+    let ready = false;
+    void platform.config.ready().then(() => (ready = true));
+    await until("configuration to be ready with no console to answer", () => ready || undefined);
+    expect(platform.connected).toBe(true);
+    expect(platform.config.snapshot()).toEqual({});
+    expect(platform.config.number("uploads.maxBytes", 5)).toBe(5);
+
+    const ran: string[] = [];
+    platform.work("extract-text", async (job) => {
+      ran.push(job.id);
+      return "taken";
+    }, { idleMs: 30 });
+    // refused by the network, and asking again rather than giving up
+    await until("the worker to have asked twice", () => said.filter((l) => l.startsWith("queue extract-text: could not claim")).length >= 2 || undefined);
+    expect(ran).toEqual([]);
+
+    // the console is back where it was: the worker takes what is put on the queue, and configuration arrives again
+    console_ = await startStandInConsole(Date.now, port);
+    const put = await operator().command<{ id: string }>("enqueue", { queue: "extract-text", payload: { documentId: "d1" } }, { shape: "{ id }", key: crypto.randomUUID() });
+    await until("the job to be done", () => (console_.jobs.find((j) => j.id === put.id)?.state === "done" ? true : undefined));
+    expect(console_.jobs.find((j) => j.id === put.id)).toMatchObject({ result: "taken", worker: "catalogue-1", attempts: 1 });
+    expect(ran).toEqual([put.id]);
+    await operator().command("setConfig", { app: "catalogue", environment: "test", key: "uploads.maxBytes", value: "1024" }, { shape: "{ key }", key: crypto.randomUUID() });
+    await until("the value to arrive once the console is back", () => (platform.config.number("uploads.maxBytes", 5) === 1024 ? true : undefined));
+  });
+
   it("a job stays with the worker running it while another polls, and a dead worker's job is taken over", async () => {
     // the console's clock, so a lease lapses when the test says and not when the machine is slow
     let clock = 1_000_000;

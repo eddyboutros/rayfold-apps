@@ -7,6 +7,7 @@ import { Capabilities } from "@rayfold/server";
 import { startTestService, type TestService } from "../../../e2e/harness.ts";
 import { startStandInConsole, type StandInConsole } from "../../../e2e/stand-in-console.ts";
 import { until } from "../../../e2e/wait.ts";
+import { DOCUMENT_KEPT, DOCUMENT_KEPT_STEPS, SHARED_OPS } from "./resolvers.ts";
 
 /**
  * The documents service as it runs: a real Postgres, a real port, the real client. What is asserted is what the
@@ -408,27 +409,65 @@ it("keeping a document starts the document-kept flow, with a token that reads th
 });
 
 it("the platform's upload limit applies while the service runs, and a refused upload leaves no bytes", async () => {
-  await configure("uploads.maxBytes", "10");
-  // the value travels over a live query; the service applies it the moment it arrives, without a restart
-  const refused = await until("the limit to reach the service", async () => {
-    const e = await client("ada")
+  // the value travels over a live query; the service applies it the moment it arrives, without a restart, and says
+  // so on its log, which is how this waits for it without an upload landing before the limit does
+  const applied = (value: string) =>
+    until(`uploads.maxBytes=${value} to reach the service`, () => platform.logs.some((l) => l.service === "documents" && l.body === `configuration: uploads.maxBytes=${value}`) || undefined);
+  try {
+    await configure("uploads.maxBytes", "10");
+    await applied("10");
+    const refused = await client("ada")
       .command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("eleven bytes")), name: "big.txt" }, { shape: SHAPE })
       .then(() => null, (err: RayfoldClientError) => err);
-    return e?.type === "UploadTooLarge" ? e : undefined;
-  });
-  expect(refused.data).toMatchObject({ size: 12, limit: 10 });
-  expect(await readdir(dirs.files)).toEqual([]);
+    expect(refused).toMatchObject({ code: "domain", type: "UploadTooLarge", data: { size: 12, limit: 10 } });
+    expect(await readdir(dirs.files)).toEqual([]);
 
-  // guard: under the limit is kept, and raising the limit lets the same bytes through, still without a restart
-  const small = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("ten bytes!")), name: "small.txt" }, { shape: SHAPE });
-  expect(small.size).toBe(10);
-  await configure("uploads.maxBytes", String(25 * 1024 * 1024));
-  const kept = await until("the raised limit to reach the service", async () =>
-    client("ada")
-      .command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("eleven bytes")), name: "big.txt" }, { shape: SHAPE })
-      .then((d) => d, () => undefined),
+    // guard: under the limit is kept, and raising the limit lets the same bytes through, still without a restart
+    const small = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("ten bytes!")), name: "small.txt" }, { shape: SHAPE });
+    expect(small.size).toBe(10);
+    await configure("uploads.maxBytes", String(25 * 1024 * 1024));
+    await applied(String(25 * 1024 * 1024));
+    const kept = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("eleven bytes")), name: "big.txt" }, { shape: SHAPE });
+    expect(kept.size).toBe(12);
+    expect(await readdir(dirs.files)).toHaveLength(2);
+  } finally {
+    await operator().command("removeConfig", { app: "documents", environment: "test", key: "uploads.maxBytes" }, { shape: "{ key }", key: crypto.randomUUID() });
+  }
+});
+
+it("a share stops working when it expires: neither the document nor its bytes", async () => {
+  const doc = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("for a while")), name: "contract.txt" }, { shape: SHAPE });
+  // the token shareDocument mints, minted two hours ago for the hour a share may live at most
+  const expired = new Capabilities({ secret: "a-test-secret-of-sufficient-length", now: () => Date.now() - 2 * 60 * 60 * 1000 }).mint(
+    { id: `share:${doc.id}`, documentId: doc.id },
+    { ops: SHARED_OPS, ttlMs: 60 * 60 * 1000, iss: "documents" },
   );
-  expect(kept.size).toBe(12);
+  const refused = await client(expired).query("document", { id: doc.id }, { shape: "{ name }" }).then(() => null, (e: RayfoldClientError) => e);
+  expect(refused?.code).toBe("unauthenticated");
+  expect((await download(doc.url, expired)).status).toBe(401);
+
+  // guard: a share minted now, by the service, reads both
+  const share = await client("ada").command<Share>("shareDocument", { id: doc.id }, { shape: "{ token }" });
+  expect(await client(share.token).query<Document>("document", { id: doc.id }, { shape: "{ name }" })).toEqual({ $type: "Document", name: "contract.txt" });
+  expect(await (await download(doc.url, share.token)).text()).toBe("for a while");
+});
+
+it("a platform that is down does not fail the upload, and the next document starts its run once it is back", async () => {
+  const port = Number(new URL(platform.url).port);
+  await platform.stop();
+  try {
+    const doc = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("kept anyway")), name: "offline.txt" }, { shape: SHAPE });
+    expect(doc).toMatchObject({ name: "offline.txt", size: 11, version: 1 });
+    expect(await (await download(doc.url, "ada")).text()).toBe("kept anyway");
+    expect(await readdir(dirs.files)).toHaveLength(1);
+  } finally {
+    // back where it was, and as the service left it: the flow it defined when it started
+    platform = await startStandInConsole(Date.now, port);
+    await operator().command("defineFlow", { name: DOCUMENT_KEPT, steps: DOCUMENT_KEPT_STEPS }, { shape: "{ name }", key: crypto.randomUUID() });
+  }
+  // guard: with the platform back, a document starts its run again
+  const next = await client("ada").command<Document>("createDocument", { projectId: "p1", upload: await upload("ada", text("online")), name: "online.txt" }, { shape: SHAPE });
+  expect(await until("the run to be started", () => platform.runs.find((r) => r.key === `${next.id}:1`))).toMatchObject({ name: DOCUMENT_KEPT });
 });
 
 it("says who it is and what it is doing", async () => {
@@ -460,10 +499,11 @@ it("tells a browser on another origin that an upload is allowed", async () => {
   expect(allowed).toContain("rayfold-upload-type");
   expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:4200");
 
-  // guard: an origin the fleet does not allow gets Rayfold's own refusal, not a blanket yes
+  // guard: an origin the fleet does not allow is answered with the fleet's own, which the browser compares with the
+  // page's and refuses: never the caller's echoed back, which would be a blanket yes
   const foreign = await fetch(`${svc.base}/rayfold/uploads`, {
     method: "OPTIONS",
     headers: { origin: "https://evil.example", "access-control-request-method": "POST" },
   });
-  expect(foreign.headers.get("access-control-allow-origin")).not.toBe("https://evil.example");
+  expect(foreign.headers.get("access-control-allow-origin")).toBe("http://localhost:4200");
 });

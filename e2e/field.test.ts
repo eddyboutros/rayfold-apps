@@ -66,10 +66,7 @@ it("a deferred block arrives after the frame that carries the rest, and the clie
   await batch.run({ onFrame: (f) => order.push("at" in f ? "thread" : "data" in f ? "issue" : "fin" in f ? "fin" : "other") });
   // the issue itself first, without the thread; the thread in later frames addressed to its place (the block, then
   // the lazy field inside it), and fin once everything has arrived
-  expect(order[0]).toBe("issue");
-  expect(order.at(-1)).toBe("fin");
-  expect(order.slice(1, -1).length).toBeGreaterThan(0);
-  expect(order.slice(1, -1).every((f) => f === "thread")).toBe(true);
+  expect(order).toEqual(["issue", "thread", "thread", "fin"]);
   const whole = await op.promise;
   expect(whole.title).toBe("Count the pallets");
   expect(whole.comments?.items.map((c) => c.body)).toEqual(["Bay 3 first."]);
@@ -132,7 +129,12 @@ it("with trusted shapes on, a shape the service registered is served and one it 
     const ada = trusted.client("ada");
     // in trusted mode a shape travels as its id: the text of one the panels send, hashed as the server hashes it
     const idOf = (text: string) => shapeIdOf(canonicalShape(parseShapeText(text), () => undefined)); // already sha256:-prefixed
-    expect(Array.isArray(await ada.query("members", {}, { shape: idOf("{ id name }") }))).toBe(true);
+    expect(await ada.query("members", {}, { shape: idOf("{ id name }") })).toEqual([
+      { $type: "Member", id: "u1", name: "Ada Lovelace" },
+      { $type: "Member", id: "u2", name: "Grace Hopper" },
+      { $type: "Member", id: "u3", name: "Noor Haddad" },
+      { $type: "Member", id: "u4", name: "Tomás Ferreira" },
+    ]);
     // the same text inline is refused, as is the id of a shape nobody registered
     const inline = await ada.query("members", {}, { shape: "{ id name }" }).then(() => null, (e: RayfoldClientError) => e);
     expect(inline?.code).toBe("permission_denied");
@@ -144,5 +146,12 @@ it("with trusted shapes on, a shape the service registered is served and one it 
     expect(((await (await fetch(`${svc.base}/rayfold/manifest`)).json()) as { limits: { trustedShapes: boolean } }).limits.trustedShapes).toBe(false);
   } finally {
     await trusted.stop();
+  }
+  // and the mode went with the instance: one started after it, in the same process, is not in trusted mode
+  const after = await startTestService("workspace", {}, 8);
+  try {
+    expect(((await (await fetch(`${after.base}/rayfold/manifest`)).json()) as { limits: { trustedShapes: boolean } }).limits.trustedShapes).toBe(false);
+  } finally {
+    await after.stop();
   }
 });

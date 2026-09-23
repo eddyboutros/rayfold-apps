@@ -182,8 +182,8 @@ every service in the fleet, and this service reacts to it: a changed document be
 """
 event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID }
 """Three more of the documents service's, heard the same way: filed, tagged, and remarked on."""
-event DocumentFiled { documentId: ID, projectId: ID, name: String, folder: String?, byId: ID }
-event DocumentTagged { documentId: ID, projectId: ID, name: String, tags: [String], byId: ID }
+event DocumentFiled { documentId: ID, projectId: ID, name: String, folder: String?, byId: ID, at: Instant? }
+event DocumentTagged { documentId: ID, projectId: ID, name: String, tags: [String], byId: ID, at: Instant? }
 event DocumentNoted { documentId: ID, projectId: ID, name: String, excerpt: String, byId: ID }
 """The approvals service's, the fleet's JVM member: a sign-off asked, and one decided. Heard here the same way."""
 event ApprovalRequested { approvalId: ID, documentId: ID, projectId: ID, documentName: String, requesterId: ID, approverId: ID }

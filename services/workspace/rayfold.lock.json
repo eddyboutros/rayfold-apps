@@ -1,6 +1,6 @@
 {
   "rayfold": "0.1",
-  "hash": "2d8e8b48670df83b3ccfe83503ef54e02166b811653ef8c68d04ec559657cdeb",
+  "hash": "2df671fd99084166743fbc2ab92ab0b32faba38b4f82fa07b3475cb5918f1c95",
   "ir": {
     "rayfold": "0.1",
     "types": {
@@ -1885,6 +1885,17 @@
             "args": [],
             "annotations": [],
             "ordinal": 5
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
           }
         ]
       },
@@ -1951,6 +1962,17 @@
             "args": [],
             "annotations": [],
             "ordinal": 5
+          },
+          {
+            "name": "at",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
           }
         ]
       },
@@ -3739,5 +3761,5 @@
     },
     "views": {}
   },
-  "lockedAt": "2026-09-23T14:28:03.524Z"
+  "lockedAt": "2026-09-23T17:49:13.631Z"
 }

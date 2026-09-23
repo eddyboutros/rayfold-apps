@@ -146,7 +146,8 @@ const fill = (template: string, payload: unknown): string =>
     return v === undefined || v === null ? whole : String(v);
   });
 
-export async function startStandInConsole(now: () => number = Date.now): Promise<StandInConsole> {
+/** `port` puts a console back where one was, as a restart does; 0 asks the operating system for any. */
+export async function startStandInConsole(now: () => number = Date.now, port = 0): Promise<StandInConsole> {
   const entries: Entry[] = [];
   const jobs: JobRow[] = [];
   const flows = new Map<string, Step[]>();
@@ -345,11 +346,11 @@ export async function startStandInConsole(now: () => number = Date.now): Promise
     }
     void rayfold(req, res);
   });
-  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
-  const port = (http.address() as { port: number }).port;
+  await new Promise<void>((resolve) => http.listen(port, "127.0.0.1", resolve));
+  const bound = (http.address() as { port: number }).port;
 
   return {
-    url: `http://127.0.0.1:${port}`,
+    url: `http://127.0.0.1:${bound}`,
     token: TOKEN,
     server,
     entries,

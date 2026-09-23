@@ -86,8 +86,8 @@ error UploadTooLarge { size: Int, limit: Int }
 """Raised on every change, with who made it, so another service can say so without asking this one."""
 event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID }
 """Raised when a document is filed somewhere else. `folder` null is the root."""
-event DocumentFiled { documentId: ID, projectId: ID, name: String, folder: String?, byId: ID }
-event DocumentTagged { documentId: ID, projectId: ID, name: String, tags: [String], byId: ID }
+event DocumentFiled { documentId: ID, projectId: ID, name: String, folder: String?, byId: ID, at: Instant? }
+event DocumentTagged { documentId: ID, projectId: ID, name: String, tags: [String], byId: ID, at: Instant? }
 """Raised when someone remarks on a document, with the start of what they said."""
 event DocumentNoted { documentId: ID, projectId: ID, name: String, excerpt: String, byId: ID }
 

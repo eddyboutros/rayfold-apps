@@ -89,12 +89,14 @@ const service = await startService({
       );
     });
     server.events.on("DocumentFiled", (payload) => {
-      const { documentId, projectId, name, folder, byId } = payload as { documentId: string; projectId: string; name: string; folder: string | null; byId: string };
-      heard(`documents:${documentId}:filed:${folder ?? ""}:${Date.now()}`, projectId, "document.filed", `${name}: ${folder ?? "the root"} (${documentId})`, byId ?? null, { documentId, projectId, folder });
+      const { documentId, projectId, name, folder, byId, at } = payload as { documentId: string; projectId: string; name: string; folder: string | null; byId: string; at?: number | string | null };
+      // the moment the documents service filed it, the same on every instance that hears it: one row per move for the
+      // fleet, and a later move back into the same folder is a line of its own
+      heard(`documents:${documentId}:filed:${folder ?? ""}:${at ?? ""}`, projectId, "document.filed", `${name}: ${folder ?? "the root"} (${documentId})`, byId ?? null, { documentId, projectId, folder });
     });
     server.events.on("DocumentTagged", (payload) => {
-      const { documentId, projectId, name, tags, byId } = payload as { documentId: string; projectId: string; name: string; tags: string[]; byId: string };
-      heard(`documents:${documentId}:tagged:${tags.join(",")}`, projectId, "document.tagged", `${name}: ${tags.length ? tags.join(" ") : "no tags"} (${documentId})`, byId ?? null, { documentId, projectId, tags });
+      const { documentId, projectId, name, tags, byId, at } = payload as { documentId: string; projectId: string; name: string; tags: string[]; byId: string; at?: number | string | null };
+      heard(`documents:${documentId}:tagged:${tags.join(",")}:${at ?? ""}`, projectId, "document.tagged", `${name}: ${tags.length ? tags.join(" ") : "no tags"} (${documentId})`, byId ?? null, { documentId, projectId, tags });
     });
     // raised by the approvals service, in Kotlin, on another port: the same relay, the same shape of line. the person
     // asked is told through the bell, and the one who asked hears the decision the same way

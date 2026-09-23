@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { RayfoldClient, createFetchTransport, type RayfoldClientError } from "@rayfold/client";
 import { createServer, type Server } from "node:http";
 import { startTestService, type TestService } from "../../../e2e/harness.ts";
@@ -6,6 +6,7 @@ import { pdf } from "../../../e2e/pdf.ts";
 import { startStandInConsole, type StandInConsole } from "../../../e2e/stand-in-console.ts";
 import { until } from "../../../e2e/wait.ts";
 import { SEEDED } from "./seed.ts";
+import { CatalogueStore } from "./store.ts";
 
 /**
  * The catalogue as it runs. What is asserted is what the schema promises: one search across three kinds of thing,
@@ -35,15 +36,26 @@ beforeAll(async () => {
     },
   });
   svc = await startTestService("catalogue", { CONSOLE_URL: platform.url, CONSOLE_TOKEN: platform.token, APP_ENVIRONMENT: "test", COST_BUDGET: "150" });
-  // the catalogue is reference data and is not emptied between runs, so what a test writes it removes itself
-  await svc.sql.query("delete from articles where slug like 'sandbox-reset-how-it-works%'"); // its revisions go with it
-  await svc.sql.query("delete from files");
+  // what a run that was cut short left behind
+  await clean();
+});
+// the catalogue is reference data and is not emptied between tests, so what a test writes goes after it, whichever
+// test runs next
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await clean();
 });
 afterAll(async () => {
   await svc?.stop();
   await platform?.stop();
   await new Promise<void>((r) => bytes?.close(() => r()));
 });
+
+/** Everything a test here writes: articles under one title, and the files the workers index. */
+async function clean(): Promise<void> {
+  await svc.sql.query("delete from articles where slug like 'sandbox-reset-how-it-works%'"); // its revisions go with it
+  await svc.sql.query("delete from files");
+}
 
 const operator = () => new RayfoldClient({ transport: createFetchTransport({ url: `${platform.url}/rayfold`, headers: () => ({ authorization: `Bearer ${platform.token}` }) }) });
 /** The documents service's flow, as it defines it: this service works its first two steps. */
@@ -109,8 +121,11 @@ it("a search pages by cursor, and the second page continues where the first stop
   expect(first.total).toBeGreaterThan(3);
 
   const second = await ada().query<Page<Hit>>("search", { q: "order", page: { first: 3, after: first.cursor } }, { shape: "{ items { id } hasMore cursor }" });
-  const seen = new Set(first.items.map((h) => h.id));
-  expect(second.items.some((h) => seen.has(h.id))).toBe(false);
+  // the next three of the same ranking, not merely three others
+  const six = await ada().query<Page<Hit>>("search", { q: "order", page: { first: 6 } }, { shape: "{ items { id } }" });
+  expect(six.items).toHaveLength(6);
+  expect(first.items.map((h) => h.id)).toEqual(six.items.slice(0, 3).map((h) => h.id));
+  expect(second.items.map((h) => h.id)).toEqual(six.items.slice(3, 6).map((h) => h.id));
 
   // guard: the same page twice is the same page
   const again = await ada().query<Page<Hit>>("search", { q: "order", page: { first: 3 } }, { shape: "{ items { id } }" });
@@ -199,10 +214,22 @@ it("a product knows the rest of its category, and a person their writing and the
   expect(kwame.articles).toHaveLength(2);
   expect(kwame.colleagues.map((c) => c.name)).toEqual(["Priya Raman"]);
 
-  // a whole page of people at once: one read serves every one of them, and each gets their own department
-  const page = await ada().query<Page<{ name: string; colleagues: Array<{ name: string }> }>>("items", { kind: "person", page: { first: 20 } }, { shape: "{ items { ...on Person { name department colleagues { name } } } }" });
+  // a whole page of people at once: one read serves every one of them, and each gets their own department. the
+  // reads are counted on the store the running service uses, since a read per person gives the same answers
+  const departments = vi.spyOn(CatalogueStore.prototype, "peopleInDepartments");
+  const writing = vi.spyOn(CatalogueStore.prototype, "articlesBy");
+  const page = await ada().query<Page<{ id: string; name: string; department: string; colleagues: Array<{ name: string }> }>>(
+    "items",
+    { kind: "person", page: { first: 20 } },
+    { shape: "{ items { id ...on Person { name department colleagues { name } articles { slug } } } }" },
+  );
+  expect(page.items).toHaveLength(SEEDED.people);
   const elena = page.items.find((p) => p.name === "Elena Petrova")!;
   expect(elena.colleagues.map((c) => c.name).sort()).toEqual(["Ada Lovelace", "Grace Hopper", "Hannah Weiss"]);
+  expect(departments).toHaveBeenCalledTimes(1);
+  expect([...departments.mock.calls[0]![0]].sort()).toEqual([...new Set(page.items.map((p) => p.department))].sort());
+  expect(writing).toHaveBeenCalledTimes(1);
+  expect([...writing.mock.calls[0]![0]].sort()).toEqual(page.items.map((p) => p.id).sort());
 });
 
 it("a kept document's text is read by the extract step, indexed by the index step, and found — text and PDF alike", async () => {
@@ -255,10 +282,19 @@ it("a kept document's text is read by the extract step, indexed by the index ste
   expect(files.items.every((i) => i.$type === "File")).toBe(true);
 });
 
-it("a document that is gone by the time its step runs has nothing to index: the index step is skipped by its condition, not by an if", async () => {
-  const run = await start({ documentId: "doc-gone", projectId: "p1", name: "gone.txt", version: 1, contentType: "text/plain", size: 1, url: "/files/none", fetchUrl: bytes.serve("/files/none-here", "text/plain", new Uint8Array()).replace("none-here", "none") });
+it("a document that is gone by the time its step runs has nothing to index: the index step is skipped by its condition, not by an if, and what was indexed of it comes out", async () => {
+  // indexed first, from a run that found its bytes
+  const kept = bytes.serve("/files/gone-v1", "text/plain", new TextEncoder().encode("The quokka clause is struck."));
+  const first = await start({ documentId: "doc-gone", projectId: "p1", name: "gone.txt", version: 1, contentType: "text/plain", size: 28, url: "/files/gone-v1", fetchUrl: kept });
+  await until("the first version to be indexed", async () => (stepsOf(first.id).find((j) => j.step === "index")?.state === "done" ? true : undefined));
+  const quokka = () => ada().query<Page<Hit>>("search", { q: "quokka" }, { shape: "{ items { id } }" });
+  expect((await quokka()).items).toEqual([{ $type: "File", id: "doc-gone" }]);
+
+  // then deleted in the documents service: its next version's bytes are not there
+  const run = await start({ documentId: "doc-gone", projectId: "p1", name: "gone.txt", version: 2, contentType: "text/plain", size: 1, url: "/files/none", fetchUrl: bytes.serve("/files/none-here", "text/plain", new Uint8Array()).replace("none-here", "none") });
   await until("the extract step to be done", async () => (stepsOf(run.id).find((j) => j.step === "extract")?.state === "done" ? true : undefined));
   expect((await svc.sql.query("select 1 from files where id = 'doc-gone'")).rowCount).toBe(0);
+  expect((await quokka()).items).toEqual([]);
   expect(stepsOf(run.id).map((j) => [j.step, j.state])).toEqual([
     ["extract", "done"],
     ["index", "skipped"],
@@ -298,7 +334,9 @@ it("a batch over the cost budget is refused before it runs, with the cost and th
   expect(big?.data).toMatchObject({ budget: 150 });
   expect((big?.data as { cost: number }).cost).toBeGreaterThan(150);
   // guard: the same page at a size the budget allows
-  expect((await ada().query<Page<Hit>>("items", { kind: "product", page: { first: 12 } }, { shape: "{ items { id } }" })).items.length).toBeGreaterThan(0);
+  const allowed = await ada().query<Page<Hit>>("items", { kind: "product", page: { first: 12 } }, { shape: "{ items { id } total }" });
+  expect(allowed.total).toBe(SEEDED.products);
+  expect(allowed.items).toHaveLength(Math.min(12, SEEDED.products));
 });
 
 it("nobody may search, and a search needs a phrase", async () => {

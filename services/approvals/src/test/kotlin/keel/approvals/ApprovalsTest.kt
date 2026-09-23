@@ -12,6 +12,8 @@ import dev.rayfold.jdbc.PgRelay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -36,11 +38,10 @@ import java.net.http.HttpResponse
 import java.sql.DriverManager
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 import javax.sql.DataSource
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -109,19 +110,28 @@ class ApprovalsTest {
         heard.clear()
     }
 
-    private fun batch(who: String, vararg ops: JsonObject): List<JsonObject> {
-        val body = buildJsonObject { put("ops", JsonArray(ops.toList())) }
-        val res = http.send(
-            HttpRequest.newBuilder(URI("http://127.0.0.1:$port/rayfold"))
-                .header("authorization", "Bearer $who")
-                .header("content-type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
-                .build(),
-            HttpResponse.BodyHandlers.ofString(),
-        )
+    private fun post(who: String, vararg ops: JsonObject): HttpRequest =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/rayfold"))
+            .header("authorization", "Bearer $who")
+            .header("content-type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(buildJsonObject { put("ops", JsonArray(ops.toList())) }.toString()))
+            .build()
+
+    private fun framesOf(res: HttpResponse<String>): List<JsonObject> {
         assertEquals(200, res.statusCode(), res.body())
         return res.body().lines().filter { it.isNotBlank() }.map { json.parseToJsonElement(it).jsonObject }
     }
+
+    private fun batch(who: String, vararg ops: JsonObject): List<JsonObject> = framesOf(http.send(post(who, *ops), HttpResponse.BodyHandlers.ofString()))
+
+    /** A member of an answer, or a failure that says what the answer was instead. */
+    private fun JsonObject.at(key: String): JsonElement = this[key] ?: throw AssertionError("no \"$key\" in $this")
+    private fun JsonObject.obj(key: String): JsonObject = at(key).jsonObject
+    private fun JsonObject.text(key: String): String = at(key).jsonPrimitive.content
+
+    private fun approval(id: String): JsonObject = one("grace", "approval", buildJsonObject { put("id", id) }, "{ stale decision note }").obj("data")
+    private fun inboxOf(who: String): List<String> = one(who, "inbox", buildJsonObject {}, "{ id }").at("data").jsonArray.map { it.jsonObject.text("id") }
+    private fun decidedEvents(): List<JsonObject> = heard.filterIsInstance<RelayMessage.Event>().filter { it.name == "ApprovalDecided" }.map { it.payload }
 
     private fun op(id: Int, op: String, args: JsonObject, shape: String, key: String? = null) = buildJsonObject {
         put("id", id); put("op", op); put("args", args); put("shape", shape)
@@ -163,6 +173,15 @@ class ApprovalsTest {
         val decided = one("grace", "decide", buildJsonObject { put("id", id); put("decision", "approved"); put("note", "Clause 3 is fine.") }, "{ decision note decidedAt }", UUID.randomUUID().toString())["ok"]!!.jsonObject
         assertEquals("approved", decided["decision"]!!.jsonPrimitive.content)
         assertEquals("Clause 3 is fine.", decided["note"]!!.jsonPrimitive.content)
+        // the workspace builds its feed line and its notification from this, so all of it is the contract
+        val told = until("the relay to carry ApprovalDecided") { decidedEvents().firstOrNull() }
+        assertEquals(
+            buildJsonObject {
+                put("approvalId", id); put("documentId", "d1"); put("projectId", "p1"); put("documentName", "MSA v3.pdf")
+                put("decision", "approved"); put("byId", "u2"); put("note", "Clause 3 is fine.")
+            },
+            told,
+        )
         val again = one("grace", "decide", buildJsonObject { put("id", id); put("decision", "declined") }, "{ id }", UUID.randomUUID().toString())["error"]!!.jsonObject
         assertEquals("AlreadyDecided", again["type"]!!.jsonPrimitive.content)
         assertEquals("approved", again["data"]!!.jsonObject["decision"]!!.jsonPrimitive.content)
@@ -203,12 +222,25 @@ class ApprovalsTest {
             if (a["stale"]!!.jsonPrimitive.content == "true") a else null
         }
         assertEquals("pending", stale["decision"]!!.jsonPrimitive.content)
-        // guard: a sign-off on the newer version is not stale, and a decided one is left alone
-        val fresh = ask(documentId = "d1", version = 2)
-        runBlocking { other.publish(RelayMessage.Event("DocumentChanged", buildJsonObject { put("documentId", "d1"); put("projectId", "p1"); put("name", "MSA v3.pdf"); put("version", 2); put("byId", "u1") })) }
-        val approved = one("grace", "decide", buildJsonObject { put("id", id); put("decision", "approved") }, "{ stale }", UUID.randomUUID().toString())["ok"]!!.jsonObject
-        assertEquals("true", approved["stale"]!!.jsonPrimitive.content)
-        assertEquals("false", one("grace", "approval", buildJsonObject { put("id", fresh["id"]!!.jsonPrimitive.content) }, "{ stale }")["data"]!!.jsonObject["stale"]!!.jsonPrimitive.content)
+        // guard: a sign-off on the newer version is not stale. the event marks every pending one on an older version
+        // in one statement, so one asked on version 1 since then turning stale says this event has been handled
+        val kept = { version: Int -> runBlocking { other.publish(RelayMessage.Event("DocumentChanged", buildJsonObject { put("documentId", "d1"); put("projectId", "p1"); put("name", "MSA v3.pdf"); put("version", version); put("byId", "u1") })) } }
+        val fresh = ask(documentId = "d1", version = 2).text("id")
+        val sentinel = ask(documentId = "d1", version = 1).text("id")
+        kept(2)
+        until("the sign-off on version 1 to be stale") { if (approval(sentinel).text("stale") == "true") true else null }
+        assertEquals("false", approval(fresh).text("stale"))
+
+        // and a decided one is left alone by a later version: it was decided on what it was asked about
+        val settled = ask(documentId = "d1", version = 2).text("id")
+        assertEquals("approved", one("grace", "decide", buildJsonObject { put("id", settled); put("decision", "approved") }, "{ decision }", UUID.randomUUID().toString()).obj("ok").text("decision"))
+        kept(3)
+        until("the pending sign-off on version 2 to be stale") { if (approval(fresh).text("stale") == "true") true else null }
+        assertEquals(listOf("approved", "false"), approval(settled).let { listOf(it.text("decision"), it.text("stale")) })
+
+        // one that went stale while pending can still be decided, and says it was stale
+        val approved = one("grace", "decide", buildJsonObject { put("id", id); put("decision", "approved") }, "{ stale }", UUID.randomUUID().toString()).obj("ok")
+        assertEquals("true", approved.text("stale"))
     }
 
     @Test
@@ -225,18 +257,99 @@ class ApprovalsTest {
 
     @Test
     fun `a browser's cookie is the same person as a bearer handle, and nobody may ask`() {
+        val forGrace = ask(approver = "u2").text("id")
+        val forNoor = ask(approver = "u3").text("id")
+        // what a browser sends: the session cookie, and no Authorization header. the inbox is the caller's own, so the
+        // answer says whom the cookie was read as
         val res = http.send(
             HttpRequest.newBuilder(URI("http://127.0.0.1:$port/rayfold"))
                 .header("cookie", "keel_session=grace")
                 .header("content-type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(buildJsonObject { put("ops", JsonArray(listOf(op(1, "members", buildJsonObject {}, "{ id }")))) }.toString()))
+                .POST(HttpRequest.BodyPublishers.ofString(buildJsonObject { put("ops", JsonArray(listOf(op(1, "inbox", buildJsonObject {}, "{ id }")))) }.toString()))
                 .build(),
             HttpResponse.BodyHandlers.ofString(),
         )
-        assertEquals(200, res.statusCode(), res.body())
-        assertTrue(res.body().contains("\"u2\""))
+        val inbox = framesOf(res).first { it.containsKey("data") || it.containsKey("error") }.at("data").jsonArray.map { it.jsonObject.text("id") }
+        assertEquals(listOf(forGrace), inbox)
+        // guard: the same handle as a bearer is the same person, and another's inbox is theirs
+        assertEquals(listOf(forGrace), inboxOf("grace"))
+        assertEquals(listOf(forNoor), inboxOf("noor"))
+
         val nobody = one("nobody", "inbox", buildJsonObject {}, "{ id }")
-        assertNotNull(nobody["error"])
+        assertEquals("unauthenticated", nobody.obj("error").text("code"))
         assertNull(nobody["data"])
+    }
+
+    @Test
+    fun `the one who asked may take it back, and nobody else may`() {
+        val id = ask().text("id")
+        // not Grace's to withdraw: she was asked, she did not ask
+        assertEquals("NotYours", one("grace", "withdraw", buildJsonObject { put("id", id) }, "{ id }", UUID.randomUUID().toString()).obj("error").text("type"))
+        assertEquals(listOf(id), inboxOf("grace"))
+
+        val withdrawn = one("ada", "withdraw", buildJsonObject { put("id", id) }, "{ decision note }", UUID.randomUUID().toString()).obj("ok")
+        assertEquals(buildJsonObject { put("\$type", "Approval"); put("decision", "withdrawn"); put("note", JsonNull) }, withdrawn)
+        assertEquals(emptyList(), inboxOf("grace"))
+        val told = until("the relay to carry the withdrawal") { decidedEvents().firstOrNull() }
+        assertEquals(
+            buildJsonObject {
+                put("approvalId", id); put("documentId", "d1"); put("projectId", "p1"); put("documentName", "MSA v3.pdf")
+                put("decision", "withdrawn"); put("byId", "u1"); put("note", JsonNull)
+            },
+            told,
+        )
+    }
+
+    @Test
+    fun `a decision is approved or declined, and nothing else`() {
+        val id = ask().text("id")
+        // a Decision the schema knows, but not one the person asked may give: the resolver refuses it
+        assertEquals("invalid_argument", one("grace", "decide", buildJsonObject { put("id", id); put("decision", "withdrawn") }, "{ id }", UUID.randomUUID().toString()).obj("error").text("code"))
+        // one the schema does not know is refused before any resolver runs
+        assertEquals("invalid_argument", one("grace", "decide", buildJsonObject { put("id", id); put("decision", "maybe") }, "{ id }", UUID.randomUUID().toString()).obj("error").text("code"))
+        assertEquals("pending", approval(id).text("decision"))
+        assertEquals(listOf(id), inboxOf("grace"))
+
+        // guard: declined is a decision
+        assertEquals("declined", one("grace", "decide", buildJsonObject { put("id", id); put("decision", "declined") }, "{ decision }", UUID.randomUUID().toString()).obj("ok").text("decision"))
+    }
+
+    @Test
+    fun `a sign-off cannot be asked of someone who is not on the team`() {
+        val refused = one("ada", "requestApproval", buildJsonObject { put("documentId", "d1"); put("projectId", "p1"); put("documentName", "MSA v3.pdf"); put("version", 1); put("approverId", "u99") }, "{ id }", UUID.randomUUID().toString()).obj("error")
+        assertEquals(listOf("domain", "NotFound"), listOf(refused.text("code"), refused.text("type")))
+        assertEquals(buildJsonObject { put("id", "u99") }, refused.obj("data"))
+        assertEquals(0, one("ada", "approvals", buildJsonObject { put("documentId", "d1") }, "{ id }").at("data").jsonArray.size)
+
+        // guard: someone who is on it can be asked
+        assertEquals("Noor Haddad", ask(approver = "u3").obj("approver").text("name"))
+    }
+
+    @Test
+    fun `two decisions at once - the one that lands second is told what the first was, and changes nothing`() {
+        val id = ask().text("id")
+        dataSource.connection.use { first ->
+            // another instance's decision, holding the row. the second reads the sign-off as pending, passes every
+            // check, and reaches its write while the first is still open
+            first.autoCommit = false
+            first.prepareStatement("update approvals set decision = 'declined', note = 'Not yet.', decided_at = 1 where id = ?").use { it.setString(1, id); it.executeUpdate() }
+            val second = http.sendAsync(post("grace", op(1, "decide", buildJsonObject { put("id", id); put("decision", "approved") }, "{ decision }", UUID.randomUUID().toString())), HttpResponse.BodyHandlers.ofString())
+            until("the second decision to wait on the first") {
+                dataSource.connection.use { c ->
+                    c.prepareStatement("select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and query like 'update approvals set decision = %'").use { s ->
+                        s.executeQuery().use { rs -> if (rs.next() && rs.getInt(1) == 1) true else null }
+                    }
+                }
+            }
+            first.commit()
+            val refused = framesOf(second.get(5, TimeUnit.SECONDS)).first { it.containsKey("ok") || it.containsKey("error") }.obj("error")
+            assertEquals(listOf("AlreadyDecided", "declined"), listOf(refused.text("type"), refused.obj("data").text("decision")))
+        }
+        // the first decision stands
+        assertEquals(listOf("declined", "Not yet."), approval(id).let { listOf(it.text("decision"), it.text("note")) })
+        // and the second raised nothing: a sign-off asked afterwards reaches the relay with no decision before it
+        ask(documentId = "d2")
+        until("the relay to carry the later request") { heard.filterIsInstance<RelayMessage.Event>().firstOrNull { it.name == "ApprovalRequested" && it.payload["documentId"] == JsonPrimitive("d2") } }
+        assertEquals(emptyList(), decidedEvents())
     }
 }

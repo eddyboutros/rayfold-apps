@@ -23,7 +23,13 @@ it("the bridge lists every command as a tool with a dry-run twin, and reads a qu
   const mcp = new Mcp(svc.base, scoped.token);
   const { tools } = await mcp.tools();
   const names = tools.map((t) => t.name);
-  expect(names).toEqual(expect.arrayContaining(["createIssue", "createIssue.simulate", "issues", "me"]));
+  // every operation, whatever the token names: the token is checked when a tool is used. a command that cannot run
+  // dry (no @simulate in the schema) has no twin
+  expect(names).toEqual([
+    "projects", "project", "updateProject", "members", "me", "mintAgentToken", "workload", "issue", "issues", "comments", "activity",
+    "createIssue", "createIssue.simulate", "updateIssue", "updateIssue.simulate", "assignIssue", "assignIssue.simulate", "moveIssue", "moveIssue.simulate",
+    "attachDocument", "detachDocument", "addComment", "messages", "say", "notifications", "unread", "markRead",
+  ]);
   expect(tools.find((t) => t.name === "createIssue")?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true, idempotentHint: true });
   expect(tools.find((t) => t.name === "createIssue.simulate")?.annotations).toMatchObject({ readOnlyHint: true });
   // the manifest says the bridge is there

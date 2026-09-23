@@ -200,9 +200,19 @@ it("a hand-over tells the person it went to, on a stream of their own, and a bad
     expect(read).toBe(2);
     expect(await unread.wait("the badge to drop")).toBe(0);
     expect(await noor.command<number>("markRead", { upTo: new Date().toISOString() }, {})).toBe(0);
-    // guard: a command that did not opt out still needs its key
-    const unkeyed = await noor.command("say", { projectId: PROJECT, body: "hi" }, { shape: "{ id }", key: "short" }).then(() => null, (e: RayfoldClientError) => e);
-    expect(unkeyed?.code).toBe("invalid_argument");
+    // guard: a command that did not opt out still needs its key. the client always sends one, so this is the batch
+    // a program writing its own would send
+    const raw = await fetch(`${svc.base}/rayfold`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer noor" },
+      body: JSON.stringify({ ops: [{ id: 1, op: "say", args: { projectId: PROJECT, body: "hi" }, shape: "{ id }" }] }),
+    });
+    const frame = JSON.parse((await raw.text()).split("\n")[0]!) as { id: number; error?: { code: string } };
+    expect(frame).toMatchObject({ id: 1, error: { code: "invalid_argument" } });
+    // and one too short to be unique is no key either
+    const short = await noor.command("say", { projectId: PROJECT, body: "hi" }, { shape: "{ id }", key: "short" }).then(() => null, (e: RayfoldClientError) => e);
+    expect(short?.code).toBe("invalid_argument");
+    expect((await noor.query<{ total: number }>("messages", { projectId: PROJECT }, { shape: "{ total }" })).total).toBe(0);
 
     // guard: Ada, who did the handing over, was told nothing, and cannot read Noor's
     expect((await ada.query<{ total: number }>("notifications", {}, { shape: "{ total }" })).total).toBe(0);
@@ -358,7 +368,7 @@ it("three commands in one batch: the second and third name the first's result wi
   const after = bad.command("addComment", { issueId: missing.ref("id"), body: "never" }, { shape: "{ id }" });
   await bad.run();
   expect(await missing.promise.then(() => null, (e: RayfoldClientError) => e.type)).toBe("NotFound");
-  expect(await after.promise.then(() => "landed", (e: RayfoldClientError) => e.code)).not.toBe("landed");
+  expect(await after.promise.then(() => "landed", (e: RayfoldClientError) => e)).toMatchObject({ code: "failed_precondition", type: "DependencyFailed" });
   expect((await ada.query<{ items: unknown[] }>("activity", { projectId: PROJECT }, { shape: "{ items { kind } }" })).items).toHaveLength(3);
 });
 
@@ -422,6 +432,12 @@ it("a browser's session cookie is the same person as a bearer token", async () =
   expect(refused?.code).toBe("unauthenticated");
 });
 
+/** How many times this instance has re-run an open live query on `op`, from its own stats. */
+async function rerunsOf(op: string): Promise<number> {
+  const stats = (await (await fetch(`${svc.base}/rayfold/stats`, { headers: { authorization: `Bearer ${svc.opsToken}` } })).json()) as { counters: Array<{ name: string; labels: Record<string, string>; count: number }> };
+  return stats.counters.filter((c) => c.name === "rayfold.live.reran" && c.labels["op"] === op).reduce((n, c) => n + c.count, 0);
+}
+
 it("a document pinned to an issue is on every open list of issues, follows a rename made in the documents service, and comes off again", async () => {
   const ada = svc.client("ada");
   const grace = svc.client("grace");
@@ -453,14 +469,21 @@ it("a document pinned to an issue is on every open list of issues, follows a ren
     ]);
     const renamed = await seen.wait("the pin to follow the rename");
     expect(renamed.items.find((i) => i.id === issue.id)?.attachments).toEqual([{ $type: "Attachment", id: pinned.id, documentId: "d1", name: "MSA v4.pdf", url: "/files/d1/r1" }]);
-    // guard: a rename of a document nobody pinned wakes nothing
+    // guard: a rename of a document nobody pinned wakes nothing. a re-run whose answer did not change sends no
+    // frame, so what is counted is the server's re-runs of the list: its feed line says the event was handled, and
+    // the detach below is the one re-run there should be
+    const reruns = await rerunsOf("issues");
     await svc.sql.query("select pg_notify('rayfold', $1)", [
       JSON.stringify({ from: "documents-test", event: { name: "DocumentChanged", payload: { documentId: "d9", projectId: PROJECT, name: "Nothing.pdf", version: 2, byId: "u1" } } }),
     ]);
+    await until("the unpinned rename to reach the feed", async () =>
+      (await ada.query<{ items: Array<{ text: string }> }>("activity", { projectId: PROJECT }, { shape: "{ items { text } }" })).items.find((l) => l.text === "Nothing.pdf, now version 2 (d9)"),
+    );
 
     const gone = await ada.command<Pin | null>("detachDocument", { id: pinned.id }, { shape: "{ id name }" });
     expect(gone).toMatchObject({ id: pinned.id, name: "MSA v4.pdf" });
-    expect((await seen.wait("the pin to come off Grace's list")).items.map((i) => i.attachments)).toEqual([[], []]);
+    expect((await seen.wait("the list's next answer, the detach's")).items.map((i) => i.attachments)).toEqual([[], []]);
+    expect((await rerunsOf("issues")) - reruns).toBe(1);
     // detaching what is not there is null, not an error
     expect(await ada.command<Pin | null>("detachDocument", { id: pinned.id }, { shape: "{ id }" })).toBeNull();
     // and the feed says what happened, once each: the second pin of the same pair wrote no line
@@ -530,4 +553,25 @@ it("a project's settings are the team's: an edit needs the version it read, reac
   } finally {
     stop();
   }
+});
+
+it("a move is one line on the feed however often it is heard, and moving back into the same folder later is a second", async () => {
+  const ada = svc.client("ada");
+  const filed = (folder: string, at: number) =>
+    svc.sql.query("select pg_notify('rayfold', $1)", [
+      JSON.stringify({ from: "documents-test", event: { name: "DocumentFiled", payload: { documentId: "d1", projectId: PROJECT, name: "MSA.pdf", folder, byId: "u1", at } } }),
+    ]);
+  const lines = async () =>
+    (await ada.query<{ items: Array<{ kind: string; text: string }> }>("activity", { projectId: PROJECT }, { shape: "{ items { kind text } }", policy: "network" })).items
+      .filter((l) => l.kind === "document.filed")
+      .map((l) => l.text.replace(" (d1)", ""));
+
+  // the same event twice, as two instances of the documents service would each relay it, then the same folder later
+  await filed("legal", 1_000);
+  await filed("legal", 1_000);
+  await filed("legal", 2_000);
+  // a move elsewhere, last: once its line is written the three before it have been handled, in the order heard
+  await filed("archive", 3_000);
+  await until("the last move on the feed", async () => ((await lines()).includes("MSA.pdf: archive") ? true : undefined));
+  expect((await lines()).sort()).toEqual(["MSA.pdf: archive", "MSA.pdf: legal", "MSA.pdf: legal"]);
 });

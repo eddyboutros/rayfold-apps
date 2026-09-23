@@ -284,7 +284,7 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
           throw RayfoldError.domain("NotFound", { id: documentId }, `Document ${documentId} changed while this was running`);
         }
         // every open list of the project re-runs: a document filed elsewhere leaves one folder's list and joins another's
-        return ok(next, { patch: [{ invOp: ["documents", "folders"] }], emit: [{ event: "DocumentFiled", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, folder: next.folder, byId: viewer.id } }] });
+        return ok(next, { patch: [{ invOp: ["documents", "folders"] }], emit: [{ event: "DocumentFiled", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, folder: next.folder, byId: viewer.id, at: now() } }] });
       },
 
       tagDocument: async ({ id: documentId, tags }: { id: string; tags: string[] }, ctx) => {
@@ -298,7 +298,7 @@ export function resolvers({ store, files, uploads, caps, platform, log, selfUrl,
           ctx.checkVersion(`Document:${doc.id}`, current.version, current);
           throw RayfoldError.domain("NotFound", { id: documentId }, `Document ${documentId} changed while this was running`);
         }
-        return ok(next, { patch: [{ invOp: ["documents"] }], emit: [{ event: "DocumentTagged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, tags: next.tags, byId: viewer.id } }] });
+        return ok(next, { patch: [{ invOp: ["documents"] }], emit: [{ event: "DocumentTagged", payload: { documentId: doc.id, projectId: doc.projectId, name: doc.name, tags: next.tags, byId: viewer.id, at: now() } }] });
       },
 
       addNote: async ({ documentId, body }: { documentId: string; body: string }, ctx) => {

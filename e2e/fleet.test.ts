@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,12 +40,19 @@ afterAll(async () => {
   await rm(dirs.uploads, { recursive: true, force: true });
 });
 
+/**
+ * Every job the platform holds is finished. A document kept starts a flow that runs on after the test's last
+ * assertion; left running, its workers write the line it ends with onto the next test's feed.
+ */
+const settled = () => until("every flow run to finish", () => platform.jobs.every((j) => ["done", "skipped", "dead"].includes(j.state)) || undefined, 15_000);
+
 beforeEach(async () => {
   await documents.reset();
   await workspace.reset();
   await catalogue.reset();
   await rm(dirs.files, { recursive: true, force: true });
 });
+afterEach(() => settled());
 
 async function upload(bytes: Uint8Array): Promise<string> {
   const res = await fetch(`${documents.base}/rayfold/uploads`, {
@@ -70,25 +77,26 @@ interface Feed {
 it("a document kept in one service shows up on the other service's feed, with who did it", async () => {
   const doc = await documents.client("ada").command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("the contract")), name: "contract.txt" }, { shape: "{ id version }" });
 
-  const feed = await until(
-    "the document to reach the workspace feed",
-    async () => {
-      const page = await workspace.client("grace").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text by { name } } }" });
-      return page.items.length ? page : undefined;
-    },
-  );
+  const line = await until("the document to reach the workspace feed", async () => {
+    const page = await workspace.client("grace").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text by { name } } }" });
+    return page.items.find((i) => i.kind === "document.added");
+  });
 
   // the person is named by the workspace from its own roster: the event carried an id, never a name
-  expect(feed.items[0]).toMatchObject({ source: "documents", kind: "document.added", by: { name: "Ada Lovelace" } });
-  expect(feed.items[0]?.text).toContain(doc.id);
+  expect(line).toEqual({ $type: "Activity", source: "documents", kind: "document.added", text: `contract.txt (${doc.id})`, by: { $type: "Member", name: "Ada Lovelace" } });
 
   // nothing was shared to make that happen: the workspace has no documents table, and never asked for one
   const { rows } = await workspace.sql.query(
     "select table_name from information_schema.tables where table_schema = 'public' and table_name in ('documents','revisions')",
   );
   expect(rows.map((r) => r["table_name"]).sort()).toEqual(["documents", "revisions"]); // they exist, owned by the other service
-  const feedRows = await workspace.sql.query("select source from activity");
-  expect(feedRows.rows.every((r) => r["source"] === "documents")).toBe(true);
+  // every row on the feed came over the relay or the platform: the document's own line, and the one its flow ends with
+  await settled();
+  const feedRows = await workspace.sql.query("select source, kind from activity order by source");
+  expect(feedRows.rows).toEqual([
+    { source: "catalogue", kind: "document.indexed" },
+    { source: "documents", kind: "document.added" },
+  ]);
 });
 
 it("filing, tagging and remarking on a document in one service are lines on the other's feed, each credited", async () => {
@@ -97,11 +105,13 @@ it("filing, tagging and remarking on a document in one service are lines on the 
   await documents.client("grace").command("tagDocument", { id: doc.id, tags: ["legal", "q4"] }, { shape: "{ id }", ifVersion: doc.version + 1 });
   await documents.client("noor").command("addNote", { documentId: doc.id, body: "Signed copy is the one to keep." }, { shape: "{ id }" });
 
-  const feed = await until("the three lines to reach the workspace", async () => {
+  // the documents service's own lines; the catalogue's lands when the file's flow ends, on its own time
+  const lines = await until("the four lines to reach the workspace", async () => {
     const page = await workspace.client("grace").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text by { name } } }" });
-    return page.items.length === 4 ? page : undefined;
+    const mine = page.items.filter((i) => i.source === "documents");
+    return mine.length === 4 ? mine : undefined;
   });
-  expect(feed.items.map((i) => [i.kind, i.by?.name, i.text.replace(` (${doc.id})`, "")])).toEqual([
+  expect(lines.map((i) => [i.kind, i.by?.name, i.text.replace(` (${doc.id})`, "")])).toEqual([
     ["document.noted", "Noor Haddad", "contract.txt: Signed copy is the one to keep."],
     ["document.tagged", "Grace Hopper", "contract.txt: legal q4"],
     ["document.filed", "Ada Lovelace", "contract.txt: contracts"],
@@ -124,13 +134,12 @@ it("a live query on the feed updates when the other service changes something", 
     // a completely separate service, on its own port, with its own database tables
     const doc = await documents.client("ada").command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("a plan")), name: "plan.txt" }, { shape: "{ id version }" });
 
-    const updated = await until("the live query to hear the other service", async () => {
+    const added = await until("the live query to hear the other service", async () => {
       const next = await lines.wait("a feed update", 1_000).catch(() => undefined);
-      return next?.items.length ? next : undefined;
+      return next?.items.find((i) => i.kind === "document.added");
     }, 8_000);
 
-    expect(updated.items[0]).toMatchObject({ source: "documents", kind: "document.added" });
-    expect(updated.items[0]?.text).toContain(doc.id);
+    expect(added).toEqual({ $type: "Activity", source: "documents", kind: "document.added", text: `plan.txt (${doc.id})` });
   } finally {
     stop();
   }
@@ -141,16 +150,15 @@ it("replacing a document adds a second line, and the feed keeps both in order", 
   const doc = await ada.command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("draft one")), name: "plan.txt" }, { shape: "{ id version }" });
   await ada.command<Doc>("replaceContent", { id: doc.id, upload: await upload(text("draft two")) }, { shape: "{ id version }" });
 
-  const feed = await until(
-    "both document lines",
-    async () => {
-      const page = await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text } }" });
-      return page.items.length === 2 ? page : undefined;
-    },
-  );
+  // the documents service's lines; each version's flow adds the catalogue's own when it ends
+  const lines = await until("both document lines", async () => {
+    const page = await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text } }" });
+    const mine = page.items.filter((i) => i.source === "documents");
+    return mine.length === 2 ? mine : undefined;
+  });
 
   // newest first: the replace, then the one that added it
-  expect(feed.items.map((i) => i.kind)).toEqual(["document.replaced", "document.added"]);
+  expect(lines.map((i) => i.kind)).toEqual(["document.replaced", "document.added"]);
 });
 
 it("the workspace's own work and the other service's sit on one feed, and an open feed hears both", async () => {
@@ -173,9 +181,10 @@ it("the workspace's own work and the other service's sit on one feed, and an ope
     await documents.client("ada").command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("the contract")), name: "contract.txt" }, { shape: "{ id }" });
     const all = await until("the feed to hear the other service", async () => {
       const next = await seen.wait("a feed update", 1_000).catch(() => undefined);
-      return next?.items.length === 3 ? next : undefined;
+      return next?.items.some((i) => i.kind === "document.added") ? next : undefined;
     }, 8_000);
-    expect(all.items.map((i) => `${i.source}:${i.kind}`)).toEqual([
+    // the catalogue's line for the same file lands when its flow ends, which may be in the same answer or a later one
+    expect(all.items.filter((i) => i.source !== "catalogue").map((i) => `${i.source}:${i.kind}`)).toEqual([
       "documents:document.added",
       "workspace:comment.added",
       "workspace:issue.created",
@@ -236,6 +245,8 @@ it("a document kept in one service is found by a search in another, and the thir
     ["notify", "done", "workspace"],
   ]);
   expect(steps[2]!.result).toEqual({ recorded: true });
+  // the document's own line too, so nothing this test caused is still on its way when the next one starts
+  await until("the document's own line", async () => (await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { kind } }" })).items.find((i) => i.kind === "document.added"));
 });
 
 it("a file with no text is not indexed, and the feed says so: a condition between steps, not an if in a worker", async () => {
@@ -254,6 +265,7 @@ it("a file with no text is not indexed, and the feed says so: a condition betwee
     ["notify", "done"],
   ]);
   expect((await catalogue.sql.query("select 1 from files where id = $1", [doc.id])).rowCount).toBe(0);
+  await until("the document's own line", async () => (await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { kind } }" })).items.find((i) => i.kind === "document.added"));
 });
 
 it("each service answers for itself, and says which it is", async () => {
@@ -274,29 +286,58 @@ it("each service answers for itself, and says which it is", async () => {
 it("two instances of a service react to one event and write one row between them", async () => {
   // as a deploy runs it: a second instance of the workspace, same database, same relay
   const replica = await startTestService("workspace", {}, 2);
+  // each instance puts every line it hears on its own streams once its write has been tried, whether it landed or
+  // lost to the other's: a line on both streams is an event both instances are done with
+  const ac = new AbortController();
+  const heard = { primary: [] as Happened[], replica: [] as Happened[] };
+  const listening = [follow(workspace, heard.primary, ac.signal), follow(replica, heard.replica, ac.signal)];
 
   try {
-    const doc = await documents.client("ada").command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("one copy")), name: "once.txt" }, { shape: "{ id version }" });
-
-    // both instances hear it and both react; only one row may exist, or the feed shows everything twice for
-    // every replica anyone deploys
-    const feed = await until("the line to reach the feed", async () => {
-      const page = await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text } }" });
-      return page.items.length ? page : undefined;
+    // a stream answers nothing until something happens, so a line sent over the relay, which reaches every
+    // instance and writes nothing, says both are open: sent until both have heard one
+    await until("both streams to be open", async () => {
+      await workspace.sql.query("select pg_notify('rayfold', $1)", [JSON.stringify({ from: "fleet-test", event: { name: "ActivityHappened", payload: { projectId: PROJECT, source: "test", kind: "sentinel", text: "", byId: null } } })]);
+      return heard.primary.some((h) => h.kind === "sentinel") && heard.replica.some((h) => h.kind === "sentinel") ? true : undefined;
     });
-    expect(feed.items).toHaveLength(1);
-    expect(feed.items[0]?.text).toContain(doc.id);
 
-    // and it stays one: the second instance had time to write its own and did not
-    await new Promise((r) => setTimeout(r, 200));
-    const { rows } = await workspace.sql.query("select id from activity");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.["id"]).toBe(`documents:${doc.id}:1`);
+    const ada = documents.client("ada");
+    const doc = await ada.command<Doc>("createDocument", { projectId: PROJECT, upload: await upload(text("one copy")), name: "once.txt" }, { shape: "{ id version }" });
+    await ada.command("moveDocument", { id: doc.id, folder: "contracts" }, { shape: "{ id }", ifVersion: doc.version });
+    await ada.command("tagDocument", { id: doc.id, tags: ["legal"] }, { shape: "{ id }", ifVersion: doc.version + 1 });
+
+    // both instances hear all three and both react; only one row each may exist, or the feed shows everything twice
+    // for every replica anyone deploys
+    const done = (h: Happened[]) => ["document.added", "document.filed", "document.tagged"].every((k) => h.some((x) => x.source === "documents" && x.kind === k));
+    await until("both instances to have handled all three", () => (done(heard.primary) && done(heard.replica) ? true : undefined));
+    const { rows } = await workspace.sql.query("select id from activity where source = 'documents' order by id");
+    // a move and a tag are keyed on the moment the documents service made them, the same for every instance
+    expect(rows.map((r) => r["id"])).toEqual([
+      `documents:${doc.id}:1`,
+      expect.stringMatching(new RegExp(`^documents:${doc.id}:filed:contracts:\\d+$`)),
+      expect.stringMatching(new RegExp(`^documents:${doc.id}:tagged:legal:\\d+$`)),
+    ]);
 
     // guard: the replica is not inert — it serves the same feed, which is why it was listening at all
-    const fromReplica = await replica.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { text } }" });
-    expect(fromReplica.items).toHaveLength(1);
+    const fromReplica = await replica.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind } }" });
+    expect(fromReplica.items.filter((i) => i.source === "documents").map((i) => i.kind)).toEqual(["document.tagged", "document.filed", "document.added"]);
+    // either instance may take the flow's last step: it is finished before the replica goes
+    await settled();
   } finally {
+    ac.abort();
+    await Promise.all(listening);
     await replica.stop();
   }
 });
+
+interface Happened {
+  source: string;
+  kind: string;
+}
+
+/** Keeps every line an instance's activity stream carries; the abort that ends it is the expected ending. */
+const follow = (svc: TestService, into: Happened[], abort: AbortSignal): Promise<void> =>
+  (async () => {
+    for await (const h of svc.client("ada").stream<Happened>("activityFeed", { projectId: PROJECT }, { signal: abort })) into.push(h);
+  })().catch((e: unknown) => {
+    if (!(e instanceof Error && e.name === "AbortError")) throw e;
+  });

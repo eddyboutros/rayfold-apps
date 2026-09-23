@@ -72,7 +72,7 @@ const TABLES: Record<string, string[]> = {
 export async function startTestService(name: string, env: Record<string, string> = {}, replica = 0): Promise<TestService> {
   await ensureDatabase(DATABASE_URL);
   const port = await freePort();
-  Object.assign(process.env, {
+  const vars: Record<string, string> = {
     PORT: String(port),
     DATABASE_URL,
     CAPABILITY_SECRET: "a-test-secret-of-sufficient-length",
@@ -83,7 +83,10 @@ export async function startTestService(name: string, env: Record<string, string>
     // the shell's origin in development, so a test can speak as a browser on it
     ALLOWED_ORIGINS: "http://localhost:4200",
     ...env,
-  });
+  };
+  // put back on stop, so a service started later in the same process does not inherit this one's configuration
+  const before = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, vars);
 
   const base = `http://127.0.0.1:${port}`;
   const specifier = replica ? `../services/${name}/src/main.ts?replica=${replica}` : `../services/${name}/src/main.ts`;
@@ -110,6 +113,10 @@ export async function startTestService(name: string, env: Record<string, string>
     stop: async () => {
       await service.stop();
       await sql.end();
+      for (const [k, v] of Object.entries(before)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
     },
   };
 }
