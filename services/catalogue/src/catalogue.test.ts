@@ -34,7 +34,7 @@ beforeAll(async () => {
       return `http://127.0.0.1:${port}${path}`;
     },
   });
-  svc = await startTestService("catalogue", { CONSOLE_URL: platform.url, APP_ENVIRONMENT: "test", COST_BUDGET: "150" });
+  svc = await startTestService("catalogue", { CONSOLE_URL: platform.url, CONSOLE_TOKEN: platform.token, APP_ENVIRONMENT: "test", COST_BUDGET: "150" });
   // the catalogue is reference data and is not emptied between runs, so what a test writes it removes itself
   await svc.sql.query("delete from articles where slug like 'sandbox-reset-how-it-works%'"); // its revisions go with it
   await svc.sql.query("delete from files");
@@ -45,7 +45,7 @@ afterAll(async () => {
   await new Promise<void>((r) => bytes?.close(() => r()));
 });
 
-const operator = () => new RayfoldClient({ transport: createFetchTransport({ url: `${platform.url}/rayfold` }) });
+const operator = () => new RayfoldClient({ transport: createFetchTransport({ url: `${platform.url}/rayfold`, headers: () => ({ authorization: `Bearer ${platform.token}` }) }) });
 /** The documents service's flow, as it defines it: this service works its first two steps. */
 const DOCUMENT_KEPT = [
   { name: "extract", queue: "extract-text", lock: "doc:{documentId}" },

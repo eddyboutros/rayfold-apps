@@ -40,6 +40,7 @@ services:
       # the Rayfold Console, when one runs beside the fleet: configuration, the queue, traces. it is a separate
       # commercial product (private repository, not yet on sale); empty means none, and the fleet runs without it
       CONSOLE_URL: ${CONSOLE_URL:-}
+      CONSOLE_TOKEN: ${CONSOLE_TOKEN:-}
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
     volumes:
       - documents:/var/lib/documents
@@ -67,6 +68,7 @@ services:
       OPS_TOKEN: ${OPS_TOKEN:-dev-ops-token}
       SERVICE_VERSION: ${GIT_SHA:-dev}
       CONSOLE_URL: ${CONSOLE_URL:-}
+      CONSOLE_TOKEN: ${CONSOLE_TOKEN:-}
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
     depends_on:
       postgres: { condition: service_healthy }
@@ -89,6 +91,7 @@ services:
       OPS_TOKEN: ${OPS_TOKEN:-dev-ops-token}
       SERVICE_VERSION: ${GIT_SHA:-dev}
       CONSOLE_URL: ${CONSOLE_URL:-}
+      CONSOLE_TOKEN: ${CONSOLE_TOKEN:-}
       APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
     depends_on:
       postgres: { condition: service_healthy }

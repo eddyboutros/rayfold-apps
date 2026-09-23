@@ -18,9 +18,11 @@ afterEach(async () => {
   await console_?.stop();
 });
 
-const operator = () => new RayfoldClient({ transport: createFetchTransport({ url: `${console_.url}/rayfold` }) });
+// an operator's script: it holds a token the way a service does
+const operator = () =>
+  new RayfoldClient({ transport: createFetchTransport({ url: `${console_.url}/rayfold`, headers: () => ({ authorization: `Bearer ${console_.token}` }) }) });
 const connect = (over: Partial<Parameters<typeof connectPlatform>[0]> = {}) => {
-  const p = connectPlatform({ url: console_.url, app: "documents", environment: "test", instance: "documents-1", log: () => undefined, ...over });
+  const p = connectPlatform({ url: console_.url, token: console_.token, app: "documents", environment: "test", instance: "documents-1", log: () => undefined, ...over });
   platforms.push(p);
   return p;
 };
@@ -53,6 +55,21 @@ describe("configuration", () => {
     await platform.config.ready();
     expect(platform.config.get("smtp.password")).toBeUndefined();
     expect(JSON.stringify(platform.config.snapshot())).not.toContain("hunter2");
+  });
+
+  it("a console's url without its token is no platform: the service says so and runs alone rather than being refused at every turn", async () => {
+    console_ = await startStandInConsole();
+    const said: string[] = [];
+    const platform = connectPlatform({ url: console_.url, app: "documents", environment: "test", instance: "documents-1", log: (l) => said.push(l) });
+    platforms.push(platform);
+    await platform.config.ready();
+    expect(platform.connected).toBe(false);
+    expect(said.some((l) => l.includes("CONSOLE_TOKEN is not"))).toBe(true);
+    expect(await platform.enqueue("extract-text", { documentId: "d1" })).toBeNull();
+    // guard: with the token the same console is a platform
+    const on = connect();
+    await on.config.ready();
+    expect(on.connected).toBe(true);
   });
 
   it("without a console a service has its defaults, and is not held back", async () => {

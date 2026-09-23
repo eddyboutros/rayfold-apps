@@ -60,6 +60,12 @@ function makeLog(app: string, otel: Logger | null): Log {
 export interface PlatformOptions {
   /** The console, e.g. `http://console:4600`. Absent means no platform. */
   url?: string | undefined;
+  /**
+   * The token the console minted for this service (role `service`), presented as a bearer on every call and every
+   * OTLP export. The console refuses a caller without one, so a URL without a token is a platform that answers
+   * nothing: the service says so at start and runs on its defaults, as it does with no console at all.
+   */
+  token?: string | undefined;
   /** This service's name: the `app` its configuration is filed under. */
   app: string;
   environment: string;
@@ -152,15 +158,20 @@ export function connectPlatform(opts: PlatformOptions): Platform {
   if (!opts.url) return alone(opts.app, opts.log);
 
   const base = opts.url.replace(/\/$/, "");
+  if (!opts.token) {
+    (opts.log ?? console.log)(`[${opts.app}] CONSOLE_URL is set but CONSOLE_TOKEN is not: the console refuses a caller without one. running without the platform; mint a service token on the console's Access screen`);
+    return alone(opts.app, opts.log);
+  }
+  const authorization = `Bearer ${opts.token}`;
   const client = new RayfoldClient({
-    transport: createFetchTransport({ url: `${base}/rayfold` }),
+    transport: createFetchTransport({ url: `${base}/rayfold`, headers: () => ({ authorization }) }),
     client: `${opts.app}/${opts.instance}`,
   });
 
   const resource = resourceFromAttributes({ "service.name": opts.app, "service.instance.id": opts.instance, "deployment.environment.name": opts.environment });
 
   // ---- logs: the OpenTelemetry logs SDK exporting to the console, beside the process's own output
-  const loggerProvider = new LoggerProvider({ resource, processors: [new BatchLogRecordProcessor({ exporter: new OTLPLogExporter({ url: `${base}/otlp/v1/logs` }) })] });
+  const loggerProvider = new LoggerProvider({ resource, processors: [new BatchLogRecordProcessor({ exporter: new OTLPLogExporter({ url: `${base}/otlp/v1/logs`, headers: { authorization } }) })] });
   const logs = makeLog(opts.app, loggerProvider.getLogger(opts.app));
   const log = opts.log ?? ((line: string) => logs.info(line));
 
@@ -201,7 +212,7 @@ export function connectPlatform(opts: PlatformOptions): Platform {
   // ---- traces: the OpenTelemetry SDK exporting to the console's OTLP route, and Rayfold's spans on top of it
   const provider = new NodeTracerProvider({
     resource,
-    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter({ url: `${base}/otlp/v1/traces` }))],
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter({ url: `${base}/otlp/v1/traces`, headers: { authorization } }))],
   });
   // registers the context manager and the W3C propagator, which is what carries a caller's traceparent into the
   // batch's spans. the global tracer provider is first-come, so the hook below is handed this provider's tracer

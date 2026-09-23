@@ -26,9 +26,9 @@ beforeAll(async () => {
   dirs = { files: join(root, "files"), uploads: join(root, "uploads") };
   platform = await startStandInConsole();
   // started one after the other, as a deploy starts them: each reads its own configuration and opens its own port
-  documents = await startTestService("documents", { FILES_DIR: dirs.files, UPLOADS_DIR: dirs.uploads, CONSOLE_URL: platform.url });
-  workspace = await startTestService("workspace", { CONSOLE_URL: platform.url });
-  catalogue = await startTestService("catalogue", { CONSOLE_URL: platform.url });
+  documents = await startTestService("documents", { FILES_DIR: dirs.files, UPLOADS_DIR: dirs.uploads, CONSOLE_URL: platform.url, CONSOLE_TOKEN: platform.token });
+  workspace = await startTestService("workspace", { CONSOLE_URL: platform.url, CONSOLE_TOKEN: platform.token });
+  catalogue = await startTestService("catalogue", { CONSOLE_URL: platform.url, CONSOLE_TOKEN: platform.token });
 });
 
 afterAll(async () => {

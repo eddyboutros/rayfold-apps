@@ -22,7 +22,7 @@ beforeAll(async () => {
   const root = await mkdtemp(join(tmpdir(), "documents-"));
   dirs = { files: join(root, "files"), uploads: join(root, "uploads") };
   platform = await startStandInConsole();
-  svc = await startTestService("documents", { FILES_DIR: dirs.files, UPLOADS_DIR: dirs.uploads, CONSOLE_URL: platform.url, APP_ENVIRONMENT: "test" });
+  svc = await startTestService("documents", { FILES_DIR: dirs.files, UPLOADS_DIR: dirs.uploads, CONSOLE_URL: platform.url, CONSOLE_TOKEN: platform.token, APP_ENVIRONMENT: "test" });
 });
 
 afterAll(async () => {
@@ -32,7 +32,7 @@ afterAll(async () => {
   await rm(dirs.uploads, { recursive: true, force: true });
 });
 
-const operator = () => new RayfoldClient({ transport: createFetchTransport({ url: `${platform.url}/rayfold` }) });
+const operator = () => new RayfoldClient({ transport: createFetchTransport({ url: `${platform.url}/rayfold`, headers: () => ({ authorization: `Bearer ${platform.token}` }) }) });
 const configure = (key: string, value: string) =>
   operator().command("setConfig", { app: "documents", environment: "test", key, value }, { shape: "{ key }", key: crypto.randomUUID() });
 

@@ -86,8 +86,13 @@ interface RunRow {
   key: string | null;
 }
 
+/** What the stand-in accepts as a bearer; the real console mints these and keeps only their hashes. */
+const TOKEN = "rct_stand-in";
+
 export interface StandInConsole {
   url: string;
+  /** The service token this console accepts: the real one mints them, and refuses a caller without one. */
+  token: string;
   server: RayfoldServer;
   entries: Entry[];
   jobs: JobRow[];
@@ -318,11 +323,15 @@ export async function startStandInConsole(now: () => number = Date.now): Promise
   };
 
   const server = createRayfoldServer({ schema: SCHEMA, resolvers });
-  // whoever reaches the console is an operator, as the console itself has it today; a keyed command needs a caller
-  // to scope its idempotency record to, so this is not optional
-  const rayfold = createHttpHandler(server, { viewer: () => ({ id: "operator" }) });
+  // a caller is whoever presents the token, as the console has it: a service by its token, refused without one. a
+  // keyed command needs a caller to scope its idempotency record to, so the viewer is not optional either way
+  const rayfold = createHttpHandler(server, { viewer: () => ({ id: "token:stand-in", role: "service", kind: "token" }) });
   // the OTLP routes beside the Rayfold one, as the console has them: JSON in, 200 out, kept for a test to look at
   const http: Server = createServer((req, res) => {
+    if (req.headers.authorization !== `Bearer ${TOKEN}`) {
+      res.writeHead(401, { "content-type": "application/json" }).end(JSON.stringify({ message: "this console takes a token it minted: send one as a bearer" }));
+      return;
+    }
     if (req.method === "POST" && (req.url === "/otlp/v1/traces" || req.url === "/otlp/v1/logs")) {
       const chunks: Buffer[] = [];
       req.on("data", (c: Buffer) => chunks.push(c));
@@ -341,6 +350,7 @@ export async function startStandInConsole(now: () => number = Date.now): Promise
 
   return {
     url: `http://127.0.0.1:${port}`,
+    token: TOKEN,
     server,
     entries,
     jobs,

@@ -101,6 +101,8 @@ export interface Config {
   allowedOrigins: string[];
   /** The console's address, for configuration, the queue and traces. Absent: the service runs alone. */
   consoleUrl: string | undefined;
+  /** The service token the console minted, presented on every call to it. */
+  consoleToken: string | undefined;
   /** Which of this service's configurations to read: `development`, `staging`, `production`. */
   environment: string;
   /** Where other services and workers reach this one, for a URL it hands out to them. */
@@ -139,6 +141,7 @@ export function configFrom(name: string): Config {
       .map((o) => o.trim())
       .filter(Boolean),
     consoleUrl: process.env["CONSOLE_URL"] || undefined,
+    consoleToken: process.env["CONSOLE_TOKEN"] || undefined,
     environment: process.env["APP_ENVIRONMENT"] ?? "development",
     selfUrl: (process.env["SELF_URL"] ?? `http://127.0.0.1:${process.env["PORT"] ?? 4000}`).replace(/\/$/, ""),
   };
@@ -179,7 +182,7 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
   const config = configFrom(opts.name);
   const sql = new pg.Pool({ connectionString: config.databaseUrl });
   const caps = new Capabilities({ secret: config.capabilitySecret });
-  const platform = connectPlatform({ url: config.consoleUrl, app: config.name, environment: config.environment, instance: config.instance });
+  const platform = connectPlatform({ url: config.consoleUrl, token: config.consoleToken, app: config.name, environment: config.environment, instance: config.instance });
   const deps: Deps = { sql, caps, config, platform };
 
   // the platform's tables first: both are safe to run from every instance at once

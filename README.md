@@ -160,7 +160,7 @@ A service says what it is; none of that is repeated in it.
 > further down is simply never started, kept files never become searchable, and configuration is the defaults.
 > The tests do not need it: `e2e/stand-in-console.ts` stands in for the operations a service calls.
 
-With `CONSOLE_URL` set, every service is on the platform: it reads its configuration from the console with a **live
+With `CONSOLE_URL` and `CONSOLE_TOKEN` set, every service is on the platform: it reads its configuration from the console with a **live
 query** and applies a change the moment it arrives (the documents service's upload limit is one such value, under
 `documents / <environment> / uploads.maxBytes`), it puts work on and takes work from the console's **queue** through
 ordinary commands, and it exports a span per batch, operation and loader over **OTLP** so a trace shows how a page
@@ -209,5 +209,6 @@ path for tests.
 | `PORT` | Default 4000. |
 | `SERVICE_VERSION`, `INSTANCE` | What the service reports as its identity. A container's hostname does for the second. |
 | `CONSOLE_URL` | The Rayfold Console: configuration, queue, traces. Absent: the service runs alone. |
+| `CONSOLE_TOKEN` | A `service` token the console minted for this service, on its Access screen. The console refuses a caller without one, so a URL without a token also runs alone, and says so at start. |
 | `APP_ENVIRONMENT` | Which configuration to read from the console. Default `development`; `production` in compose. |
 | `SELF_URL` | Where a worker reaches this service, for a URL it hands out in a job. Default `http://127.0.0.1:$PORT`. |
