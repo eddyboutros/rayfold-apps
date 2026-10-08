@@ -60,6 +60,25 @@ class KeelProperties {
     var instance: String = ""
 }
 
+/** The advisory lock every service in the fleet migrates under: `MIGRATION_LOCK` in packages/service-kit. */
+const val MIGRATION_LOCK = 0x6b65656cL
+
+/**
+ * Runs a migration while no other service in the fleet is running one. Two `create table if not exists` of one table
+ * at once are refused by Postgres, and on a fresh database every service starts at the same moment and creates the
+ * fleet's shared tables. The lock is held on a connection of its own for as long as the work takes.
+ */
+fun migrating(dataSource: DataSource, work: () -> Unit) {
+    dataSource.connection.use { lock ->
+        lock.createStatement().use { it.execute("select pg_advisory_lock($MIGRATION_LOCK)") }
+        try {
+            work()
+        } finally {
+            lock.createStatement().use { it.execute("select pg_advisory_unlock($MIGRATION_LOCK)") }
+        }
+    }
+}
+
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(KeelProperties::class)
 class FleetConfiguration {
@@ -75,11 +94,11 @@ class FleetConfiguration {
     }
 
     @Bean
-    fun store(dataSource: DataSource): ApprovalStore = ApprovalStore(dataSource::getConnection).also { it.migrate() }
+    fun store(dataSource: DataSource): ApprovalStore = ApprovalStore(dataSource::getConnection)
 
     /** Records shared with the rest of the fleet: a keyed command runs once, whichever runtime the retry reaches. */
     @Bean
-    fun idempotency(dataSource: DataSource): JdbcIdempotencyStore = JdbcIdempotencyStore(dataSource::getConnection).also { it.migrate() }
+    fun idempotency(dataSource: DataSource): JdbcIdempotencyStore = JdbcIdempotencyStore(dataSource::getConnection)
 
     /**
      * The relay over Postgres NOTIFY, in the format the TypeScript services speak. LISTEN holds its connection for as
@@ -88,7 +107,7 @@ class FleetConfiguration {
     @Bean
     fun relay(dataSource: DataSource): PgRelay {
         val listener: Connection = dataSource.connection
-        return PgRelay(PgNotifications(listener, dataSource::getConnection), dataSource::getConnection).also { it.migrate() }
+        return PgRelay(PgNotifications(listener, dataSource::getConnection), dataSource::getConnection)
     }
 
     /**
@@ -96,7 +115,13 @@ class FleetConfiguration {
      * service in the fleet does: `/rayfold/stats` is what a console reads to tell instances apart.
      */
     @Bean
-    fun rayfoldServer(schema: RayfoldSchemaIR, properties: RayfoldProperties, keel: KeelProperties, store: ApprovalStore, idempotency: JdbcIdempotencyStore, relay: PgRelay): RayfoldServer {
+    fun rayfoldServer(schema: RayfoldSchemaIR, properties: RayfoldProperties, keel: KeelProperties, dataSource: DataSource, store: ApprovalStore, idempotency: JdbcIdempotencyStore, relay: PgRelay): RayfoldServer {
+        // every table this service creates, in one turn under the fleet's lock, before anything reads one
+        migrating(dataSource) {
+            idempotency.migrate()
+            relay.migrate()
+            store.migrate()
+        }
         val server = RayfoldServer(
             schema,
             approvalResolvers(store),

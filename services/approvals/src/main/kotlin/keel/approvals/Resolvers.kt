@@ -22,6 +22,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.apache.commons.logging.Log
+import java.time.Instant
 import java.util.UUID
 
 private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.takeUnless { it is JsonNull }?.content
@@ -34,7 +35,9 @@ private fun Approval.json(): JsonObject = buildJsonObject {
     put("\$type", "Approval")
     put("id", id); put("documentId", documentId); put("projectId", projectId); put("documentName", documentName)
     put("version", version); put("requesterId", requesterId); put("approverId", approverId)
-    put("decision", decision); put("note", note); put("stale", stale); put("askedAt", askedAt); put("decidedAt", decidedAt)
+    put("decision", decision); put("note", note); put("stale", stale)
+    // an Instant is RFC 3339 on the wire (spec 01), which is what a typed client generated from the schema decodes
+    put("askedAt", Instant.ofEpochMilli(askedAt).toString()); put("decidedAt", decidedAt?.let { Instant.ofEpochMilli(it).toString() })
 }
 
 private fun member(id: String): JsonElement = Roster.byId(id)?.let { buildJsonObject { put("\$type", "Member"); put("id", it.id); put("name", it.name) } } ?: JsonNull
@@ -127,6 +130,8 @@ fun hearTheFleet(server: RayfoldServer, store: ApprovalStore, log: Log) {
     server.events.on("DocumentChanged") { payload ->
         val documentId = payload.str("documentId") ?: return@on
         val version = payload.int("version") ?: return@on
+        // a new name on the same bytes: what was asked about is still what there is
+        if (payload.str("revision") == "false") return@on
         try {
             val stale = store.markStale(documentId, version)
             if (stale.isNotEmpty()) {

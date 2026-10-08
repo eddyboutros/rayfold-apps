@@ -12,7 +12,9 @@ COPY design ./design
 COPY ${APP}/package.json ${APP}/package-lock.json ./${APP}/
 RUN cd ${APP} && npm ci
 COPY ${APP} ./${APP}
-RUN cd ${APP} && npx ng build --base-href ${BASE_HREF}
+# an Angular app takes its base href here; the help centre (React, on Vite) sets its own, /help/, and builds to the
+# same dist/<app>/browser, so the stage below is the same for every front end
+RUN cd ${APP} && if [ -f angular.json ]; then npx ng build --base-href ${BASE_HREF}; else npm run build; fi
 
 FROM nginx:1.27-alpine
 ARG APP

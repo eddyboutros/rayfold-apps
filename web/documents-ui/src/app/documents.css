@@ -295,28 +295,19 @@
   font-size: 11px;
 }
 
-/* the actions sit over the row's right end while the pointer is there, taking no room from the name at other times */
-.row {
-  position: relative;
-}
-
+/*
+ * the actions have a line of their own under the file's name, quiet until the row is pointed at. Laid over the row's
+ * right end they covered the name, the way into the file, in any column narrower than the owner's six actions, which
+ * in the shell is every column; and a hover-only control is no control at all on a touch screen
+ */
 .row-actions {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  grid-column: 2 / -1;
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
-  padding-left: 10px;
-  background: linear-gradient(to right, transparent, var(--surface) 10px);
-  opacity: 0;
+  margin-left: -8px;
+  opacity: 0.6;
   transition: opacity 0.12s ease;
-  pointer-events: none;
-}
-
-.row:hover .row-actions,
-.row:focus-within .row-actions {
-  pointer-events: auto;
 }
 
 /* while a row's inline form is open the actions stay out of its way */

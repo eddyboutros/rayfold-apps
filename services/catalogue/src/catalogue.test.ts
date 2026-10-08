@@ -1,11 +1,12 @@
-import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { RayfoldClient, createFetchTransport, type RayfoldClientError } from "@rayfold/client";
 import { createServer, type Server } from "node:http";
-import { startTestService, type TestService } from "../../../e2e/harness.ts";
+import { liveClosed, startTestService, type TestService } from "../../../e2e/harness.ts";
 import { pdf } from "../../../e2e/pdf.ts";
 import { startStandInConsole, type StandInConsole } from "../../../e2e/stand-in-console.ts";
-import { until } from "../../../e2e/wait.ts";
-import { SEEDED } from "./seed.ts";
+import { signal, until } from "../../../e2e/wait.ts";
+import { textOf } from "./extract.ts";
+import { PUBLISHED, SEEDED } from "./seed.ts";
 import { CatalogueStore } from "./store.ts";
 
 /**
@@ -17,12 +18,14 @@ let svc: TestService;
 /** The platform's queue, as far as this service can tell. */
 let platform: StandInConsole;
 /** Stands in for the documents service: bytes at a URL, as a job's fetchUrl points at. */
-let bytes: Server & { serve: (path: string, type: string, body: Uint8Array) => string };
+let bytes: Server & { serve: (path: string, type: string, body: Uint8Array) => string; failing: Set<string> };
 
 beforeAll(async () => {
   platform = await startStandInConsole();
   const files = new Map<string, { type: string; body: Uint8Array }>();
+  const failing = new Set<string>();
   const server = createServer((req, res) => {
+    if (failing.has(req.url ?? "")) return void res.writeHead(500).end("Internal Server Error");
     const file = files.get(req.url ?? "");
     if (!file) return void res.writeHead(404).end();
     res.writeHead(200, { "content-type": file.type }).end(file.body);
@@ -30,6 +33,7 @@ beforeAll(async () => {
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const port = (server.address() as { port: number }).port;
   bytes = Object.assign(server, {
+    failing,
     serve: (path: string, type: string, body: Uint8Array) => {
       files.set(path, { type, body });
       return `http://127.0.0.1:${port}${path}`;
@@ -43,6 +47,7 @@ beforeAll(async () => {
 // test runs next
 afterEach(async () => {
   vi.restoreAllMocks();
+  await liveClosed(svc);
   await clean();
 });
 afterAll(async () => {
@@ -51,9 +56,12 @@ afterAll(async () => {
   await new Promise<void>((r) => bytes?.close(() => r()));
 });
 
-/** Everything a test here writes: articles under one title, and the files the workers index. */
+/**
+ * Everything a test here writes: every article that is not the seed's (the seed's ids are `ar-`, a written one's is
+ * random, and a run cut short may have left one under any slug), and the files the workers index.
+ */
 async function clean(): Promise<void> {
-  await svc.sql.query("delete from articles where slug like 'sandbox-reset-how-it-works%'"); // its revisions go with it
+  await svc.sql.query("delete from articles where id not like 'ar-%'"); // their revisions go with them
   await svc.sql.query("delete from files");
 }
 
@@ -95,30 +103,33 @@ it("one search finds every kind of thing, and each kind answers with its own fie
     { shape: "{ items { id name ...on Product { sku } ...on Person { title } ...on Article { slug } } total hasMore }" },
   );
 
-  const kinds = new Set(page.items.map((h) => h.$type));
-  expect(kinds).toEqual(new Set(["Product", "Article"]));
-  // the tax engine and the two articles about rounding; the best match first
-  expect(page.items[0]).toMatchObject({ $type: "Article", slug: "tax-rounding-policy" });
-  for (const hit of page.items) {
-    if (hit.$type === "Product") expect(hit).toMatchObject({ sku: expect.any(String) });
-    if (hit.$type === "Article") expect(hit).toMatchObject({ slug: expect.any(String) });
-    // a condition for another kind contributes nothing to this one
-    expect(hit).not.toHaveProperty("title");
-  }
-  expect(page.hasMore).toBe(false);
+  // the tax engine and the articles that talk about rounding, best match first; each kind with its own field and no
+  // other kind's: a condition for another kind contributes nothing to this one
+  expect(page).toEqual({
+    items: [
+      { $type: "Article", id: "ar-tax", name: "Tax rounding policy", slug: "tax-rounding-policy" },
+      { $type: "Article", id: "ar-release", name: "Release notes — October", slug: "release-notes-october" },
+      { $type: "Product", id: "pr-tax", name: "Tax engine add-on", sku: "OD-TAX" },
+      { $type: "Article", id: "ar-northwind", name: "Northwind tenant notes", slug: "northwind-tenant-notes" },
+    ],
+    total: 4,
+    hasMore: false,
+  });
 });
 
 it("a person is found by what they do, not only by name", async () => {
   const page = await ada().query<Page<Hit>>("search", { q: "security" }, { shape: "{ items { name ...on Person { title } } }" });
-  expect(page.items.map((h) => [h.$type, h.name])).toContainEqual(["Person", "Hannah Weiss"]);
-  expect(page.items.find((h) => h.$type === "Person")).toMatchObject({ title: "Security engineer" });
+  expect(page.items).toEqual([
+    { $type: "Article", name: "Access review procedure" },
+    { $type: "Person", name: "Hannah Weiss", title: "Security engineer" },
+  ]);
 });
 
 it("a search pages by cursor, and the second page continues where the first stopped", async () => {
   const first = await ada().query<Page<Hit>>("search", { q: "order", page: { first: 3 } }, { shape: "{ items { id } total hasMore cursor }" });
   expect(first.items).toHaveLength(3);
   expect(first.hasMore).toBe(true);
-  expect(first.total).toBeGreaterThan(3);
+  expect(first.total).toBe(14);
 
   const second = await ada().query<Page<Hit>>("search", { q: "order", page: { first: 3, after: first.cursor } }, { shape: "{ items { id } hasMore cursor }" });
   // the next three of the same ranking, not merely three others
@@ -134,11 +145,12 @@ it("a search pages by cursor, and the second page continues where the first stop
 
 it("leafs through the catalogue in numbered pages, newest first, of one kind or all of them", async () => {
   const all = SEEDED.products + SEEDED.people + SEEDED.articles;
-  const page1 = await ada().query<Page<Hit & { updatedAt: number }>>("items", { page: { first: 12 } }, { shape: "{ items { id name updatedAt } total hasMore }" });
+  const page1 = await ada().query<Page<Hit & { updatedAt: string }>>("items", { page: { first: 12 } }, { shape: "{ items { id name updatedAt } total hasMore }" });
   expect(page1.total).toBe(all);
   expect(page1.items).toHaveLength(12);
   expect(page1.hasMore).toBe(true);
-  const dates = page1.items.map((i) => i.updatedAt);
+  // compared as instants, which is how an RFC 3339 value is ordered
+  const dates = page1.items.map((i) => Date.parse(i.updatedAt));
   expect(dates).toEqual([...dates].sort((a, b) => b - a));
 
   // page 3 of 3, by offset: what "page 3" on a screen sends
@@ -210,8 +222,8 @@ it("a product knows the rest of its category, and a person their writing and the
   expect((await ada().query<{ related: unknown[] }>("product", { id: "pr-edi" }, { shape: "{ related { id } }" })).related).toEqual([]);
 
   const kwame = await ada().query<{ articles: Array<{ slug: string }>; colleagues: Array<{ name: string }> }>("person", { id: "u12" }, { shape: "{ articles { slug } colleagues { name } }" });
-  expect(kwame.articles.map((a) => a.slug)).toContain("rollout-playbook");
-  expect(kwame.articles).toHaveLength(2);
+  // newest first
+  expect(kwame.articles.map((a) => a.slug)).toEqual(["rollout-playbook", "how-we-price-a-migration"]);
   expect(kwame.colleagues.map((c) => c.name)).toEqual(["Priya Raman"]);
 
   // a whole page of people at once: one read serves every one of them, and each gets their own department. the
@@ -225,7 +237,7 @@ it("a product knows the rest of its category, and a person their writing and the
   );
   expect(page.items).toHaveLength(SEEDED.people);
   const elena = page.items.find((p) => p.name === "Elena Petrova")!;
-  expect(elena.colleagues.map((c) => c.name).sort()).toEqual(["Ada Lovelace", "Grace Hopper", "Hannah Weiss"]);
+  expect(elena.colleagues.map((c) => c.name)).toEqual(["Ada Lovelace", "Grace Hopper", "Hannah Weiss"]);
   expect(departments).toHaveBeenCalledTimes(1);
   expect([...departments.mock.calls[0]![0]].sort()).toEqual([...new Set(page.items.map((p) => p.department))].sort());
   expect(writing).toHaveBeenCalledTimes(1);
@@ -245,7 +257,7 @@ it("a kept document's text is read by the extract step, indexed by the index ste
     return page.items.length ? page : undefined;
   });
   expect(found.items[0]).toMatchObject({ $type: "File", name: "Cutover plan.md", url: "/files/r1", projectId: "p1" });
-  expect(found.items[0]?.excerpt).toContain("The mirror must reconcile");
+  expect(found.items[0]?.excerpt).toBe("# Cutover plan The mirror must reconcile for five consecutive days before wave two. The zebra clause applies.");
 
   // the steps as the platform ran them: extract read the text, index kept it, notify is for another service
   const steps = stepsOf(planRun.id);
@@ -254,8 +266,9 @@ it("a kept document's text is read by the extract step, indexed by the index ste
     ["index", "done"],
     ["notify", "ready"],
   ]);
-  expect(steps[0]!.result).toMatchObject({ characters: expect.any(Number), excerpt: expect.stringContaining("Cutover plan") });
-  expect((steps[1]!.payload as { results: { extract: { characters: number } } }).results.extract.characters).toBeGreaterThan(50);
+  const planText = "# Cutover plan\n\nThe mirror must reconcile for five consecutive days before wave two. The zebra clause applies.";
+  expect(steps[0]!.result).toEqual({ characters: planText.length, excerpt: planText.replace(/\s+/g, " "), text: planText });
+  expect((steps[1]!.payload as { results: { extract: { characters: number } } }).results.extract.characters).toBe(planText.length);
   expect(steps[1]!.result).toEqual({ indexed: true, characters: (steps[0]!.result as { characters: number }).characters });
 
   // the PDF's text, from its content stream: a phrase inside it, not only its name
@@ -314,7 +327,8 @@ it("named views: no shape gets the default, a spread gets the card, and the same
   const got = await fetch(`${svc.base}/products/pr-invoicing`, { headers: { authorization: "Bearer ada" } });
   expect(got.status).toBe(200);
   // @cache(maxAge: 60s, scope: public) on the entity is the route's Cache-Control
-  expect(got.headers.get("cache-control")).toContain("max-age=60");
+  // and private, because the request is signed in
+  expect(got.headers.get("cache-control")).toBe("private, max-age=60");
   expect(Object.keys((await got.json()) as object).sort()).toEqual(["$type", "availability", "id", "name", "price", "sku", "updatedAt"]);
   expect(await (await fetch(`${svc.base}/products/nope`, { headers: { authorization: "Bearer ada" } })).json()).toBeNull(); // a nullable query's null is an answer
 
@@ -331,8 +345,7 @@ it("a batch over the cost budget is refused before it runs, with the cost and th
   // the estimate caps a page at a hundred rows, so the budget is set under what one such page costs
   const big = await ada().query("items", { kind: "product", page: { first: 500 } }, { shape: "{ items { id name } }" }).then(() => null, (e: RayfoldClientError) => e);
   expect(big?.code).toBe("resource_exhausted");
-  expect(big?.data).toMatchObject({ budget: 150 });
-  expect((big?.data as { cost: number }).cost).toBeGreaterThan(150);
+  expect(big?.data).toEqual({ cost: 203, budget: 150 });
   // guard: the same page at a size the budget allows
   const allowed = await ada().query<Page<Hit>>("items", { kind: "product", page: { first: 12 } }, { shape: "{ items { id } total }" });
   expect(allowed.total).toBe(SEEDED.products);
@@ -353,6 +366,26 @@ it("says who it is", async () => {
   const stats = await fetch(`${svc.base}/rayfold/stats`, { headers: { authorization: `Bearer ${svc.opsToken}` } });
   expect(stats.status).toBe(200);
   expect(((await stats.json()) as { identity: { name: string } }).identity.name).toBe("catalogue");
+});
+
+it("serves the explorer only where it is turned on, as npm run dev does, and it reaches the endpoint the way a browser does", async () => {
+  // this instance runs as production does, with nothing set: no page, the path is only an unknown operation
+  const off = await fetch(`${svc.base}/rayfold/explorer`);
+  expect(off.headers.get("content-type")).not.toContain("text/html");
+  expect(await off.text()).not.toContain("<html");
+
+  const dev = await startTestService("catalogue", { EXPLORER: "1" }, 3);
+  try {
+    const on = await fetch(`${dev.base}/rayfold/explorer`);
+    expect(on.status).toBe(200);
+    expect(on.headers.get("content-type")).toContain("text/html");
+    const page = await on.text();
+    // through the gateway or the shell's dev server, on the page's own origin, with the session the browser has
+    expect(page).toContain('"endpoint":"/api/catalogue/rayfold"');
+    expect(page).toContain('"title":"Keel: catalogue"');
+  } finally {
+    await dev.stop();
+  }
 });
 
 it("a product's cost is the product team's: anyone else still gets the product, with that one field null and its refusal in the frame", async () => {
@@ -379,4 +412,357 @@ it("a product's cost is the product team's: anyone else still gets the product, 
     body: JSON.stringify({ ops: [{ id: 1, op: "product", args: { id: "pr-core" }, shape }] }),
   });
   expect(JSON.parse((await own.text()).split("\n")[0]!)).not.toHaveProperty("errors");
+});
+
+// ---- the public help centre: published articles, read by anyone, through a door narrower than the catalogue's
+
+interface HelpPage {
+  id: string;
+  slug: string;
+  name: string;
+  summary: string;
+  body: string;
+  publishedAt: string;
+}
+
+/** A visitor to the help centre: no session, no token. */
+const anyone = () => new RayfoldClient({ transport: createFetchTransport({ url: `${svc.base}/rayfold` }) });
+/** A query by URL, the way a browser or a shared cache asks for one: `a` the arguments, `s` the shape. */
+const byUrl = (op: string, args: Record<string, unknown>, shape: string) =>
+  `${svc.base}/rayfold/${op}?a=${Buffer.from(JSON.stringify(args)).toString("base64url")}&s=${encodeURIComponent(shape)}`;
+
+it("the help centre lists what is published, A to Z, to anyone: the rule is in the WHERE, so a page and its total hold only published pages", async () => {
+  const listed = await anyone().query<Page<HelpPage>>("helpPages", {}, { shape: "{ items { slug name publishedAt } total hasMore }" });
+  expect(listed.items.map((p) => p.slug)).toEqual(PUBLISHED);
+  expect(listed.total).toBe(PUBLISHED.length);
+  expect(listed.hasMore).toBe(false);
+  for (const p of listed.items) expect(p.publishedAt).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)$/);
+  // fewer pages than articles: the team's own are not on it, and were never read for it
+  expect(PUBLISHED.length).toBeLessThan(SEEDED.articles);
+
+  // a page at a time, by cursor: the second continues where the first stopped
+  const first = await anyone().query<Page<HelpPage>>("helpPages", { page: { first: 2 } }, { shape: "{ items { slug } total hasMore cursor }" });
+  expect(first.items.map((p) => p.slug)).toEqual(PUBLISHED.slice(0, 2));
+  expect(first).toMatchObject({ total: PUBLISHED.length, hasMore: true });
+  const next = await anyone().query<Page<HelpPage>>("helpPages", { page: { first: 2, after: first.cursor } }, { shape: "{ items { slug } hasMore }" });
+  expect(next.items.map((p) => p.slug)).toEqual(PUBLISHED.slice(2, 4));
+
+  // the team sees the same help centre: it is the public's, whoever is reading
+  expect((await ada().query<Page<HelpPage>>("helpPages", {}, { shape: "{ items { slug } }" })).items.map((p) => p.slug)).toEqual(PUBLISHED);
+});
+
+it("an article the team keeps to itself is not on the help centre, and its address there is simply not found", async () => {
+  const page = await anyone().query<HelpPage | null>("helpPage", { slug: "exporting-invoices" }, { shape: "{ slug name body publishedAt }" });
+  expect(page).toMatchObject({ slug: "exporting-invoices", name: "Exporting invoices to your finance system", publishedAt: "2026-09-16T09:30:00.000Z" });
+  expect(page?.body).toContain("## Running one by hand");
+  // an internal page by its address: nothing there, which says nothing about whether it exists
+  expect(await anyone().query("helpPage", { slug: "rollout-playbook" }, { shape: "{ slug }" })).toBeNull();
+  // nor through the REST route the same query is bound to
+  const rest = await fetch(`${svc.base}/help/exporting-invoices`);
+  expect(rest.status).toBe(200);
+  expect(await rest.json()).toMatchObject({ slug: "exporting-invoices", publishedAt: "2026-09-16T09:30:00.000Z" });
+  expect(await (await fetch(`${svc.base}/help/rollout-playbook`)).json()).toBeNull();
+
+  // guard: the public door does not open the catalogue's own; the article itself is for the team
+  const refused = await anyone().query("article", { slug: "exporting-invoices" }, { shape: "{ name }" }).then(() => null, (e: RayfoldClientError) => e);
+  expect(refused?.code).toBe("unauthenticated");
+});
+
+it("publishing puts an article on the help centre and taking it off removes it; publishing twice keeps the first day", async () => {
+  const written = await ada().command<{ id: string; slug: string; publishedAt: string | null }>(
+    "writeArticle",
+    { name: "Sandbox reset: how it works", summary: "What a reset keeps.", body: "# Sandbox reset\n\nConfiguration stays.", tags: ["sandbox"] },
+    { shape: "{ id slug publishedAt }" },
+  );
+  expect(written.publishedAt).toBeNull();
+  expect(await anyone().query("helpPage", { slug: written.slug }, { shape: "{ slug }" })).toBeNull();
+
+  const published = await svc.client("noor").command<{ publishedAt: string }>("publishArticle", { id: written.id, published: true }, { shape: "{ publishedAt }" });
+  // the moment the column keeps, as an RFC 3339 instant
+  const { rows: when } = await svc.sql.query("select published_at from articles where id = $1", [written.id]);
+  expect(published.publishedAt).toBe((when[0]!["published_at"] as Date).toISOString());
+  expect(await anyone().query("helpPage", { slug: written.slug }, { shape: "{ slug name body publishedAt }" })).toEqual({
+    $type: "HelpPage",
+    slug: written.slug,
+    name: "Sandbox reset: how it works",
+    body: "# Sandbox reset\n\nConfiguration stays.",
+    publishedAt: published.publishedAt,
+  });
+  const listed = await anyone().query<Page<HelpPage>>("helpPages", {}, { shape: "{ items { slug } total }" });
+  expect(listed.total).toBe(PUBLISHED.length + 1);
+  expect(listed.items.map((p) => p.slug)).toEqual([...PUBLISHED, written.slug].sort());
+
+  // a second click: still published, from the same day
+  const again = await ada().command<{ publishedAt: string }>("publishArticle", { id: written.id, published: true }, { shape: "{ publishedAt }" });
+  expect(again.publishedAt).toBe(published.publishedAt);
+  expect((await ada().query<{ publishedAt: string }>("article", { slug: written.slug }, { shape: "{ publishedAt }" })).publishedAt).toBe(published.publishedAt);
+
+  // taken off: gone from the help centre, still in the catalogue
+  const off = await ada().command<{ publishedAt: string | null }>("publishArticle", { id: written.id, published: false }, { shape: "{ publishedAt }" });
+  expect(off.publishedAt).toBeNull();
+  expect(await anyone().query("helpPage", { slug: written.slug }, { shape: "{ slug }" })).toBeNull();
+  expect((await anyone().query<Page<HelpPage>>("helpPages", {}, { shape: "{ total }" })).total).toBe(PUBLISHED.length);
+  expect(await ada().query("article", { slug: written.slug }, { shape: "{ slug }" })).toMatchObject({ slug: written.slug });
+
+  // guard: only the team publishes; a visitor cannot put anything on the help centre
+  const refused = await anyone().command("publishArticle", { id: written.id, published: true }, { shape: "{ id }" }).then(() => null, (e: RayfoldClientError) => e);
+  // refused by the command's own rule, before anything else is asked of the request
+  expect(refused).toMatchObject({ code: "unauthenticated", message: expect.stringMatching(/^Sign in/) });
+  const missing = await ada().command("publishArticle", { id: "nope", published: true }, { shape: "{ id }" }).then(() => null, (e: RayfoldClientError) => e);
+  expect(missing).toMatchObject({ code: "domain", type: "NotFound" });
+});
+
+it("a help page read by URL is for any cache in between: public, kept stale while it revalidates, a 304 while nothing changed, and private the moment the reader is signed in", async () => {
+  const url = byUrl("helpPages", { page: { first: 50 } }, "{ items { slug name summary } total }");
+  const first = await fetch(url);
+  expect(first.status).toBe(200);
+  // @cache(maxAge: 60s, swr: 10m, scope: public) on HelpPage, and nothing in the answer reads who is asking
+  expect(first.headers.get("cache-control")).toBe("public, max-age=60, stale-while-revalidate=600");
+  const etag = first.headers.get("etag") ?? "";
+  expect(etag).toMatch(/^"sha256-[0-9a-f]{64}"$/);
+  const revalidated = await fetch(url, { headers: { "if-none-match": etag } });
+  expect(revalidated.status).toBe(304);
+  expect(await revalidated.text()).toBe("");
+
+  // the same request from someone signed in is theirs alone: no shared cache may keep it
+  const signedIn = await fetch(url, { headers: { authorization: "Bearer ada" } });
+  expect(signedIn.headers.get("cache-control")).toBe("private, max-age=60, stale-while-revalidate=600");
+  // guard: an article read by the team is never public, because the query that reads it is the team's
+  const article = await fetch(byUrl("article", { slug: "exporting-invoices" }, "{ name }"), { headers: { authorization: "Bearer ada" } });
+  expect(article.headers.get("cache-control")).toMatch(/^private, /);
+
+  // a change is a new answer: the old tag no longer matches once another page is published
+  const written = await ada().command<{ id: string }>("writeArticle", { name: "Sandbox reset: how it works", summary: "", body: "x", tags: [] }, { shape: "{ id }" });
+  await ada().command("publishArticle", { id: written.id, published: true }, { shape: "{ id }" });
+  const changed = await fetch(url, { headers: { "if-none-match": etag } });
+  expect(changed.status).toBe(200);
+  expect(changed.headers.get("etag")).not.toBe(etag);
+});
+
+/** RFC 3339 in UTC with milliseconds: what `Date.prototype.toISOString` writes, and what the schema's Instant is. */
+const RFC3339_UTC = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+
+it("sends every Instant as RFC 3339 in UTC, and the newest file is still first", async () => {
+  // the seed's own days, at 09:30 UTC
+  expect((await ada().query<{ updatedAt: string }>("product", { id: "pr-core" }, { shape: "{ updatedAt }" })).updatedAt).toBe("2026-09-18T09:30:00.000Z");
+  expect((await ada().query<{ updatedAt: string }>("person", { id: "u5" }, { shape: "{ updatedAt }" })).updatedAt).toBe("2026-08-19T09:30:00.000Z");
+  // an article's two Instants come from a bigint and a timestamptz; on the wire they are the same form, and equal here
+  expect(await ada().query("article", { slug: "resetting-your-sandbox" }, { shape: "{ updatedAt publishedAt }" })).toEqual({
+    $type: "Article",
+    updatedAt: "2026-09-11T09:30:00.000Z",
+    publishedAt: "2026-09-11T09:30:00.000Z",
+  });
+
+  // either side of the moment epoch milliseconds gained a digit: the numbers' own text sorts these the wrong way round
+  await svc.sql.query(
+    `insert into files (id, name, project_id, content_type, size, url, text, version, updated_at) values
+       ('fOld', 'old.txt', 'p1', 'text/plain', 1, '/files/rOld', 'old', 1, 999999999999),
+       ('fNew', 'new.txt', 'p1', 'text/plain', 1, '/files/rNew', 'new', 1, 1000000000000)`,
+  );
+  const files = await ada().query<Page<{ id: string; updatedAt: string }>>("items", { kind: "file", page: { first: 12 } }, { shape: "{ items { id updatedAt } }" });
+  expect(files.items.map((f) => [f.id, f.updatedAt])).toEqual([
+    ["fNew", "2001-09-09T01:46:40.000Z"],
+    ["fOld", "2001-09-09T01:46:39.999Z"],
+  ]);
+  // guard: newest first as instants, which the numbers written out as text would have got backwards
+  expect(Date.parse(files.items[0]!.updatedAt)).toBeGreaterThan(Date.parse(files.items[1]!.updatedAt));
+  expect(String(1000000000000) < String(999999999999)).toBe(true);
+
+  // what a command answers is the same form, naming the instant the column keeps; an edit keeps the old one as the revision's
+  const written = await ada().command<{ id: string; updatedAt: string }>(
+    "writeArticle",
+    { name: "Sandbox reset: how it works", summary: "", body: "first", tags: [] },
+    { shape: "{ id updatedAt }" },
+  );
+  expect(written.updatedAt).toMatch(RFC3339_UTC);
+  const edited = await ada().command<{ updatedAt: string }>("writeArticle", { id: written.id, name: "Sandbox reset: how it works", summary: "", body: "second", tags: [] }, { shape: "{ updatedAt }", ifVersion: 1 });
+  const { rows } = await svc.sql.query("select updated_at from articles where id = $1", [written.id]);
+  expect(edited.updatedAt).toBe(new Date(Number(rows[0]!["updated_at"])).toISOString());
+  const revisions = await ada().query<Page<{ at: string }>>("articleRevisions", { id: written.id }, { shape: "{ items { at } }" });
+  expect(revisions.items.map((r) => r.at)).toEqual([written.updatedAt]);
+});
+
+it("a search's cursor counts from where the page began: every page by it is the next slice of the whole ranking", async () => {
+  const whole = (await ada().query<Page<Hit>>("search", { q: "order", page: { first: 20 } }, { shape: "{ items { id } total }" })).items.map((h) => h.id);
+  expect(whole.length).toBeGreaterThanOrEqual(7);
+  const pages: string[][] = [];
+  let after: string | null = null;
+  for (let i = 0; i < 3; i++) {
+    const page: Page<Hit> = await ada().query<Page<Hit>>("search", { q: "order", page: { first: 2, ...(after ? { after } : {}) } }, { shape: "{ items { id } hasMore cursor }" });
+    pages.push(page.items.map((h) => h.id));
+    expect(page.cursor).toBe(String(2 * (i + 1)));
+    after = page.cursor;
+  }
+  expect(pages).toEqual([whole.slice(0, 2), whole.slice(2, 4), whole.slice(4, 6)]);
+});
+
+it("a whole page's loaded fields are each row's own: a product's category, a person's writing, newest first", async () => {
+  const products = await ada().query<Page<{ id: string; related: Array<{ id: string }> }>>("items", { kind: "product", page: { first: 20 } }, { shape: "{ items { id ...on Product { related { id } } } }" });
+  const related = Object.fromEntries(products.items.map((p) => [p.id, p.related.map((r) => r.id)]));
+  expect(related["pr-invoicing"]).toEqual(["pr-tax", "pr-returns"]);
+  expect(related["pr-core"]).toEqual(["pr-sandbox", "pr-legacy"]);
+  expect(related["pr-edi"]).toEqual([]);
+
+  const people = await ada().query<Page<{ id: string; articles: Array<{ slug: string }>; colleagues: Array<{ name: string }> }>>("items", { kind: "person", page: { first: 20 } }, { shape: "{ items { id ...on Person { articles { slug } colleagues { name } } } }" });
+  const { rows } = await svc.sql.query("select author_id, slug from articles order by updated_at desc, id");
+  for (const p of people.items) {
+    expect(p.articles.map((a) => a.slug), p.id).toEqual(rows.filter((r) => r["author_id"] === p.id).map((r) => r["slug"]));
+  }
+  expect(people.items.find((p) => p.id === "u12")!.articles).toHaveLength(2);
+  // colleagues by name, A to Z, never themselves
+  expect(people.items.find((p) => p.id === "u9")!.colleagues.map((c) => c.name)).toEqual(["Ada Lovelace", "Grace Hopper", "Hannah Weiss"]);
+});
+
+it("a title becomes a clean slug, a title with nothing to make one from is untitled, and a third use of a title is -3", async () => {
+  const slugOfWritten = async (name: string) => (await ada().command<{ slug: string }>("writeArticle", { name, summary: "", body: "x", tags: [] }, { shape: "{ slug }" })).slug;
+  expect(await slugOfWritten("  ¿Sandbox reset — how it works?  ")).toBe("sandbox-reset-how-it-works");
+  expect(await slugOfWritten("Sandbox reset: how it works")).toBe("sandbox-reset-how-it-works-2");
+  expect(await slugOfWritten("Sandbox reset, how it works!")).toBe("sandbox-reset-how-it-works-3");
+  expect(await slugOfWritten("!!!")).toBe("untitled");
+});
+
+it("an edit's dry run writes nothing, and an article's history pages to its end", async () => {
+  const written = await ada().command<{ id: string }>("writeArticle", { name: "Sandbox reset: how it works", summary: "", body: "v1", tags: [] }, { shape: "{ id }" });
+  const dry = await ada().command("writeArticle", { id: written.id, name: "Sandbox reset: how it works", summary: "", body: "v2", tags: [] }, { shape: "{ version body }", ifVersion: 1, simulate: true });
+  expect(dry).toEqual({ $type: "Article", version: 2, body: "v2" });
+  expect(await ada().query("article", { slug: "sandbox-reset-how-it-works" }, { shape: "{ version body }" })).toEqual({ $type: "Article", version: 1, body: "v1" });
+  expect((await ada().query<Page<unknown>>("articleRevisions", { id: written.id }, { shape: "{ total }" })).total).toBe(0);
+  for (let v = 1; v <= 3; v++) await ada().command("writeArticle", { id: written.id, name: "Sandbox reset: how it works", summary: "", body: `v${v + 1}`, tags: [] }, { shape: "{ id }", ifVersion: v });
+  const pages: number[][] = [];
+  const more: boolean[] = [];
+  let after: string | null = null;
+  for (let i = 0; i < 5; i++) {
+    const page: Page<{ version: number; id: string }> = await ada().query<Page<{ version: number; id: string }>>("articleRevisions", { id: written.id, page: { first: 2, ...(after ? { after } : {}) } }, { shape: "{ items { id version } hasMore cursor total }" });
+    pages.push(page.items.map((r) => r.version));
+    more.push(page.hasMore);
+    if (!page.hasMore) break;
+    after = page.cursor;
+  }
+  expect({ pages, more }).toEqual({ pages: [[3, 2], [1]], more: [true, false] });
+});
+
+it("an article written before editors were kept was edited by its author", async () => {
+  const written = await ada().command<{ id: string }>("writeArticle", { name: "Sandbox reset: how it works", summary: "", body: "x", tags: [] }, { shape: "{ id }" });
+  await svc.sql.query("update articles set editor_id = null where id = $1", [written.id]);
+  expect(await svc.client("grace").query("article", { slug: "sandbox-reset-how-it-works" }, { shape: "{ author { name } editor { name } }" })).toEqual({
+    $type: "Article",
+    author: { $type: "Person", name: "Ada Lovelace" },
+    editor: { $type: "Person", name: "Ada Lovelace" },
+  });
+});
+
+it("an edit that lost the race to another lands nowhere, and keeps no revision", async () => {
+  const store = new CatalogueStore(svc.sql);
+  const written = await ada().command<{ id: string }>("writeArticle", { name: "Sandbox reset: how it works", summary: "", body: "x", tags: [] }, { shape: "{ id }" });
+  const current = (await store.articleById(written.id))!;
+  const lost = { ...current, body: "lost", version: 2 };
+  expect(await store.updateArticle(lost, 0, { id: "rev-lost", articleId: current.id, version: 0, name: current.name, summary: "", tags: [], body: "x", editorId: "u1", at: current.updatedAt })).toBe(false);
+  expect(await store.articleById(written.id)).toEqual(current);
+  expect((await svc.sql.query("select 1 from article_revisions where id = 'rev-lost'")).rowCount).toBe(0);
+});
+
+it("bytes the documents service could not serve are retried, not indexed; and an open list of files hears one when it is indexed", async () => {
+  const seen = signal<Page<{ id: string }>>();
+  const stop = ada().live<Page<{ id: string }>>("items", { kind: "file", page: { first: 10 } }, { shape: "{ items { id } total }" }, (d) => seen.fire(d), (e) => {
+    throw e;
+  });
+  try {
+    expect((await seen.wait("the list's first answer")).items).toEqual([]);
+    // a server error is not "gone": the step fails, the queue retries it to its limit, and nothing is indexed
+    const broken = bytes.serve("/files/broken", "text/plain", new Uint8Array());
+    bytes.failing.add("/files/broken");
+    const run = await start({ documentId: "doc-broken", projectId: "p1", name: "broken.txt", version: 1, contentType: "text/plain", size: 5, url: "/files/broken", fetchUrl: broken });
+    await until("the extract step to be dead", () => (stepsOf(run.id).find((j) => j.step === "extract")?.state === "dead" ? true : undefined));
+    expect(stepsOf(run.id)[0]).toMatchObject({ attempts: 5, error: "fetching the bytes answered 500" });
+    expect((await svc.sql.query("select 1 from files where id = 'doc-broken'")).rowCount).toBe(0);
+
+    const fine = bytes.serve("/files/fine", "text/plain", new TextEncoder().encode("The pelican clause."));
+    await start({ documentId: "doc-fine", projectId: "p1", name: "fine.txt", version: 1, contentType: "text/plain", size: 19, url: "/files/fine", fetchUrl: fine });
+    expect((await seen.wait("the open list to hear the file")).items).toEqual([{ $type: "File", id: "doc-fine" }]);
+  } finally {
+    stop();
+  }
+});
+
+it("the same version indexed again is kept again: a retry of a step that already landed is not a stale one", async () => {
+  const plan = bytes.serve("/files/again", "text/plain", new TextEncoder().encode("The heron clause."));
+  const first = await start({ documentId: "doc-again", projectId: "p1", name: "again.txt", version: 1, contentType: "text/plain", size: 17, url: "/files/again", fetchUrl: plan });
+  await until("the first index", () => (stepsOf(first.id).find((j) => j.step === "index")?.state === "done" ? true : undefined));
+  const second = await start({ documentId: "doc-again", projectId: "p1", name: "again.txt", version: 1, contentType: "text/plain", size: 17, url: "/files/again", fetchUrl: plan }, "doc-again:1:retry");
+  await until("the second index", () => (stepsOf(second.id).find((j) => j.step === "index")?.state === "done" ? true : undefined));
+  expect(stepsOf(second.id).find((j) => j.step === "index")!.result).toEqual({ indexed: true, characters: 17 });
+});
+
+it("a file renamed in the documents service is found by its new name; new bytes are the flow's to bring", async () => {
+  for (const [id, words] of [["doc-heron", "The heron clause."], ["doc-crane", "The crane clause."]] as const) {
+    const url = bytes.serve(`/files/${id}`, "text/plain", new TextEncoder().encode(words));
+    const run = await start({ documentId: id, projectId: "p1", name: `${id}.txt`, version: 1, contentType: "text/plain", size: 17, url: `/files/${id}`, fetchUrl: url });
+    await until(`${id}'s index`, () => (stepsOf(run.id).find((j) => j.step === "index")?.state === "done" ? true : undefined));
+  }
+  const relay = (documentId: string, payload: Record<string, unknown>) =>
+    svc.sql.query("select pg_notify('rayfold', $1)", [JSON.stringify({ from: "documents-test", event: { name: "DocumentChanged", payload: { documentId, projectId: "p1", version: 2, byId: "u1", ...payload } } })]);
+  const names = async () => (await svc.sql.query("select id, name, version, text from files order by id")).rows;
+  const found = async (q: string) => (await ada().query<Page<{ name: string }>>("search", { q }, { shape: "{ items { name } }" })).items.map((i) => i.name);
+
+  // new bytes, a publisher that does not say, and a rename of a document never indexed: none renames a kept file
+  await relay("doc-heron", { name: "heron v2.txt", revision: true });
+  await relay("doc-heron", { name: "heron v3.txt" });
+  await relay("doc-none", { name: "x.txt", revision: false });
+  // the rename sent after them, of the other file: once it has landed, the three before it have been handled
+  await relay("doc-crane", { name: "crane final.txt", revision: false });
+  await until("the crane's rename", async () => ((await found("crane clause"))[0] === "crane final.txt" ? true : undefined));
+  expect(await names()).toEqual([
+    { id: "doc-crane", name: "crane final.txt", version: 1, text: "The crane clause." },
+    { id: "doc-heron", name: "doc-heron.txt", version: 1, text: "The heron clause." },
+  ]);
+  // and a rename of this one, found by its new name, its text and version as they were
+  await relay("doc-heron", { name: "heron final.txt", version: 4, revision: false });
+  await until("the heron's rename", async () => ((await found("heron clause"))[0] === "heron final.txt" ? true : undefined));
+  expect((await names())[1]).toEqual({ id: "doc-heron", name: "heron final.txt", version: 1, text: "The heron clause." });
+});
+
+it("a file's excerpt is its first two hundred characters, whitespace folded, and says it goes on", async () => {
+  const words = Array.from({ length: 60 }, (_, i) => `word${i}`).join("\n  ");
+  const long = bytes.serve("/files/long", "text/plain", new TextEncoder().encode(words));
+  const run = await start({ documentId: "doc-long", projectId: "p1", name: "long.txt", version: 1, contentType: "text/plain", size: words.length, url: "/files/long", fetchUrl: long });
+  await until("the index", () => (stepsOf(run.id).find((j) => j.step === "index")?.state === "done" ? true : undefined));
+  const flat = words.replace(/\s+/g, " ");
+  const file = await ada().query<Page<{ excerpt: string }>>("items", { kind: "file", page: { first: 1 } }, { shape: "{ items { ...on File { excerpt } } }" });
+  expect(file.items[0]!.excerpt).toBe(`${flat.slice(0, 199).trimEnd()}…`);
+  expect(file.items[0]!.excerpt).toHaveLength(200);
+});
+
+it("an open help centre hears an article published and taken off", async () => {
+  const written = await ada().command<{ id: string; slug: string }>("writeArticle", { name: "Sandbox reset: how it works", summary: "", body: "x", tags: [] }, { shape: "{ id slug }" });
+  const seen = signal<Page<{ slug: string }>>();
+  const stop = anyone().live<Page<{ slug: string }>>("helpPages", { page: { first: 50 } }, { shape: "{ items { slug } total }" }, (d) => seen.fire(d), (e) => {
+    throw e;
+  });
+  try {
+    expect((await seen.wait("the help centre's first answer")).total).toBe(PUBLISHED.length);
+    await ada().command("publishArticle", { id: written.id, published: true }, { shape: "{ id }" });
+    expect((await seen.wait("the help centre to hear the publish")).items.map((p) => p.slug)).toEqual([...PUBLISHED, written.slug].sort());
+    await ada().command("publishArticle", { id: written.id, published: false }, { shape: "{ id }" });
+    expect((await seen.wait("the help centre to hear it taken off")).items.map((p) => p.slug)).toEqual(PUBLISHED);
+  } finally {
+    stop();
+  }
+});
+
+describe("the text in a file", () => {
+  it("reads text by its type whatever its case and parameters, or by its name, and nothing else", () => {
+    const bytes = new TextEncoder().encode("héllo");
+    expect(textOf("TEXT/PLAIN; charset=utf-8", "notes", bytes)).toBe("héllo");
+    expect(textOf("application/json; charset=utf-8", "data", bytes)).toBe("héllo");
+    expect(textOf("application/octet-stream", "notes.MD", bytes)).toBe("héllo");
+    expect(textOf("application/octet-stream", "photo.jpg", bytes)).toBe("");
+  });
+
+  it("reads a PDF's drawn strings, escapes and arrays included, one line per string", () => {
+    const content = String.raw`BT (Line \(one\)\nnext) Tj [(Ki) -20 (ss)] TJ (caf\351 \\ tab\there) ' ET`;
+    const raw = new TextEncoder().encode(`%PDF-1.4\nstream\n${content}\nendstream`);
+    expect(textOf("application/pdf", "x.pdf", raw)).toBe("Line (one)\nnext\nKiss\ncafé \\ tab\there");
+    // guard: by its name alone it is still a PDF
+    expect(textOf("application/octet-stream", "x.PDF", raw)).toBe("Line (one)\nnext\nKiss\ncafé \\ tab\there");
+  });
 });

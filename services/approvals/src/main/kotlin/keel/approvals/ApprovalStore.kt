@@ -22,7 +22,7 @@ data class Approval(
 )
 
 class ApprovalStore(private val connections: () -> Connection) {
-    /** Safe to run from every instance at once, like the platform's own tables. */
+    /** Run under the fleet's migration lock, like the platform's own tables (see migrating). */
     fun migrate() {
         connections().use { c ->
             c.createStatement().use {

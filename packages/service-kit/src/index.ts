@@ -31,12 +31,14 @@ import {
   type Resolvers,
   type UploadStore,
 } from "@rayfold/server";
+import { explorerHtml } from "@rayfold/explorer";
 import { PgIdempotencyStore, PgRelay, idempotencySchema, pgNotifications, relaySchema } from "@rayfold/postgres";
 import pg from "pg";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { connectPlatform, type Platform } from "./platform.ts";
 
-export interface ServiceOptions {
+/** What every service says about itself, whatever serves its port. */
+export interface CoreOptions {
   /** What this service is called, in the fleet view and in its own logs. */
   name: string;
   /** The service's Rayfold schema, as text. */
@@ -45,13 +47,22 @@ export interface ServiceOptions {
   resolvers: (deps: Deps) => Resolvers;
   /** The service's own tables. The platform's own are created before this runs. */
   migrate?: (sql: pg.Pool) => Promise<void>;
-  /** Turns a request into the viewer the schema's policies see. */
-  viewer?: (req: IncomingMessage, deps: Deps) => unknown;
   /**
    * The shapes this service's clients send, registered at start. With TRUSTED_SHAPES=1 they are the only shapes the
    * service accepts (spec 02 section 3): a shape it has never seen is refused, whoever sends it.
    */
   shapes?: readonly string[];
+  /**
+   * Runs once the server exists and before the port opens. This is where a service reacts to the rest of the fleet:
+   * `server.events.on("DocumentChanged", ...)` hears an event raised by any service on the relay, and
+   * `server.changes.publish(...)` makes the live queries here re-run because of it.
+   */
+  onStart?: (server: RayfoldServer, deps: Deps) => void | Promise<void>;
+}
+
+export interface ServiceOptions extends CoreOptions {
+  /** Turns a request into the viewer the schema's policies see. */
+  viewer?: (req: IncomingMessage, deps: Deps) => unknown;
   /** Where uploaded bytes wait to be claimed. Without one the upload route is not served. */
   uploads?: (deps: Deps) => UploadStore;
   /**
@@ -59,12 +70,6 @@ export interface ServiceOptions {
    * request was answered. This is where a service serves bytes, a webhook, or anything that is not a batch.
    */
   routes?: (req: IncomingMessage, res: ServerResponse, deps: Deps) => boolean;
-  /**
-   * Runs once the server exists and before the port opens. This is where a service reacts to the rest of the fleet:
-   * `server.events.on("DocumentChanged", ...)` hears an event raised by any service on the relay, and
-   * `server.changes.publish(...)` makes the live queries here re-run because of it.
-   */
-  onStart?: (server: RayfoldServer, deps: Deps) => void | Promise<void>;
 }
 
 /** What the platform hands a service. */
@@ -107,6 +112,12 @@ export interface Config {
   environment: string;
   /** Where other services and workers reach this one, for a URL it hands out to them. */
   selfUrl: string;
+  /**
+   * Serves the explorer at `/rayfold/explorer`: every operation with its arguments, cost and policies, a request to
+   * try, and a dry run for a command that allows one. A page for the people building the fleet, so it is on in
+   * development (`npm run dev` sets EXPLORER=1) and absent in production, where nothing sets it.
+   */
+  explorer: boolean;
 }
 
 export interface RunningService {
@@ -144,6 +155,7 @@ export function configFrom(name: string): Config {
     consoleToken: process.env["CONSOLE_TOKEN"] || undefined,
     environment: process.env["APP_ENVIRONMENT"] ?? "development",
     selfUrl: (process.env["SELF_URL"] ?? `http://127.0.0.1:${process.env["PORT"] ?? 4000}`).replace(/\/$/, ""),
+    explorer: process.env["EXPLORER"] === "1",
   };
 }
 
@@ -155,19 +167,61 @@ export function schemaAt(url: URL | string): string {
 // re-exported so a service keeps one import for what the platform gives it; it is the runtime's own since 0.2.1
 export { FileUploadStore, type FileUploadOptions } from "@rayfold/server";
 export { SESSION_COOKIE, TEAM, membersSeed, personOf, type Person } from "./team.ts";
+export { instant, millis } from "./instant.ts";
 export { connectPlatform, type Condition, type FlowStep, type LiveConfig, type Job, type Log, type Platform, type WorkOptions } from "./platform.ts";
 
-export async function startService(opts: ServiceOptions): Promise<RunningService> {
+/** What a service is once its tables, its relay and its server exist, before anything serves its port. */
+export interface Core {
+  server: RayfoldServer;
+  deps: Deps;
+  counters: MemoryCounters;
+  /** Closes what `boot` opened, after the port has stopped: the platform's workers, the relay's connection, the pool. */
+  release: { platform: () => Promise<void>; connections: () => Promise<void> };
+}
+
+/** The advisory lock every service in the fleet, and every instance of one, migrates under. */
+export const MIGRATION_LOCK = 0x6b65656c;
+
+/**
+ * Runs a migration while no other service is running one. `create table if not exists` is not safe to run from two
+ * connections at once: both see no table, and the second is refused with a duplicate key on Postgres's own catalogue
+ * (23505) or a duplicate type (42710). On a fresh database every service starts at the same moment and several create
+ * the same tables (the platform's two, and `members`, which documents and workspace both seed), so `npm run dev` on
+ * an empty database lost a service at random. The lock is a session's, held on one connection of its own for as long
+ * as the work takes; the work itself runs on the pool.
+ */
+export async function migrating(sql: pg.Pool, work: () => Promise<void>): Promise<void> {
+  const lock = await sql.connect();
+  try {
+    await lock.query("select pg_advisory_lock($1)", [MIGRATION_LOCK]);
+    try {
+      await work();
+    } finally {
+      await lock.query("select pg_advisory_unlock($1)", [MIGRATION_LOCK]);
+    }
+  } finally {
+    lock.release();
+  }
+}
+
+/**
+ * Everything a service needs before it can serve, whatever will serve it: the platform's tables and its own, the
+ * shared idempotency store and relay, identity, counters, configuration, and the service's reaction to the fleet.
+ * `startService` puts it on Node's http server; `startFetchService` (fetch.ts) behind a `Request` -> `Response` app.
+ */
+export async function boot(opts: CoreOptions): Promise<Core> {
   const config = configFrom(opts.name);
   const sql = new pg.Pool({ connectionString: config.databaseUrl });
   const caps = new Capabilities({ secret: config.capabilitySecret });
   const platform = connectPlatform({ url: config.consoleUrl, token: config.consoleToken, app: config.name, environment: config.environment, instance: config.instance });
   const deps: Deps = { sql, caps, config, platform };
 
-  // the platform's tables first: both are safe to run from every instance at once
-  await sql.query(idempotencySchema());
-  await sql.query(relaySchema());
-  await opts.migrate?.(sql);
+  // the platform's tables first, then the service's own, one service at a time (see migrating)
+  await migrating(sql, async () => {
+    await sql.query(idempotencySchema());
+    await sql.query(relaySchema());
+    await opts.migrate?.(sql);
+  });
 
   // LISTEN holds its connection for as long as it is listening, so the relay gets one of its own rather than
   // taking one out of the pool for the life of the process
@@ -200,6 +254,46 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
   if (platform.connected) console.log(`[${config.name}] configuration from ${config.consoleUrl} (${config.environment}): ${JSON.stringify(platform.config.snapshot())}`);
   await opts.onStart?.(server, deps);
 
+  // the shapes the service's own clients use, known before the first request: what trusted mode serves
+  for (const shape of opts.shapes ?? []) server.registerShape(shape);
+
+  return {
+    server,
+    deps,
+    counters,
+    release: {
+      platform: () => platform.stop(),
+      connections: async () => {
+        await listener.end();
+        await sql.end();
+      },
+    },
+  };
+}
+
+/**
+ * Stops on the signal a deploy sends, draining first: workers, then the port (live queries end with a retryable
+ * error, batches in flight are given time), then the connections. What makes a rolling deploy lose nothing.
+ */
+export function stopOnSignal(name: string, platform: Platform, stop: () => Promise<void>): void {
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.once(signal, () => {
+      platform.log.info("draining", { signal });
+      void stop().then(
+        () => process.exit(0),
+        (e) => {
+          console.error(`[${name}] shutdown failed`, e);
+          process.exit(1);
+        },
+      );
+    });
+  }
+}
+
+export async function startService(opts: ServiceOptions): Promise<RunningService> {
+  const { server, deps, counters, release } = await boot(opts);
+  const { sql, config, platform } = deps;
+
   const uploads = opts.uploads?.(deps);
   const rayfold = createHttpHandler(server, {
     ...(opts.viewer ? { viewer: (req: IncomingMessage) => opts.viewer!(req, deps) } : {}),
@@ -212,9 +306,6 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
     // the reply that lets a browser on one of those origins read the answer at all
     ...(config.allowedOrigins[0] ? { cors: config.allowedOrigins[0] } : {}),
   });
-
-  // the shapes the service's own clients use, known before the first request: what trusted mode serves
-  for (const shape of opts.shapes ?? []) server.registerShape(shape);
 
   // the operations the schema binds to REST-shaped routes (spec 04 section 8): the same contract, for curl,
   // webhooks and anyone who expects resources. served as declared; the gateway's prefix is stripped before here.
@@ -231,10 +322,16 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
     allowedOrigins: config.allowedOrigins,
   });
 
+  const explorer = config.explorer ? explorerPage(config.name) : undefined;
+
   // the service's own routes first, then the bindings, then Rayfold: a service owns its port, and Rayfold is what
   // most of it answers
   const http = createServer((req, res) => {
     if (opts.routes?.(req, res, deps)) return;
+    if (explorer && (req.url ?? "").split("?")[0] === EXPLORER_PATH) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(explorer);
+      return;
+    }
     void bindings(req, res)
       .then((answered) => answered || mcp(req, res))
       .then((answered) => (answered === true ? undefined : rayfold(req, res)))
@@ -255,26 +352,26 @@ export async function startService(opts: ServiceOptions): Promise<RunningService
 
   const stop = async (): Promise<void> => {
     // workers first, so no job is claimed by a process on its way out; then the port, then the connections
-    await platform.stop();
+    await release.platform();
     await shutdown(server, http);
-    await listener.end();
-    await sql.end();
+    await release.connections();
   };
 
   // a deploy sends SIGTERM and then waits: draining first is what makes a rolling deploy lose nothing
-  for (const signal of ["SIGTERM", "SIGINT"] as const) {
-    process.once(signal, () => {
-      platform.log.info("draining", { signal });
-      void stop().then(
-        () => process.exit(0),
-        (e) => {
-          console.error(`[${config.name}] shutdown failed`, e);
-          process.exit(1);
-        },
-      );
-    });
-  }
+  stopOnSignal(config.name, platform, stop);
 
   platform.log.info("started", { version: config.version, instance: config.instance, port: config.port, environment: config.environment });
   return { server, http, deps, counters, stop };
+}
+
+/** Where a service with EXPLORER=1 serves the explorer, on its own port. */
+export const EXPLORER_PATH = "/rayfold/explorer";
+
+/**
+ * The explorer's page for one service. It talks to the endpoint the way a browser reaches it, `/api/<service>/rayfold`
+ * on the page's own origin, so opened through the shell's dev server or the gateway it is signed in as whoever the
+ * session cookie says, and what it shows is what that person may do.
+ */
+export function explorerPage(name: string): string {
+  return explorerHtml({ endpoint: `/api/${name}/rayfold`, title: `Keel: ${name}` });
 }

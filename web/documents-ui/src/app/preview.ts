@@ -3,7 +3,8 @@
  * browser's own viewer. The bytes are fetched from the same URL a link would open, with the same session cookie (or
  * the same share token in the query), so what this shows is exactly what the service lets this person read.
  */
-import { ChangeDetectionStrategy, Component, computed, effect, input, signal, untracked } from "@angular/core";
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal, untracked } from "@angular/core";
+import { DomSanitizer } from "@angular/platform-browser";
 
 type Shown = { kind: "text"; text: string } | { kind: "table"; rows: string[][] } | { kind: "image" } | { kind: "pdf" } | { kind: "none"; why: string };
 
@@ -46,7 +47,7 @@ const MOST_TEXT = 200_000;
             <img [src]="url()" [alt]="name()" />
           }
           @case ("pdf") {
-            <iframe [src]="url()" [title]="name()"></iframe>
+            <iframe [src]="frame()" [title]="name()"></iframe>
           }
           @case ("none") {
             <p class="muted none">{{ $any(shown()).why }}</p>
@@ -62,6 +63,10 @@ export class Preview {
   readonly name = input<string>("");
 
   readonly shown = signal<Shown | null>(null);
+  // a frame's address is a resource URL, which Angular refuses as a plain string; this one is the service's own
+  // address for the file, the same the Open link goes to, so it is trusted as such
+  private readonly sanitizer = inject(DomSanitizer);
+  readonly frame = computed(() => this.sanitizer.bypassSecurityTrustResourceUrl(this.url()));
   readonly failed = signal<string | null>(null);
 
   constructor() {

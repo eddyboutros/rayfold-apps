@@ -45,13 +45,13 @@ it("a dry run answers with the result and writes nothing; the real call writes o
   const scoped = await mintAgentToken(svc.base, "ada", ["issues", "createIssue"]);
   const mcp = new Mcp(svc.base, scoped.token);
   const dry = await mcp.use("createIssue.simulate", { projectId: PROJECT, title: "Agent: check the mapping" });
-  expect(dry.isError).toBeFalsy();
+  expect(dry.isError).toBeUndefined();
   expect((dry.structuredContent?.["result"] as { title: string }).title).toBe("Agent: check the mapping");
   const listed = async () => (await svc.client("ada").query<{ total: number }>("issues", { projectId: PROJECT }, { shape: "{ total }" })).total;
   expect(await listed()).toBe(0);
 
   const made = await mcp.use("createIssue", { projectId: PROJECT, title: "Agent: check the mapping" });
-  expect(made.isError).toBeFalsy();
+  expect(made.isError).toBeUndefined();
   expect(await listed()).toBe(1);
   // the same call again: the key is derived from the arguments, so the bridge replays rather than opening a second one
   const again = await mcp.use("createIssue", { projectId: PROJECT, title: "Agent: check the mapping" });
@@ -80,6 +80,41 @@ it("what the token does not name is refused, and the token cannot widen itself",
   // guard: the person themselves may mint, and a token that names assignIssue may assign
   const wider = await mintAgentToken(svc.base, "ada", ["assignIssue"]);
   const assigned = await new Mcp(svc.base, wider.token).use("assignIssue", { id, assigneeId: "u2" });
-  expect(assigned.isError).toBeFalsy();
+  expect(assigned.isError).toBeUndefined();
   expect(await svc.client("ada").query<{ assignee: { id: string } }>("issue", { id }, { shape: "{ assignee { id } }" })).toMatchObject({ assignee: { id: "u2" } });
+});
+
+it("a token that names mintAgentToken still cannot mint: the command's own rule refuses an agent, whatever its list says", async () => {
+  const before = Date.now();
+  const scoped = await mintAgentToken(svc.base, "ada", ["mintAgentToken", "me"], 120_000);
+  const after = Date.now();
+  // the lifetime asked for, bounded by the clock either side of the call
+  expect(Date.parse(scoped.expiresAt)).toBeGreaterThanOrEqual(before + 120_000);
+  expect(Date.parse(scoped.expiresAt)).toBeLessThanOrEqual(after + 120_000);
+  const widen = await new Mcp(svc.base, scoped.token).use("mintAgentToken", { ops: ["assignIssue"] });
+  expect(widen.isError).toBe(true);
+  expect(text(widen)).toContain("permission_denied");
+  // guard: the same token may call the other operation it names
+  expect(JSON.parse((await new Mcp(svc.base, scoped.token).read("rayfold://query/me")).contents[0]?.text ?? "null")).toMatchObject({ id: "u1" });
+});
+
+it("a JSON-RPC error from the bridge is thrown with the method it answered, and a page on a foreign origin is refused", async () => {
+  const scoped = await mintAgentToken(svc.base, "ada", ["me"]);
+  await expect(new Mcp(svc.base, scoped.token).call("no/such/method")).rejects.toThrow("no/such/method: ");
+  const foreign = await fetch(`${svc.base}/rayfold/mcp`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json", cookie: "keel_session=ada", origin: "https://evil.example" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "say", arguments: { projectId: PROJECT, body: "hi" } } }),
+  });
+  expect(foreign.status).toBe(403);
+  expect((await svc.client("ada").query<{ total: number }>("messages", { projectId: PROJECT }, { shape: "{ total }" })).total).toBe(0);
+  // guard: the fleet's own origin is allowed through the same door
+  const own = await fetch(`${svc.base}/rayfold/mcp`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json", cookie: "keel_session=ada", origin: "http://localhost:4200" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "say", arguments: { projectId: PROJECT, body: "hi" } } }),
+  });
+  expect(own.status).toBe(200);
+  expect(((await own.json()) as { result: { isError?: boolean } }).result.isError).toBeUndefined();
+  expect((await svc.client("ada").query<{ total: number }>("messages", { projectId: PROJECT }, { shape: "{ total }" })).total).toBe(1);
 });

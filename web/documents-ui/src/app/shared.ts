@@ -19,7 +19,7 @@ export interface SharedDoc {
   size: number;
   url: string;
   version: number;
-  updatedAt: number;
+  updatedAt: string;
   owner: { name: string } | null;
 }
 
@@ -102,7 +102,7 @@ export class Shared {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
 
-  when(at: number): string {
+  when(at: string): string {
     return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 }

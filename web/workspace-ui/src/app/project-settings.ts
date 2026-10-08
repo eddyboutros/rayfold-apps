@@ -19,7 +19,7 @@ interface Project {
   description: string | null;
   color: Color;
   version: number;
-  updatedAt: number;
+  updatedAt: string;
   defaultAssignee: { id: string; name: string } | null;
 }
 
@@ -54,6 +54,7 @@ const COLORS: Color[] = ["indigo", "amber", "teal", "rose", "violet", "slate"];
     @if (load.error(); as e) {
       <div class="card"><div class="body empty"><strong>Could not load the project</strong>{{ describe(e) }}</div></div>
     } @else if (project(); as p) {
+      @for (round of [formRound()]; track round) {
       <form class="card" (submit)="save($event, p)">
         <div class="body">
           <label class="row">
@@ -113,6 +114,7 @@ const COLORS: Color[] = ["indigo", "amber", "teal", "rose", "violet", "slate"];
           </button>
         </footer>
       </form>
+      }
     } @else {
       <div class="card"><div class="body"><span class="skeleton" style="width: 60%"></span></div></div>
     }
@@ -137,6 +139,8 @@ export class ProjectSettings {
   readonly touched = computed(() => Object.keys(this.changes()));
   readonly failed = signal<string | null>(null);
   readonly saved = signal(false);
+  /** Bumped to draw the form afresh: its fields hold what was typed until they are made again. */
+  readonly formRound = signal(0);
 
   /** The colour on screen: the one picked and not saved yet, or the project's. */
   color(p: Project): Color {
@@ -151,9 +155,9 @@ export class ProjectSettings {
   discard(): void {
     this.changes.set({});
     this.failed.set(null);
-    // the fields read their first value only; reloading the query puts every one back
-    const form = this.host.nativeElement.querySelector("form");
-    form?.reset();
+    // the fields read their first value only, so they are made again from the project. a form's reset() put them
+    // back to their HTML defaults instead, which a property binding never sets: every field came back empty
+    this.formRound.update((n) => n + 1);
   }
 
   async save(event: Event, p: Project): Promise<void> {
@@ -172,7 +176,7 @@ export class ProjectSettings {
     }
   }
 
-  when(at: number): string {
+  when(at: string): string {
     return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 

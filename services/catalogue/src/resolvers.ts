@@ -5,7 +5,9 @@
  * page of a union, and in both cases the resolver's only obligation is that every row says what it is in `$type`.
  * Rayfold projects each kind through the shape's `...on` conditions from there.
  */
+import { instant } from "@apps/service-kit";
 import { RayfoldError, ok, type Resolvers } from "@rayfold/server";
+import type { PgStore } from "@rayfold/postgres";
 import type { Article, ArticleRevision, CatalogueStore, Kind, Person, Product } from "./store.ts";
 
 export interface Viewer {
@@ -17,6 +19,11 @@ export interface Viewer {
 
 export interface Parts {
   store: CatalogueStore;
+  /**
+   * The help centre's door onto the articles table: `@rayfold/postgres` over the schema, so HelpPage's read rule is
+   * turned into SQL from the schema itself. See `helpPages` below.
+   */
+  help: PgStore;
   id?: () => string;
   now?: () => number;
 }
@@ -37,7 +44,7 @@ export function slugOf(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
-export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.now }: Parts): Resolvers {
+export function resolvers({ store, help, id = () => crypto.randomUUID(), now = Date.now }: Parts): Resolvers {
   return {
     Query: {
       search: async ({ q, page }: { q: string; page: PageArgs }) => {
@@ -55,10 +62,18 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
       article: ({ slug }: { slug: string }) => store.article(slug),
 
       articleRevisions: async ({ id: articleId, page }: { id: string; page: PageArgs }) => {
-        const { items, total } = await store.revisions(articleId, page.first, page.after ?? null);
-        return { items, total, hasMore: items.length > 0 && total > items.length, cursor: items.length ? items[items.length - 1]!.id : null };
+        const { items, total, hasMore } = await store.revisions(articleId, page.first, page.after ?? null);
+        return { items, total, hasMore, cursor: items.length ? items[items.length - 1]!.id : null };
       },
       product: ({ id: productId }: { id: string }) => store.product(productId),
+
+      // the runtime hands each resolver the part of HelpPage's read rule it can push down (`ctx.policy`), and the
+      // store puts it in the WHERE. without it the list would read every article, and the runtime, which checks every
+      // row against the rule regardless, would refuse the whole page the moment it held one the team keeps to itself.
+      // `page` and not `screen`: in 0.2.1 `screen` reads only the columns the shape names, so a list that did not ask
+      // for publishedAt reaches that per-row check without it and every row is refused
+      helpPages: ({ page }: { page: PageArgs }, ctx) => help.page("HelpPage", { first: page.first, after: page.after ?? null }, {}, ctx),
+      helpPage: async ({ slug }: { slug: string }, ctx) => (await help.byIds("HelpPage", [slug], ctx))[0] ?? null,
       person: ({ id: personId }: { id: string }) => store.person(personId),
     },
 
@@ -67,7 +82,7 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
         { id: articleId, name, summary, body, tags }: { id?: string | null; name: string; summary: string; body: string; tags: string[] },
         ctx,
       ) => {
-        const at = now();
+        const at = instant(now());
         if (articleId) {
           const current = await store.articleById(articleId);
           if (!current) throw RayfoldError.domain("NotFound", { id: articleId }, `No article ${articleId}`);
@@ -88,10 +103,18 @@ export function resolvers({ store, id = () => crypto.randomUUID(), now = Date.no
         const base = slugOf(name) || "untitled";
         let slug = base;
         for (let n = 2; await store.slugTaken(slug); n++) slug = `${base}-${n}`;
-        const article: Article = { $type: "Article", id: id(), name, slug, summary, tags, authorId: (ctx.viewer as Viewer).id, editorId: (ctx.viewer as Viewer).id, body, version: 1, updatedAt: at };
+        const article: Article = { $type: "Article", id: id(), name, slug, summary, tags, authorId: (ctx.viewer as Viewer).id, editorId: (ctx.viewer as Viewer).id, body, version: 1, updatedAt: at, publishedAt: null };
         if (ctx.simulate) return ok(article);
         await store.createArticle(article);
         return ok(article);
+      },
+
+      publishArticle: async ({ id: articleId, published }: { id: string; published: boolean }) => {
+        const article = await store.publish(articleId, published, instant(now()));
+        if (!article) throw RayfoldError.domain("NotFound", { id: articleId }, `No article ${articleId}`);
+        // the article is patched as any command's result is; the help centre's copy of it is another entity, and a
+        // list of help pages gains or loses a row
+        return ok(article, { patch: [{ inv: [`HelpPage:${article.id}`] }, { invOp: ["helpPages", "helpPage"] }] });
       },
     },
 

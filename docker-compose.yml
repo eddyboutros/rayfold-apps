@@ -124,6 +124,30 @@ services:
     stop_signal: SIGTERM
     stop_grace_period: 30s
 
+  # the support team's service, on Hono and Rayfold's fetch handler: "was this helpful?" on the public help centre
+  feedback:
+    build:
+      context: .
+      dockerfile: services/feedback/Dockerfile
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://postgres:rayfold@postgres:5432/apps
+      CAPABILITY_SECRET: ${CAPABILITY_SECRET:-a-development-secret-at-least-16}
+      OPS_TOKEN: ${OPS_TOKEN:-dev-ops-token}
+      SERVICE_VERSION: ${GIT_SHA:-dev}
+      CONSOLE_URL: ${CONSOLE_URL:-}
+      CONSOLE_TOKEN: ${CONSOLE_TOKEN:-}
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/rayfold/ready || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+
   # ---- the front ends: one container each, built from its own lockfile, deployed on its own
   shell:
     build: { context: web, dockerfile: Dockerfile, args: { APP: shell } }
@@ -133,6 +157,9 @@ services:
     build: { context: web, dockerfile: Dockerfile, args: { APP: workspace-ui, BASE_HREF: /remotes/workspace-ui/ } }
   catalogue-ui:
     build: { context: web, dockerfile: Dockerfile, args: { APP: catalogue-ui, BASE_HREF: /remotes/catalogue-ui/ } }
+  # the public help centre: React, another team's, at /help/; not a remote of the shell
+  help:
+    build: { context: web, dockerfile: Dockerfile, args: { APP: help } }
 
   # ---- one origin for all of it
   gateway:
@@ -145,7 +172,9 @@ services:
       - documents-ui
       - workspace-ui
       - catalogue-ui
+      - help
       - approvals
+      - feedback
       - documents
       - workspace
       - catalogue

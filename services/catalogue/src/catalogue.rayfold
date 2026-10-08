@@ -65,6 +65,28 @@ entity Article implements Item @cache(maxAge: 60s, scope: public) {
   updatedAt: Instant
   """Who wrote the current version: the author until someone edits it."""
   editor: Person?
+  """When it went on the public help centre. Null while it is the team's alone."""
+  publishedAt: Instant?
+}
+
+"""
+A page of the public help centre: an article the company has published for its customers, read by anyone.
+
+The same row as the article, through a narrower door: only what a customer should read, and only once it is
+published. The rule is this type's own and reads nothing about who is asking, so an answer that holds only help
+pages is public and a shared cache in front of the service may keep it. It can also run in SQL, so a list of help
+pages is read with it in the WHERE: an article the team keeps to itself is never read for a visitor at all, rather
+than read and then refused, and a page's total counts only what is published.
+"""
+entity HelpPage @cache(maxAge: 60s, swr: 10m, scope: public) @allow(read: this.publishedAt != null) {
+  id: ID
+  """Its address on the help centre, as it is in the catalogue."""
+  slug: String
+  name: String
+  summary: String
+  tags: [String]
+  body: String
+  publishedAt: Instant
 }
 
 """
@@ -122,6 +144,12 @@ enum Kind { product, person, article, file }
 
 error NotFound { id: ID }
 
+"""
+Raised by the **documents** service, not by this one, and heard here: a file kept under a new name is found by that
+name. `revision` false is a new name on the same bytes; new bytes reach this service through the platform's flow.
+"""
+event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID, revision: Boolean? }
+
 """Everything matching a phrase, whatever kind of thing it is, best match first."""
 query search(q: String @range(min: 1, max: 200), page: PageArgs = { first: 20 }): Page<Hit>
   @allow(read: viewer != null) @cost(base: 5, perItem: 2) @live(false)
@@ -136,8 +164,22 @@ query articleRevisions(id: ID, page: PageArgs = { first: 20 }): Page<ArticleRevi
 query product(id: ID): Product? @allow(read: viewer != null) @http(method: GET, path: "/products/{id}")
 query person(id: ID): Person? @allow(read: viewer != null) @http(method: GET, path: "/people/{id}")
 
+"""The help centre's pages, A to Z by address. Anyone may read them; a list holds only what is published."""
+query helpPages(page: PageArgs = { first: 50 }): Page<HelpPage> @cost(base: 2, perItem: 1)
+
+"""One help page by its address. An article that is not published is not there, whoever asks."""
+query helpPage(slug: String @range(min: 1, max: 200)): HelpPage? @http(method: GET, path: "/help/{slug}")
+
 """Write or rewrite an article. With `id`, an edit — send `ifVersion`; without, a new page under a fresh slug."""
 command writeArticle(id: ID?, name: String @range(min: 1, max: 160), summary: String @range(max: 300), body: String @range(min: 1, max: 50000), tags: [String] = []): Article
   throws NotFound
   @allow(write: viewer != null) @simulate
   @http(method: POST, path: "/articles", body: "*", location: "/articles/{slug}")
+
+"""
+Put an article on the public help centre, or take it off. Publishing one already published keeps the day it first
+went out; taking it off clears it. Anyone on the team may, as anyone may edit.
+"""
+command publishArticle(id: ID, published: Boolean): Article
+  throws NotFound
+  @allow(write: viewer != null)

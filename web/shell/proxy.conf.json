@@ -26,6 +26,19 @@
     },
     "ws": true
   },
+  "/api/feedback": {
+    "target": "http://localhost:4005",
+    "pathRewrite": {
+      "^/api/feedback": ""
+    }
+  },
+  "/api/help": {
+    "target": "http://localhost:4204"
+  },
+  "/help": {
+    "target": "http://localhost:4204",
+    "ws": true
+  },
   "/remotes/documents-ui": {
     "target": "http://localhost:4202",
     "pathRewrite": {

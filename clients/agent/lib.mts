@@ -1,5 +1,5 @@
 /**
- * An agent on the workspace: a program acting for a person, through MCP, with a token that allows it three things.
+ * An agent on the workspace: a program acting for a person, through MCP, with a token that allows it four things.
  *
  * The workspace mints the token (`mintAgentToken`): the same person, narrowed to the operations named, marked as an
  * agent's so it cannot mint another. The MCP bridge (spec 10) is the same schema as tools: every command is a tool
@@ -10,7 +10,8 @@ import { RayfoldClient, createFetchTransport } from "@rayfold/client";
 
 export interface AgentToken {
   token: string;
-  expiresAt: number;
+  /** RFC 3339, as every Instant travels. */
+  expiresAt: string;
   ops: string[];
 }
 

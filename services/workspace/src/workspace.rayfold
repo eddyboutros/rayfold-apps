@@ -130,10 +130,22 @@ entity Activity @allow(read: viewer != null) {
   """Which service this came from: `workspace`, or `documents` when it arrived over the relay."""
   source: String
   kind: String
+  """
+  The subject and the detail as one line, as the feed was first written: ": " between them, and a relayed line ends
+  with the document's id in brackets. Kept for a reader that knows no other; a title with a colon of its own makes it
+  ambiguous, so read `subject` and `detail`.
+  """
   text: String
   at: Instant
   """Who did it. Absent when the line came from something no person did."""
   by: Member?
+  """
+  What was acted on, whole, whatever it holds: an issue's title, a file's name, a project's name. This and `detail`
+  came after the first deploy, and come last so the field numbers already on the wire stay where they were.
+  """
+  subject: String
+  """What happened to it: where it moved, who it went to, what was said, which version. Null when the line says no more."""
+  detail: String?
 }
 
 """A line in a project's chat: what someone said, when. The conversation nobody files an issue for."""
@@ -171,7 +183,7 @@ event Said { projectId: ID, messageId: ID, body: String, byId: ID, byName: Strin
 event Notified { recipientId: ID, notificationId: ID, kind: String, text: String, projectId: ID, issueId: ID?, at: Instant }
 
 """Raised here when anything lands on a project's feed, so a stream can carry it without polling the table."""
-event ActivityHappened { projectId: ID, source: String, kind: String, text: String, byId: ID? }
+event ActivityHappened { projectId: ID, source: String, kind: String, text: String, byId: ID?, subject: String?, detail: String? }
 
 event IssueMoved { issueId: ID, from: IssueState, to: IssueState }
 event CommentAdded { issueId: ID, commentId: ID }
@@ -180,7 +192,7 @@ event CommentAdded { issueId: ID, commentId: ID }
 Raised by the **documents** service, not by this one. Declared here because the relay delivers events by name to
 every service in the fleet, and this service reacts to it: a changed document becomes a line in the feed.
 """
-event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID }
+event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID, revision: Boolean? }
 """Three more of the documents service's, heard the same way: filed, tagged, and remarked on."""
 event DocumentFiled { documentId: ID, projectId: ID, name: String, folder: String?, byId: ID, at: Instant? }
 event DocumentTagged { documentId: ID, projectId: ID, name: String, tags: [String], byId: ID, at: Instant? }

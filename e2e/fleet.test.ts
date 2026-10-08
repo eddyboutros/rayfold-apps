@@ -2,8 +2,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startTestService, type TestService } from "./harness.ts";
+import { liveClosed, startTestService, type TestService } from "./harness.ts";
 import { startStandInConsole, type StandInConsole } from "./stand-in-console.ts";
+import { RayfoldClient, createFetchTransport } from "@rayfold/client";
 import { signal, until } from "./wait.ts";
 
 /**
@@ -52,7 +53,10 @@ beforeEach(async () => {
   await catalogue.reset();
   await rm(dirs.files, { recursive: true, force: true });
 });
-afterEach(() => settled());
+afterEach(async () => {
+  await settled();
+  for (const svc of [documents, workspace, catalogue]) await liveClosed(svc);
+});
 
 async function upload(bytes: Uint8Array): Promise<string> {
   const res = await fetch(`${documents.base}/rayfold/uploads`, {
@@ -213,20 +217,18 @@ it("a document kept in one service is found by a search in another, and the thir
     );
     return page.items.length ? page : undefined;
   }, 10_000);
-  expect(found.items[0]).toMatchObject({ $type: "File", name: "Rollout notes.txt" });
-  expect(found.items[0]?.excerpt).toContain("Wave two moves orders");
+  expect(found.items).toEqual([{ $type: "File", name: "Rollout notes.txt", url: `/files/${found.items[0]!.url!.split("/").pop()}`, excerpt: "Wave two moves orders and returns; invoicing stays behind until wave three." }]);
 
   // the url the catalogue hands out is the documents service's own path, which the person's session may open there
   const url = found.items[0]!.url!;
-  expect(await (await fetch(`${documents.base}${url}`, { headers: { cookie: "keel_session=grace" } })).text()).toContain("Wave two moves orders");
+  expect(await (await fetch(`${documents.base}${url}`, { headers: { cookie: "keel_session=grace" } })).text()).toBe("Wave two moves orders and returns; invoicing stays behind until wave three.");
 
   // the last step: the workspace's feed says the file became searchable, credited to the product, not a person
   const line = await until("the feed to say the file is searchable", async () => {
     const page = await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text by { name } } }" });
     return page.items.find((i) => i.kind === "document.indexed");
   }, 10_000);
-  expect(line).toMatchObject({ source: "catalogue", by: null });
-  expect(line.text).toContain("Rollout notes.txt");
+  expect(line).toEqual({ $type: "Activity", source: "catalogue", kind: "document.indexed", text: `Rollout notes.txt (${doc.id})`, by: null });
 
   // and Ada, who kept the file in the documents service, is told by the workspace: one notification, hers alone
   const told = await until("Ada to be told her file is searchable", async () => {
@@ -255,7 +257,7 @@ it("a file with no text is not indexed, and the feed says so: a condition betwee
     const page = await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { kind text } }" });
     return page.items.find((i) => i.kind === "document.empty");
   }, 10_000);
-  expect(line.text).toContain("empty.txt");
+  expect(line.text).toBe(`empty.txt (${doc.id})`);
   // nothing became searchable, so nobody is told
   expect((await workspace.client("ada").query<{ total: number }>("notifications", {}, { shape: "{ total }" })).total).toBe(0);
   const run = platform.runs.find((r) => r.key === `${doc.id}:1`)!;
@@ -310,11 +312,13 @@ it("two instances of a service react to one event and write one row between them
     const done = (h: Happened[]) => ["document.added", "document.filed", "document.tagged"].every((k) => h.some((x) => x.source === "documents" && x.kind === k));
     await until("both instances to have handled all three", () => (done(heard.primary) && done(heard.replica) ? true : undefined));
     const { rows } = await workspace.sql.query("select id from activity where source = 'documents' order by id");
-    // a move and a tag are keyed on the moment the documents service made them, the same for every instance
+    // a move and a tag are keyed on the moment the documents service made them, RFC 3339 as the event carries it,
+    // the same for every instance
+    const RFC3339 = String.raw`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z`;
     expect(rows.map((r) => r["id"])).toEqual([
       `documents:${doc.id}:1`,
-      expect.stringMatching(new RegExp(`^documents:${doc.id}:filed:contracts:\\d+$`)),
-      expect.stringMatching(new RegExp(`^documents:${doc.id}:tagged:legal:\\d+$`)),
+      expect.stringMatching(new RegExp(`^documents:${doc.id}:filed:contracts:${RFC3339}$`)),
+      expect.stringMatching(new RegExp(`^documents:${doc.id}:tagged:legal:${RFC3339}$`)),
     ]);
 
     // guard: the replica is not inert — it serves the same feed, which is why it was listening at all
@@ -341,3 +345,71 @@ const follow = (svc: TestService, into: Happened[], abort: AbortSignal): Promise
   })().catch((e: unknown) => {
     if (!(e instanceof Error && e.name === "AbortError")) throw e;
   });
+
+it("an instance a deploy stops drains first: a live query open on it is told to go elsewhere, with a retryable error, rather than left hanging", async () => {
+  // a second instance, as a rolling deploy has while it replaces the first
+  const leaving = await startTestService("workspace", {}, 4);
+  const seen = signal<unknown>();
+  const ended = signal<{ code: string; retrying: boolean }>();
+  const unsubscribe = leaving.client("ada").live("issues", { projectId: PROJECT }, { shape: "{ items { id } }" }, (d) => seen.fire(d), (e, meta) =>
+    ended.fire({ code: (e as { code?: string }).code ?? String(e), retrying: meta.retrying }),
+  );
+  let stopped: Promise<void> | undefined;
+  try {
+    await seen.wait("the list's first answer");
+    expect((await fetch(`${leaving.base}/rayfold/ready`)).status).toBe(200);
+    // what SIGTERM runs
+    stopped = leaving.stop();
+    // the client reopens a query that ends this way through whatever is in front of the instances
+    expect(await ended.wait("the open list to hear the instance is going")).toEqual({ code: "unavailable", retrying: true });
+    await stopped;
+    // guard: gone means gone; the port no longer answers
+    await expect(fetch(`${leaving.base}/rayfold/ready`)).rejects.toThrow();
+  } finally {
+    unsubscribe();
+    await stopped;
+  }
+});
+
+it("an instance that stops takes no more work from the platform's queues; the one that stays does", async () => {
+  const leaving = await startTestService("workspace", { CONSOLE_URL: platform.url, CONSOLE_TOKEN: platform.token, INSTANCE: "workspace-leaving" }, 5);
+  const asked = (worker: string) => platform.claims.filter((c) => c.queue === "notify-workspace" && c.worker === worker).length;
+  try {
+    await until("the leaving instance to ask for work", () => (asked("workspace-leaving") ? true : undefined));
+  } finally {
+    await leaving.stop();
+  }
+  const after = asked("workspace-leaving");
+  const staying = asked("workspace-test");
+  // two more polls by the instance that stays is at least one polling interval of the one that left
+  await until("the staying instance to ask twice more", () => (asked("workspace-test") >= staying + 2 ? true : undefined), 10_000);
+  expect(asked("workspace-leaving")).toBe(after);
+});
+
+it("the flow's last step says what the steps before it found: indexed tells the one who kept it and wakes their badge; a stale version is not indexed and tells nobody", async () => {
+  const unread = signal<number>();
+  const stop = workspace.client("ada").live<number>("unread", {}, {}, (n) => unread.fire(n), (e) => {
+    throw e;
+  });
+  const operator = () => new RayfoldClient({ transport: createFetchTransport({ url: `${platform.url}/rayfold`, headers: () => ({ authorization: `Bearer ${platform.token}` }) }) });
+  const notify = (documentId: string, indexed: boolean) =>
+    operator().command<{ id: string }>("enqueue", { queue: "notify-workspace", payload: { documentId, projectId: PROJECT, name: `${documentId}.txt`, version: 2, byId: "u1", results: { index: { indexed } } } }, { shape: "{ id }", key: crypto.randomUUID() });
+  try {
+    expect(await unread.wait("the badge's first answer")).toBe(0);
+    // the index step ran and left a newer version's text in place: nothing was made searchable
+    const stale = await notify("dStale", false);
+    await until("the stale job to be done", () => (platform.jobs.find((j) => j.id === stale.id)?.state === "done" ? true : undefined));
+    const fresh = await notify("dFresh", true);
+    expect(await unread.wait("the badge to count the indexed file")).toBe(1);
+    await until("the fresh job to be done", () => (platform.jobs.find((j) => j.id === fresh.id)?.state === "done" ? true : undefined));
+    const feed = await workspace.client("ada").query<Feed>("activity", { projectId: PROJECT }, { shape: "{ items { source kind text } }" });
+    expect(feed.items.map((i) => `${i.kind} ${i.text}`).sort()).toEqual(["document.empty dStale.txt (dStale)", "document.indexed dFresh.txt (dFresh)"]);
+    // the file is the subject, without the id, and the kind is all there is to say
+    const apart = await workspace.client("ada").query<{ items: Array<{ kind: string; subject: string; detail: string | null }> }>("activity", { projectId: PROJECT }, { shape: "{ items { kind subject detail } }" });
+    expect(apart.items.map((i) => [i.kind, i.subject, i.detail]).sort()).toEqual([["document.empty", "dStale.txt", null], ["document.indexed", "dFresh.txt", null]]);
+    const told = await workspace.client("ada").query<{ items: Array<{ kind: string; text: string }> }>("notifications", {}, { shape: "{ items { kind text } }" });
+    expect(told.items.map((n) => n.text)).toEqual(["dFresh.txt is searchable now"]);
+  } finally {
+    stop();
+  }
+});

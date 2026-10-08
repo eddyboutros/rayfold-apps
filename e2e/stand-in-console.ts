@@ -102,8 +102,14 @@ export interface StandInConsole {
   traces: unknown[];
   /** The id of the job behind every heartbeat, in order. */
   beats: string[];
+  /** Every claim asked for, in order: the queue and the worker asking, whether or not it was handed a job. */
+  claims: Array<{ queue: string; worker: string }>;
+  /** Every heartbeat asked for, in order, by job id: refused ones too (a job that is not held any more). */
+  beatsAsked: string[];
+  /** Holds every answer to `config` until the returned function is called, as a console that is slow to answer. */
+  holdConfig(): () => void;
   /** Log lines received on the OTLP route, flattened: service, severity, body, and the trace id when there was one. */
-  logs: Array<{ service: string; severity: string; body: string; traceId: string | null; attributes: Record<string, unknown> }>;
+  logs: Array<{ service: string; severity: string; severityNumber: number; body: string; traceId: string | null; attributes: Record<string, unknown> }>;
   stop(): Promise<void>;
 }
 
@@ -119,6 +125,7 @@ function flattenLogs(payload: Record<string, unknown>): StandInConsole["logs"] {
         out.push({
           service,
           severity: String(l["severityText"] ?? ""),
+          severityNumber: Number(l["severityNumber"] ?? 0),
           body: String((l["body"] as Record<string, unknown>)?.["stringValue"] ?? ""),
           traceId: l["traceId"] ? String(l["traceId"]) : null,
           attributes: attrs(l["attributes"]),
@@ -154,6 +161,9 @@ export async function startStandInConsole(now: () => number = Date.now, port = 0
   const runs: RunRow[] = [];
   const traces: unknown[] = [];
   const beats: string[] = [];
+  const claims: StandInConsole["claims"] = [];
+  const beatsAsked: string[] = [];
+  let configGate: Promise<void> | null = null;
   const logs: StandInConsole["logs"] = [];
   const queues = new Map<string, { maxAttempts: number; leaseMs: number; backoffMs: number; concurrency: number | null; timeoutMs: number | null }>();
   const queueOf = (name: string) => queues.get(name) ?? { maxAttempts: 3, leaseMs: 30_000, backoffMs: 1_000, concurrency: null, timeoutMs: null };
@@ -232,7 +242,10 @@ export async function startStandInConsole(now: () => number = Date.now, port = 0
 
   const resolvers: Resolvers = {
     Query: {
-      config: ({ app, environment }: { app: string; environment: string }) => entries.filter((e) => e.app === app && e.environment === environment).map((e) => ({ $type: "ConfigEntry", ...e, value: e.secret ? null : e.value })),
+      config: async ({ app, environment }: { app: string; environment: string }) => {
+        await configGate;
+        return entries.filter((e) => e.app === app && e.environment === environment).map((e) => ({ $type: "ConfigEntry", ...e, value: e.secret ? null : e.value }));
+      },
       jobs: ({ queue, state, flowRun, limit }: { queue?: string | null; state?: string | null; flowRun?: string | null; limit: number }) =>
         jobs.filter((j) => (!queue || j.queue === queue) && (!state || j.state === state) && (!flowRun || j.flowRun === flowRun)).slice(-limit).reverse().map(toJob),
       flowRuns: ({ name, limit }: { name?: string | null; limit: number }) => runs.filter((r) => !name || r.name === name).slice(-limit).reverse().map(runState),
@@ -256,6 +269,7 @@ export async function startStandInConsole(now: () => number = Date.now, port = 0
       },
       enqueue: (a: { queue: string; payload: unknown; key?: string | null; after: string[]; lock?: string | null; maxAttempts?: number | null; onFailure?: string | null }) => toJob(put(a)),
       claim: ({ queue, worker, leaseMs }: { queue: string; worker: string; leaseMs?: number | null }) => {
+        claims.push({ queue, worker });
         const q = queueOf(queue);
         const lease = leaseMs ?? q.leaseMs;
         const running = jobs.filter((j) => j.queue === queue && j.state === "running" && (j.leaseUntil ?? 0) >= now());
@@ -271,6 +285,7 @@ export async function startStandInConsole(now: () => number = Date.now, port = 0
         return { $type: "Claimed", job: toJob(job), token: job.token, leaseUntil: job.leaseUntil };
       },
       heartbeat: ({ id, token, leaseMs }: { id: string; token: string; leaseMs?: number | null }) => {
+        beatsAsked.push(id);
         const job = held(id, token);
         job.leaseUntil = now() + (leaseMs ?? queueOf(job.queue).leaseMs);
         beats.push(job.id);
@@ -359,6 +374,16 @@ export async function startStandInConsole(now: () => number = Date.now, port = 0
     runs,
     traces,
     beats,
+    claims,
+    beatsAsked,
+    holdConfig: () => {
+      let release: () => void = () => undefined;
+      configGate = new Promise<void>((r) => (release = r));
+      return () => {
+        configGate = null;
+        release();
+      };
+    },
     logs,
     stop: () => shutdown(server, http, { timeoutMs: 2_000, flushMs: 50 }),
   };

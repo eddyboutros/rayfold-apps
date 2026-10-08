@@ -34,7 +34,7 @@ const queuePath = join(tmpdir(), `keel-field-${WHO}.json`);
 await rm(queuePath, { force: true });
 
 step(1, "Connect over one WebSocket, in Rayfold Binary");
-const { client, manifest } = await fieldClient({ httpBase: WORKSPACE_URL, wsUrl: `ws://127.0.0.1:${port}/rayfold/ws`, who: WHO, binary: true, queue: fileQueue(queuePath) });
+const { client, manifest, close } = await fieldClient({ httpBase: WORKSPACE_URL, wsUrl: `ws://127.0.0.1:${port}/rayfold/ws`, who: WHO, binary: true, queue: fileQueue(queuePath) });
 say(`   the service serves ${manifest.extensions.join(", ")}; schema ${manifest.schemaHash.slice(0, 12)}…`);
 say(`   frames on the socket are RB bytes, decoded with that schema, so a field name costs one small integer on the wire`);
 const me = await client.query<{ id: string; name: string }>("me", {}, { shape: "{ id name }" });
@@ -81,6 +81,7 @@ say(`   a second drain sends nothing (${again} left): the key was spent, a retry
 step(5, "Done");
 say(`   put it back where it was: moving to ${issue.state}`);
 await client.command("moveIssue", { id: issue.id, to: issue.state }, { shape: "{ id }", ifVersion: settled.version });
+close();
 await line.stop();
 await rm(queuePath, { force: true });
 process.exit(0);

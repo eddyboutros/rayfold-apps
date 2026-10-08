@@ -42,8 +42,8 @@ The way to work on it: the services and the front ends run from source and reloa
 
 ```sh
 npm run db                        # Postgres in Docker on 127.0.0.1:55432; start it once, it keeps its data
-npm run dev                       # the four services: documents :4001, workspace :4002, catalogue :4003, approvals :4004
-npm run web                       # the four front ends; the first run installs them, which takes a few minutes
+npm run dev                       # the five services: documents :4001, workspace :4002, catalogue :4003, approvals :4004, feedback :4005
+npm run web                       # the five front ends; the first run installs them, which takes a few minutes
 ```
 
 Open **http://localhost:4200** once the shell says it is ready. Then, once, fill it with work:
@@ -66,26 +66,62 @@ Sign in as anyone on the team; the sign-in page asks no password (see below). Th
 - **Ask for a sign-off** on a file: the Kotlin service raises it and the workspace's feed and bell hear it.
 - **Open a product** in the Catalogue as Noor, then as anyone else: only the product team sees its margin.
 - **Change a project's settings** from its page header; the rail follows.
+- **Publish an article to the help centre** from its page in the Catalogue, then open **Help centre** in the rail: the
+  customers' site, in React, reading only what is published. Say whether a page helped, and watch the count move on
+  the article's page in Keel, where the team reads every answer.
 - **What this shows**, in the rail, maps every Rayfold feature to the place on the page that uses it and the file
   that does it. It is the best place to start reading code.
 
-`npm run field` and `npm run agent` are two more clients, run against the dev fleet; [Two more clients](#two-more-clients)
-says what each does.
+`npm run field`, `npm run agent` and `npm run signoff` are three more clients, run against the dev fleet;
+[Three more clients](#three-more-clients) says what each does.
 
 ### Tests
 
 ```sh
 npm run db                        # if it is not running already
-npm test                          # every service against a real Postgres, and the flows that cross them
+npm test                          # every service against a real Postgres, the platform library, and the flows that cross them
 cd services/approvals && ./mvnw verify    # the Kotlin service's own tests (mvnw.cmd on Windows)
+cd clients/signoff && ./mvnw verify       # the Kotlin client, against the jar the line above built
+cd web/<app> && npm test -- --watch=false # one front end's component tests: shell, documents-ui, workspace-ui, catalogue-ui, help
 ```
+
+`npm test` starts each service from its own `main.ts`; `e2e/migrations.test.ts` starts several at once on an empty
+database, as `npm run dev` does. The Kotlin service's tests are `ApprovalsTest` and `MigrationsTest`; the signoff
+client's start the service's jar as a process. A front end's tests are `ng test` (Vitest) for the Angular apps and
+`vitest` in jsdom for the help centre, each in its own project. The shell's test sign-in, the session, the rail, the keyboard and the settings; in
+the four that talk to a service, the component's own client code runs against a real
+Rayfold server built from the service's own schema, in process (`src/testing/rayfold.ts`), so a shape or an argument
+the service would refuse fails the spec. They need no database and no service running, only the project's own
+install, which `npm run web` does the first time.
 
 The tests use their own database, `apps_test`, beside the one `npm run dev` uses, so running them never wipes what
 you were looking at. They expect Postgres on 55432, where `npm run db` puts it; with the Docker Compose Postgres
 instead (55433), set `TEST_DATABASE_URL=postgres://postgres:rayfold@127.0.0.1:55433/apps_test`.
 
 `npm run schema:check` compares each service's schema with its committed contract (`rayfold.lock.json`) and refuses
-a breaking change; `npm run schema:lock` records a deliberate one. CI runs both, and everything above.
+a breaking change; `npm run schema:lock` records a deliberate one. `npm run schema:types` regenerates the types the
+help centre and the signoff client are compiled against. CI runs all of it and everything above, builds every front
+end and every image, and fails when `schema:types` changes a generated file.
+
+### The fleet in a browser
+
+`npm run test:fleet` is every flow a person can take across the fleet, through the real front ends in Chromium,
+against the real services, with the CLI clients beside them (`e2e/browser/`, Playwright). It needs Postgres from
+`npm run db`, a JDK 21, and Chromium for Playwright, installed once:
+
+```sh
+npx playwright install chromium
+npm run test:fleet                                   # starts the fleet, runs the specs, stops what it started
+npm run test:fleet -- --grep "sign-off"              # anything after -- goes to playwright test
+FLEET_URL=http://localhost:8080 npm run test:fleet   # a fleet already running, such as npm run up; starts nothing
+```
+
+On its own it creates a database, `apps_fleet_browser`, starts the stand-in console, `npm run dev` and `npm run web`
+against it, waits for every service and dev server, and drops the database at the end. It refuses to start when
+something already holds the fleet's ports: stop `npm run dev` and `npm run web` first. `FLEET_NO_JVM=1` runs it
+without the Kotlin service and skips what needs it; `FLEET_VERBOSE=1` prints every process's output. Against the
+gateway, also set `FLEET_MODE=compose`, and `FLEET_DATABASE_URL=postgres://postgres:rayfold@127.0.0.1:55433/apps`
+for the checks that read what a service stored. It is not in CI: the first build of five dev servers takes minutes.
 
 ## Who is signed in
 
@@ -106,13 +142,17 @@ is real.
 |---|---|
 | `/` | the shell |
 | `/remotes/<app>/` | a remote's bundle, loaded by the shell at runtime |
-| `/api/<service>/rayfold` | a service's endpoint (`documents`, `workspace`, `catalogue`); the prefix is stripped, the service sees `/rayfold` |
+| `/api/<service>/rayfold` | a service's endpoint (`documents`, `workspace`, `catalogue`, `approvals`, `feedback`); the prefix is stripped, the service sees `/rayfold` |
 | `/api/documents/files/` | a document's bytes |
+| `/help/` | the public help centre, another team's site, not a panel of the shell |
+| `/api/help/` | the catalogue again, anonymous and cached: the gateway drops the cookie and `Authorization`, takes only `GET`, and keeps what the service marks `public` (`X-Cache-Status` says `HIT` or `MISS`) |
 
 Nothing a browser does is cross-origin, so no service names an allowed origin and no preflight ever happens. Each
 path is owned by one team and forwards to the container that team ships: a new front end or a new service is a new
 container behind the same path, and nothing else moves. The dev servers answer the same paths through a proxy, so
-the bundles are identical in development and production.
+the bundles are identical in development and production. The shell's dev server sends `/help/` and `/api/help/` to
+the help centre's on :4204, which drops the cookie and `Authorization` on the way to the catalogue as the gateway
+does, but caches nothing.
 
 ## What is here
 
@@ -120,19 +160,22 @@ the bundles are identical in development and production.
 |---|---|
 | `services/documents` | Files: upload, replace, keep every revision, file in folders, tag, remark on, share one with a capability token. |
 | `services/workspace` | Issues with priority, labels, due days and a partial-update command; comments; a project chat and each person's notifications over `stream` operations; the team's workload; and a project feed that carries what the rest of the fleet did. |
-| `services/catalogue` | Products, people and articles behind one search: an interface, a union shaped with `...on`, numbered pages, lazy fields, loaded fields read once per page (a product's category, a person's writing and department), and every article's earlier versions. |
+| `services/catalogue` | Products, people and articles behind one search: an interface, a union shaped with `...on`, numbered pages, lazy fields, loaded fields read once per page (a product's category, a person's writing and department), and every article's earlier versions. Also the public help centre's pages: the published articles, read by anyone, with the read rule in the SQL and answers a shared cache may keep. |
 | `services/approvals` | **Kotlin on Spring Boot**, the fleet's JVM member: sign-offs asked of one person on one document. The same Postgres, the same relay and idempotency tables, the same session cookie; what it raises reaches the workspace's feed and bell, and a new version kept in the documents service reaches it. Built and tested with `./mvnw verify`. |
-| `packages/service-kit` | How every service is wired. The interesting file in the repository. |
-| `e2e/` | The harness services are started with, and the flows that cross them. |
-| `web/` | Keel: the page, and the panels loaded into it at runtime — one per team. Its guide page, "What this shows", maps every Rayfold feature to where it is on the page and the file that does it. See [web/README.md](web/README.md). |
+| `services/feedback` | **Hono on Rayfold's fetch handler**, the support team's: "was this helpful?" on each page of the public help centre, one answer per visitor per page. A visitor is known again by a cookie its middleware sets; who reads which answer is one rule in the schema, pushed into the SQL. |
+| `packages/service-kit` | How every service is wired. The interesting file in the repository. `fetch.ts` is the same for a service whose port is a `Request` -> `Response` app. |
+| `clients/` | Programs that are not a browser: the field device, the agent, and `signoff` in Kotlin. |
+| `e2e/` | The harness services are started with, the flows that cross them, and in `e2e/browser` the whole fleet driven in a browser (`npm run test:fleet`). |
+| `web/` | Keel: the page, and the panels loaded into it at runtime — one per team. Its guide page, "What this shows", maps every Rayfold feature to where it is on the page and the file that does it. And `web/help`, the customers' help centre, in React. See [web/README.md](web/README.md). |
 
 
 ## What one service knows about another
 
 Nothing, except the name of an event.
 
-The documents service raises `DocumentChanged` when a file is kept or replaced. The workspace service declares that
-event in its own schema without ever raising it, and subscribes:
+The documents service raises `DocumentChanged` when a file is kept, replaced or renamed; its `revision` says whether
+the bytes changed, so the feed tells a rename from a new version. The workspace service declares that event in its
+own schema without ever raising it, and subscribes:
 
 ```ts
 server.events.on("DocumentChanged", (payload) => { /* record a line on the project's feed */ });
@@ -140,7 +183,7 @@ server.events.on("DocumentChanged", (payload) => { /* record a line on the proje
 
 The relay delivers it. No shared table, no polling, no webhook to register — and a `live` query on the workspace's
 feed updates because of something that happened in a service on another port with its own database tables.
-`e2e/fleet.test.ts` asserts exactly that, and four of its tests fail if that one subscription is removed.
+`e2e/fleet.test.ts` asserts exactly that, and eight of its tests fail if that one subscription is removed.
 
 The same subscription keeps a link right. An issue's attachment is a document that lives in the documents service;
 the workspace keeps only the link, with the name and address it was shown, and when the file is renamed over there
@@ -164,21 +207,30 @@ from the documents service and marks a pending sign-off stale. Its own tests sta
 directions, and the workspace's tests send the JVM's messages by hand with `pg_notify`, so each half is proved
 without the other in the room.
 
-## Two more clients
+## Three more clients
 
-Not everything that talks to the fleet is a browser panel. Two programs under `clients/` show the rest of the
-protocol, each narrating what it does; run them against the dev fleet.
+Not everything that talks to the fleet is a browser panel. Three programs under `clients/` show the rest of the
+protocol; run them against the dev fleet. `field` and `agent` act for Ada on the workspace at :4002; `WHO=grace`
+and `WORKSPACE_URL` change either.
 
 - **`npm run field`** is a device on a bad line. It talks to the workspace over one WebSocket in Rayfold Binary,
   asks for an issue with a `@defer` block so the thread arrives after the issue, then cuts its own line (it owns a
   small TCP relay), makes a move anyway, and shows the prediction the schema's `@merge` policy allows while the
-  command waits on disk with its idempotency key. When the line is back the queue drains, once. `TRUSTED_SHAPES=1`
+  command waits on disk with its idempotency key. When the line is back the queue drains, once, and the client
+  closes its socket (`close()` from `fieldClient`), so the program ends on its own. `TRUSTED_SHAPES=1`
   on a service makes it serve only the shapes it registered at start (`services/workspace/src/shapes.ts`), by id;
   the test starts one to prove it.
 - **`npm run agent`** is a program acting for a person through MCP. The person mints it a token narrowed to a few
   operations (`mintAgentToken`); the bridge at `/rayfold/mcp` lists every command as a tool with a `.simulate` twin
   and every query as a tool and a resource. The agent dry-runs `createIssue`, then runs it, then is refused what the
   token does not name, including minting a wider token for itself.
+- **`npm run signoff`** is the sign-off queue from a terminal, for the people who work through one every day:
+  `KEEL_USER=tomas npm run signoff -- inbox`, `watch`, `approve <id> [note]`, `decline <id> <note>`. Kotlin, on the
+  JVM client from Maven Central: HTTP for a read and a decision, one WebSocket for the inbox kept live, and the
+  types generated from the approvals schema by `rayfold gen kotlin`, so a renamed field is a compile error. A decision
+  keeps its idempotency key, so a retry that never heard the first answer replays it; a declared refusal
+  (`AlreadyDecided`, `NotYours`) is an answer, not a stack trace. Its tests start the approvals service's own jar.
+  It reaches the service at :4004 (`KEEL_APPROVALS` points it elsewhere) and needs a JDK 21, as that service does.
 
 ## The contract
 
@@ -202,9 +254,37 @@ Each service's `.rayfold` file is its API, its REST routes, its OpenAPI document
   its token.
 - **Cost budgets.** Every op has a static cost from its shape and page sizes; a batch over `COST_BUDGET` (default
   1000) is refused before it runs.
-- **Evolution.** `renameDocument` is `@deprecated` with a sunset and a replacement, `updateDocument`. Each service
-  has a `rayfold.lock.json`, and `npm run schema:check` in CI refuses a breaking change before its sunset. After a
-  compatible change, `npm run schema:lock` records the new hash.
+- **Evolution.** `renameDocument` is `@deprecated` with a sunset and a replacement, `updateDocument`. Each service,
+  the Kotlin one included, has a `rayfold.lock.json`, and `npm run schema:check` in CI refuses a breaking change
+  before its sunset. After a compatible change, `npm run schema:lock` records the new hash.
+- **Read rules in the SQL.** A rule that reads only the row, the viewer and the arguments is handed to the resolver as
+  `ctx.policy`, and `@rayfold/postgres` makes it part of the WHERE. `HelpPage` is published or it is not there
+  (`createPgStore`, `services/catalogue`); a feedback `Rating` is every member's to read and a visitor's own
+  (`compilePolicy`, `services/feedback`). A list then holds only what its reader may see and its total counts only
+  that; without it, the runtime, which checks every row anyway, refuses a whole list that holds one row too many.
+  `npx rayfold explain services/feedback/src/feedback.rayfold ratings` prints `policy pushed down` per level.
+- **A shared cache.** `HelpPage` is `@cache(maxAge: 60s, swr: 10m, scope: public)` and its rule reads nothing about
+  who is asking, so a help page read by URL (`GET /rayfold/helpPage?a=...&s=...`) is public, carries an `ETag` and is
+  answered `304` while nothing changed. The help centre's client turns its reads into those URLs; the gateway keeps
+  one copy for every visitor and revalidates it. The same read by someone signed in is `private`, and never kept.
+
+## Building it
+
+What the people working on the fleet use, beside the product:
+
+- **The explorer.** `npm run dev` sets `EXPLORER=1`, and every service serves the explorer at
+  `/rayfold/explorer`: open `http://localhost:4200/api/catalogue/rayfold/explorer` (any service's name) while signed
+  in to the shell, and it sends requests as you. The Kotlin service's is on its own port,
+  `http://localhost:4004/rayfold/explorer`. Nothing sets it in production, so it is not there.
+- **A mock of a service.** `npm run mock -- catalogue` serves the catalogue's schema with made-up data on :4503, with
+  no database and no other service; `CATALOGUE_URL=http://localhost:4503 npm start` in `web/help` builds the help
+  centre against it. Any service's name works.
+- **Generated types.** `npm run schema:types` writes the help centre's TypeScript (`rayfold gen ts`) and the signoff
+  client's Kotlin (`rayfold gen kotlin`) from the schemas they read; CI fails when they are stale.
+- **A plan before a request.** `npx rayfold explain <schema> <op> --shape "{ ... }"` prints an op's cost, its loader
+  calls per level, and which read rules go into the SQL.
+- **The editor.** `npx rayfold lsp` is the language server for `.rayfold` files, with the same parser and validator
+  the services run; point an editor's LSP client at it (the Rayfold guide, Editors, has VS Code and Neovim set-ups).
 
 ## The platform library
 
@@ -257,6 +337,18 @@ same flow semantics, in memory — so the tests need only Postgres.
 **One database, one schema per service.** Services share a Postgres and never read each other's tables. Two tables
 are shared on purpose — `rayfold_idempotency` and `rayfold_relay` — because they are the fleet's, not a service's.
 
+**Migrations take turns.** Postgres refuses two `create table if not exists` of one table run at the same moment, and
+`npm run dev` and `docker compose up` start every service at once. So every service, and every instance of one,
+migrates under one advisory lock (`MIGRATION_LOCK` in `packages/service-kit`, the same number in the Kotlin
+service): on an empty database they wait for each other instead of one of them exiting. `e2e/migrations.test.ts`
+and `MigrationsTest` hold the lock themselves to watch the services queue for it.
+
+**An instant is RFC 3339 on the wire.** Every `Instant` a service answers or raises is UTC text, as the schema's
+scalar says, in every runtime. The services keep epoch milliseconds in their columns, because a `bigint` orders and
+compares for free, and cross between the two only at the store's edge: `instant()` and `millis()` in
+`packages/service-kit`, `Instant.ofEpochMilli` in the Kotlin service. The feedback service keeps a `timestamptz` and
+answers it with `toISOString()`.
+
 **A URL crosses a service boundary, never bytes.** The documents service keeps files on a volume and hands out
 `url`. Nothing else in the fleet learns where the bytes are, which is what lets that become an object store later
 without touching another service.
@@ -268,6 +360,31 @@ mints is honoured by the next — scoped to the operations it names and expiring
 `main.ts`: the real migration, the real routes, the real shutdown, against a real Postgres. There is no second code
 path for tests.
 
+## After the next Rayfold release
+
+The fleet is on 0.2.1, from npm and Maven Central, and works around what that release gets wrong. Rayfold's next
+release fixes each of these (its changelog, under Unreleased), and the workaround goes when the fleet moves to it:
+
+- **The help centre's feedback client has no schema** (`web/help/src/clients.ts`). With one, it sends a live query
+  as a safe request, and 0.2.1 answers a safe request only once it ends, which a live query never does.
+- **The catalogue reads help pages with `page`, not `screen`** (`services/catalogue/src/resolvers.ts`). 0.2.1's
+  `screen` reads only the columns the shape names, so a list that did not ask for `publishedAt` has every row refused
+  by `HelpPage`'s read rule.
+- **A workspace panel's live query stops for good** when its socket is refused while no instance is up; the panel
+  says so and a reload brings it back. `e2e/browser/09-drain.spec.ts` expects either, by the client's version.
+
+And what the fleet will show once it is there:
+
+- **`@http(name:)`**: a REST route that takes an argument under the name an outside caller sends, such as
+  `first-name`, while the schema keeps its own.
+- **Tests without a network.** `dev.rayfold:rayfold-test` for the approvals service's tests, `LocalTransport` for
+  the signoff client's, and `@rayfold/client/testing` for waiting on a live query's next value in the front ends'
+  specs, in place of the helpers each `src/testing/` writes for itself.
+- **The JVM server's clock.** The approvals service telling the time by a clock its tests can move, as the
+  TypeScript services' resolvers already take a `now`.
+- **Angular waits for Rayfold.** `fixture.whenStable()` waits for a query's first answer and a command's run, so the
+  Angular specs can wait on it for data.
+
 ## When something does not work
 
 | What you see | Why, and what fixes it |
@@ -276,8 +393,11 @@ path for tests.
 | `npm test` stops before running, saying a native binding is missing | npm left a platform binary out of `node_modules`, a known npm bug with optional packages; the message names it. `rm -rf node_modules && npm ci` installs exactly what the committed lockfile lists. |
 | After adding a package to a front end, CI's `npm ci` fails with `Missing: @emnapi/... from lock file` | The same npm bug: an `npm install` on one platform wrote a lockfile without another platform's binaries. In that `web/*` project, `rm -rf node_modules package-lock.json && npm install`, and commit the new lockfile. |
 | A panel says it is unavailable, with a 404 for a `-dev.js` file | That remote's dev server is serving an old build. Stop `npm run web`, delete the remote's `dist/` folder, start it again. A new file a remote exposes, or a new package it imports, needs the same. |
+| The help centre shows a page you just took off | The gateway's shared cache: a help page is fresh for a minute, and served stale for up to ten while it is fetched again. In development nothing caches. |
 | The sign-offs tab is unavailable | The Kotlin service is not running: `npm run dev` without `--no-jvm`, which needs a JDK 21. |
-| A port is already in use | Something else holds 4001–4004, 4200–4203, 8080 or 55432. Stop it, or change the port in `scripts/dev.mjs`, `scripts/web.mjs` or `docker-compose.yml`. |
+| A port is already in use | Something else holds 4001–4005, 4200–4204, 8080 or 55432. Stop it, or change the port in `scripts/dev.mjs`, `scripts/web.mjs` or `docker-compose.yml`. |
+| `npm run test:fleet` stops at once: `port 4001 (documents) is already in use` | It starts a fleet of its own and will not test the one you are running. Stop `npm run dev` and `npm run web`, or point it at yours with `FLEET_URL`. |
+| `npm run test:fleet` fails with `Executable doesn't exist` | Playwright's Chromium is not installed: `npx playwright install chromium`, once. |
 | A service logs `no CONSOLE_URL: running without the platform` | That is normal: the console is a separate product this repository does not include. Files are not made searchable and there are no queues, traces or live configuration; everything else works. |
 
 ## Configuration
@@ -295,3 +415,7 @@ path for tests.
 | `CONSOLE_TOKEN` | A `service` token the console minted for this service, on its Access screen. The console refuses a caller without one, so a URL without a token also runs alone, and says so at start. |
 | `APP_ENVIRONMENT` | Which configuration to read from the console. Default `development`; `production` in compose. |
 | `SELF_URL` | Where a worker reaches this service, for a URL it hands out in a job. Default `http://127.0.0.1:$PORT`. |
+| `EXPLORER` | `1` serves the explorer at `/rayfold/explorer`. Set by `npm run dev`; absent in production. |
+| `COST_BUDGET` | The most a batch may cost before it is refused. Default 1000. |
+| `TRUSTED_SHAPES` | `1` serves only the shapes a service registered at start. |
+| `FILES_DIR`, `UPLOADS_DIR` | The documents service's volume: kept files, and uploads in progress. `npm run dev` puts both under the temp directory. |

@@ -83,8 +83,12 @@ error UploadGone { upload: ID }
 """The bytes are over the limit the platform sets for this service. Nothing was kept."""
 error UploadTooLarge { size: Int, limit: Int }
 
-"""Raised on every change, with who made it, so another service can say so without asking this one."""
-event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID }
+"""
+Raised when a document is kept, replaced or renamed, with who did it, so another service can say so without asking this
+one. `revision` says whether its bytes changed: true for a new document or a new version, false for a new name on the
+same bytes. Absent from a publisher older than the field, which raised it only for new bytes and renames alike.
+"""
+event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID, revision: Boolean? }
 """Raised when a document is filed somewhere else. `folder` null is the root."""
 event DocumentFiled { documentId: ID, projectId: ID, name: String, folder: String?, byId: ID, at: Instant? }
 event DocumentTagged { documentId: ID, projectId: ID, name: String, tags: [String], byId: ID, at: Instant? }

@@ -5,7 +5,7 @@
  * split is the whole point of the service: a database is good at "which revision is current and who owns it" and
  * bad at holding a hundred megabytes twice on the way through.
  */
-import { membersSeed } from "@apps/service-kit";
+import { instant, membersSeed, millis } from "@apps/service-kit";
 import type pg from "pg";
 
 export interface Member {
@@ -21,7 +21,8 @@ export interface Document {
   size: number;
   url: string;
   version: number;
-  updatedAt: number;
+  /** RFC 3339 in UTC, as the schema's Instant is on the wire; the column keeps epoch milliseconds. */
+  updatedAt: string;
   ownerId: string;
   folder: string | null;
   tags: string[];
@@ -31,7 +32,7 @@ export interface Note {
   id: string;
   documentId: string;
   body: string;
-  at: number;
+  at: string;
   byId: string;
 }
 
@@ -51,8 +52,15 @@ export interface Revision {
   version: number;
   size: number;
   url: string;
-  at: number;
+  at: string;
   byId: string;
+}
+
+/** A page of rows, and whether there are more after it: read as one row past the page, so the last page says so. */
+export interface Paged<T> {
+  items: T[];
+  total: number;
+  hasMore: boolean;
 }
 
 /** Safe to run from every instance at once, like the platform's own. */
@@ -112,7 +120,7 @@ const toDocument = (r: Record<string, unknown>): Document => ({
   size: Number(r["size"]),
   url: r["url"] as string,
   version: r["version"] as number,
-  updatedAt: Number(r["updated_at"]),
+  updatedAt: instant(Number(r["updated_at"])),
   ownerId: r["owner_id"] as string,
   folder: (r["folder"] as string | null) ?? null,
   tags: (r["tags"] as string[] | null) ?? [],
@@ -122,7 +130,7 @@ const toNote = (r: Record<string, unknown>): Note => ({
   id: r["id"] as string,
   documentId: r["document_id"] as string,
   body: r["body"] as string,
-  at: Number(r["at"]),
+  at: instant(Number(r["at"])),
   byId: r["by_id"] as string,
 });
 
@@ -132,7 +140,7 @@ const toRevision = (r: Record<string, unknown>): Revision => ({
   version: r["version"] as number,
   size: Number(r["size"]),
   url: r["url"] as string,
-  at: Number(r["at"]),
+  at: instant(Number(r["at"])),
   byId: r["by_id"] as string,
 });
 
@@ -150,17 +158,17 @@ export class DocumentStore {
   }
 
   /** A project's documents, most recently changed first; in one folder or under one tag when asked. */
-  async documentsOf(projectId: string, filter: DocumentFilter, first: number, after: string | null): Promise<{ items: Document[]; total: number }> {
+  async documentsOf(projectId: string, filter: DocumentFilter, first: number, after: string | null): Promise<Paged<Document>> {
     const where = "project_id = $1 and ($2::text is null or folder = $2) and ($3::text is null or $3 = any(tags))";
     const args = [projectId, filter.folder, filter.tag];
     const { rows } = await this.sql.query(
       `select * from documents where ${where}
          and ($4::text is null or (updated_at, id) < (select updated_at, id from documents where id = $4))
        order by updated_at desc, id desc limit $5`,
-      [...args, after, first],
+      [...args, after, first + 1],
     );
     const { rows: counted } = await this.sql.query(`select count(*)::int as n from documents where ${where}`, args);
-    return { items: rows.map(toDocument), total: (counted[0]?.["n"] as number) ?? 0 };
+    return { items: rows.slice(0, first).map(toDocument), total: (counted[0]?.["n"] as number) ?? 0, hasMore: rows.length > first };
   }
 
   async folders(projectId: string): Promise<Folder[]> {
@@ -168,27 +176,27 @@ export class DocumentStore {
     return rows.map((r) => ({ name: r["name"] as string, count: r["count"] as number }));
   }
 
-  async notes(documentId: string, first: number, after: string | null): Promise<{ items: Note[]; total: number }> {
+  async notes(documentId: string, first: number, after: string | null): Promise<Paged<Note>> {
     const { rows } = await this.sql.query(
       "select * from notes where document_id = $1 and ($2::text is null or (at, id) > (select at, id from notes where id = $2)) order by at, id limit $3",
-      [documentId, after, first],
+      [documentId, after, first + 1],
     );
     const { rows: counted } = await this.sql.query("select count(*)::int as n from notes where document_id = $1", [documentId]);
-    return { items: rows.map(toNote), total: (counted[0]?.["n"] as number) ?? 0 };
+    return { items: rows.slice(0, first).map(toNote), total: (counted[0]?.["n"] as number) ?? 0, hasMore: rows.length > first };
   }
 
   async addNote(note: Note): Promise<void> {
-    await this.sql.query("insert into notes (id, document_id, body, at, by_id) values ($1,$2,$3,$4,$5)", [note.id, note.documentId, note.body, note.at, note.byId]);
+    await this.sql.query("insert into notes (id, document_id, body, at, by_id) values ($1,$2,$3,$4,$5)", [note.id, note.documentId, note.body, millis(note.at), note.byId]);
   }
 
-  async revisionsOf(documentId: string, first: number, after: string | null): Promise<{ items: Revision[]; total: number }> {
+  async revisionsOf(documentId: string, first: number, after: string | null): Promise<Paged<Revision>> {
     const { rows } = await this.sql.query(
       `select * from revisions where document_id = $1 and ($2::text is null or version < (select version from revisions where id = $2))
        order by version desc limit $3`,
-      [documentId, after, first],
+      [documentId, after, first + 1],
     );
     const { rows: counted } = await this.sql.query("select count(*)::int as n from revisions where document_id = $1", [documentId]);
-    return { items: rows.map(toRevision), total: (counted[0]?.["n"] as number) ?? 0 };
+    return { items: rows.slice(0, first).map(toRevision), total: (counted[0]?.["n"] as number) ?? 0, hasMore: rows.length > first };
   }
 
   /** The revision a `/files/{id}` request names, with the document it belongs to, so the route can apply the same rule. */
@@ -221,7 +229,7 @@ export class DocumentStore {
       await client.query("begin");
       await client.query(
         "insert into documents (id, name, project_id, content_type, size, url, version, updated_at, owner_id, folder, tags) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
-        [doc.id, doc.name, doc.projectId, doc.contentType, doc.size, doc.url, doc.version, doc.updatedAt, doc.ownerId, doc.folder, doc.tags],
+        [doc.id, doc.name, doc.projectId, doc.contentType, doc.size, doc.url, doc.version, millis(doc.updatedAt), doc.ownerId, doc.folder, doc.tags],
       );
       await client.query("insert into revisions (id, document_id, version, size, url, at, by_id) values ($1,$2,$3,$4,$5,$6,$7)", [
         revision.id,
@@ -229,7 +237,7 @@ export class DocumentStore {
         revision.version,
         revision.size,
         revision.url,
-        revision.at,
+        millis(revision.at),
         revision.byId,
       ]);
       await client.query("commit");
@@ -251,7 +259,7 @@ export class DocumentStore {
       await client.query("begin");
       const { rowCount } = await client.query(
         "update documents set content_type = $2, size = $3, url = $4, version = $5, updated_at = $6 where id = $1 and version = $7",
-        [doc.id, doc.contentType, doc.size, doc.url, doc.version, doc.updatedAt, fromVersion],
+        [doc.id, doc.contentType, doc.size, doc.url, doc.version, millis(doc.updatedAt), fromVersion],
       );
       if (!rowCount) {
         await client.query("rollback");
@@ -263,7 +271,7 @@ export class DocumentStore {
         revision.version,
         revision.size,
         revision.url,
-        revision.at,
+        millis(revision.at),
         revision.byId,
       ]);
       await client.query("commit");
@@ -276,27 +284,29 @@ export class DocumentStore {
     }
   }
 
-  async rename(id: string, name: string, version: number, updatedAt: number): Promise<void> {
-    await this.sql.query("update documents set name = $2, version = $3, updated_at = $4 where id = $1", [id, name, version, updatedAt]);
+  /** Lands only while the version is what the caller read, like every other change. */
+  async rename(id: string, name: string, fromVersion: number, updatedAt: string): Promise<boolean> {
+    const { rowCount } = await this.sql.query("update documents set name = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4", [id, name, millis(updatedAt), fromVersion]);
+    return !!rowCount;
   }
 
   /** Name, folder and tags together, only while the version is what the caller read. */
   async update(doc: Document, fromVersion: number): Promise<boolean> {
     const { rowCount } = await this.sql.query(
       "update documents set name = $2, folder = $3, tags = $4, version = $5, updated_at = $6 where id = $1 and version = $7",
-      [doc.id, doc.name, doc.folder, doc.tags, doc.version, doc.updatedAt, fromVersion],
+      [doc.id, doc.name, doc.folder, doc.tags, doc.version, millis(doc.updatedAt), fromVersion],
     );
     return !!rowCount;
   }
 
   /** Lands only while the version is what the caller read, like a replace. */
-  async file(id: string, folder: string | null, fromVersion: number, updatedAt: number): Promise<boolean> {
-    const { rowCount } = await this.sql.query("update documents set folder = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4", [id, folder, updatedAt, fromVersion]);
+  async file(id: string, folder: string | null, fromVersion: number, updatedAt: string): Promise<boolean> {
+    const { rowCount } = await this.sql.query("update documents set folder = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4", [id, folder, millis(updatedAt), fromVersion]);
     return !!rowCount;
   }
 
-  async tag(id: string, tags: string[], fromVersion: number, updatedAt: number): Promise<boolean> {
-    const { rowCount } = await this.sql.query("update documents set tags = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4", [id, tags, updatedAt, fromVersion]);
+  async tag(id: string, tags: string[], fromVersion: number, updatedAt: string): Promise<boolean> {
+    const { rowCount } = await this.sql.query("update documents set tags = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4", [id, tags, millis(updatedAt), fromVersion]);
     return !!rowCount;
   }
 

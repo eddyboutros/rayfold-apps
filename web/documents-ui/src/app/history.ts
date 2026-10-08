@@ -11,7 +11,7 @@ export interface Revision {
   version: number;
   size: number;
   url: string;
-  at: number;
+  at: string;
   by: { name: string } | null;
 }
 
@@ -66,7 +66,7 @@ export class History {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
 
-  when(at: number): string {
+  when(at: string): string {
     return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 }

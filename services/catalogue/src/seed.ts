@@ -39,6 +39,8 @@ interface ArticleRow {
   authorId: string;
   body: string;
   updatedAt: number;
+  /** On the public help centre since then; absent for what the team keeps to itself. */
+  publishedAt?: number;
 }
 
 const PRODUCTS: ProductRow[] = [
@@ -361,6 +363,91 @@ Meals with the customer are claimed as customer entertainment and need the custo
 Fines of any kind, and anything for a family member travelling with you.
 `,
   },
+  // ---- written for customers, and published on the help centre: what a tenant's own people read
+  {
+    id: "ar-help-export",
+    name: "Exporting invoices to your finance system",
+    slug: "exporting-invoices",
+    summary: "The nightly export, the columns it carries, and how to run one by hand for a closed month.",
+    tags: ["invoicing", "finance", "export"],
+    authorId: "u7",
+    updatedAt: day(2026, 9, 16),
+    publishedAt: day(2026, 9, 16),
+    body: `# Exporting invoices to your finance system
+
+Order desk writes every invoice and credit note raised in a day to one export file, after midnight in your tenant's
+time zone. Your finance system collects it from the location set up during onboarding.
+
+## What each line carries
+| Column | What it is |
+|---|---|
+| invoice_number | The number printed on the invoice, unique per tenant |
+| issued_on | The day it was raised |
+| purchase_order | The customer's purchase order reference, when the order had one |
+| net, vat, gross | In cents, as every amount in Order desk is |
+| credit_of | On a credit note, the invoice it credits |
+
+## Running one by hand
+In the back office, open **Invoicing > Exports**, choose the month and press **Export again**. A month that has been
+closed exports exactly what was exported at the time; nothing raised later is added to it.
+
+## When a line is missing
+An invoice raised from an order that is still on hold is exported on the day the hold is released, not the day the
+invoice was drafted. If a line is missing after that, contact support with the invoice number.
+`,
+  },
+  {
+    id: "ar-help-sandbox",
+    name: "Resetting your sandbox tenant",
+    slug: "resetting-your-sandbox",
+    summary: "What a reset keeps, what it replaces, and who in your organisation may start one.",
+    tags: ["sandbox", "administration"],
+    authorId: "u7",
+    updatedAt: day(2026, 9, 11),
+    publishedAt: day(2026, 9, 11),
+    body: `# Resetting your sandbox tenant
+
+The sandbox is a second tenant with a copy of your data, for your own testing. Your administrator can reset it from
+**Settings > Sandbox** without opening a ticket.
+
+## What a reset does
+- Your configuration is kept: users, roles, number ranges and integrations.
+- Orders, invoices, returns and customers are replaced with a fresh copy from your live tenant, as it was at the
+  start of the reset.
+- Anything you created only in the sandbox is gone afterwards.
+
+## How long it takes
+Most resets finish within twenty minutes. The sandbox shows a banner while it runs, and refuses sign-ins until it is
+done.
+
+## Who may reset it
+Anyone with the administrator role on the live tenant. The reset is recorded in the audit log under their name.
+`,
+  },
+  {
+    id: "ar-help-refunds",
+    name: "Approving a refund above your limit",
+    slug: "approving-refunds",
+    summary: "Why some refunds wait for a second person, and how that person approves one.",
+    tags: ["returns", "refunds"],
+    authorId: "u3",
+    updatedAt: day(2026, 9, 19),
+    publishedAt: day(2026, 9, 19),
+    body: `# Approving a refund above your limit
+
+Every user who can refund has a limit, set by your administrator. A refund under it is paid as soon as the return is
+inspected. A refund over it waits for a second person whose own limit covers the amount.
+
+## Approving one
+Refunds waiting for you are under **Returns > Waiting for approval**. Open one to see the inspection outcome, the
+photos taken at inspection, and the amount proposed. **Approve** pays it against the original payment; **Send back**
+returns it to whoever proposed it, with your note.
+
+## Why a refund cannot be approved by the person who proposed it
+The second person is the point. A user whose limit covers the amount pays it directly; anyone else needs someone
+else.
+`,
+  },
 ];
 
 const q = (s: string): string => `'${s.replace(/'/g, "''")}'`;
@@ -378,10 +465,15 @@ export const SEED = `
     ${PEOPLE.map((p) => `(${q(p.id)}, ${q(p.name)}, ${q(p.title)}, ${q(p.department)}, ${q(p.email)}, ${q(p.location)}, ${p.updatedAt})`).join(",\n    ")}
   on conflict (id) do nothing;
 
-  insert into articles (id, name, slug, summary, tags, author_id, body, version, updated_at) values
-    ${ARTICLES.map((a) => `(${q(a.id)}, ${q(a.name)}, ${q(a.slug)}, ${q(a.summary)}, ${list(a.tags)}, ${q(a.authorId)}, ${q(a.body)}, 1, ${a.updatedAt})`).join(",\n    ")}
+  insert into articles (id, name, slug, summary, tags, author_id, body, version, updated_at, published_at) values
+    ${ARTICLES.map((a) => `(${q(a.id)}, ${q(a.name)}, ${q(a.slug)}, ${q(a.summary)}, ${list(a.tags)}, ${q(a.authorId)}, ${q(a.body)}, 1, ${a.updatedAt}, ${a.publishedAt ? `to_timestamp(${a.publishedAt / 1000})` : "null"})`).join(",\n    ")}
   on conflict (id) do nothing;
 `;
 
 /** How many of each the seed holds, for a test that counts. */
 export const SEEDED = { products: PRODUCTS.length, people: PEOPLE.length, articles: ARTICLES.length };
+
+/** The articles the seed puts on the help centre, by slug, A to Z: the list a visitor sees on a first start. */
+export const PUBLISHED = ARTICLES.filter((a) => a.publishedAt !== undefined)
+  .map((a) => a.slug)
+  .sort();

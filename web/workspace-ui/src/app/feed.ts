@@ -14,17 +14,18 @@ export interface Line {
   id: string;
   source: string;
   kind: string;
-  text: string;
-  at: number;
+  /** What was acted on, whole: a colon in an issue's title is the title's. */
+  subject: string;
+  /** What happened to it, as the service said it; null when the line says no more. */
+  detail: string | null;
+  at: string;
   by: { id: string; name: string } | null;
 }
-
-/** Lines whose text is "<file>: <what>", like an issue's. */
-const FILED = new Set(["document.filed", "document.tagged", "document.noted", "approval.requested", "approval.decided", "document.attached", "document.detached"]);
 
 const KIND_LABEL: Record<string, string> = {
   "document.added": "added a file",
   "document.replaced": "replaced a file",
+  "document.renamed": "renamed a file",
   "document.filed": "filed",
   "document.tagged": "tagged",
   "document.noted": "remarked on",
@@ -84,7 +85,7 @@ const KIND_LABEL: Record<string, string> = {
                 <span class="what">
                   <span class="who">{{ line.by?.name ?? "Keel" }}</span>
                   <span class="verb">{{ verb(line.kind) }}</span>
-                  <span class="text">{{ subject(line) }}</span>
+                  <span class="text">{{ line.subject }}</span>
                   @if (detail(line); as more) {
                     <span class="more muted">{{ more }}</span>
                   }
@@ -111,7 +112,7 @@ export class Feed {
   readonly projectId = input<string>("");
 
   readonly feed = injectLive<{ items: Line[] }>("activity", () => ({ projectId: this.projectId() }), {
-    shape: "{ items { id source kind text at by { id name } } }",
+    shape: "{ items { id source kind subject detail at by { id name } } }",
     enabled: () => this.projectId() !== "",
   });
 
@@ -132,35 +133,15 @@ export class Feed {
       .toUpperCase();
   }
 
-  /** The text minus the id in brackets the service appends: a person reads the name, a log reads the id. */
-  private clean(line: Line): string {
-    return line.text.replace(/\s*\([0-9a-f-]{20,}\)\s*$/i, "");
-  }
-
-  /** What was acted on: the issue's title, or the file's name. */
-  subject(line: Line): string {
-    const text = this.clean(line);
-    if (line.kind === "document.replaced") return text.replace(/, now version \d+$/, "");
-    if (line.kind.startsWith("issue.") || line.kind.startsWith("comment.") || FILED.has(line.kind)) return text.split(": ")[0] ?? text;
-    return text;
-  }
-
   /** What happened to it, when the line says more than its subject: where it moved, what was said, which version. */
   detail(line: Line): string {
-    const text = this.clean(line);
-    if (line.kind === "document.replaced") return text.match(/now version \d+$/)?.[0] ?? "";
-    if (line.kind.startsWith("issue.") || line.kind.startsWith("comment.") || FILED.has(line.kind)) {
-      const i = text.indexOf(": ");
-      if (i < 0) return "";
-      const rest = text.slice(i + 2);
-      if (line.kind === "issue.assigned") return `to ${rest}`;
-      if (line.kind === "document.filed") return `in ${rest}`;
-      if (line.kind === "approval.requested") return `from ${rest}`;
-      if (line.kind === "comment.added" || line.kind === "document.noted") return `“${rest}”`;
-      if (line.kind === "document.attached" || line.kind === "document.detached") return rest;
-      return rest;
-    }
-    return "";
+    const more = line.detail;
+    if (!more) return "";
+    if (line.kind === "issue.assigned") return `to ${more}`;
+    if (line.kind === "document.filed") return `in ${more}`;
+    if (line.kind === "approval.requested") return `from ${more}`;
+    if (line.kind === "comment.added" || line.kind === "document.noted") return `“${more}”`;
+    return more;
   }
 
   message(): string {
@@ -168,7 +149,7 @@ export class Feed {
     return e instanceof Error ? e.message : String(e);
   }
 
-  when(at: number): string {
+  when(at: string): string {
     const d = new Date(at);
     const today = new Date().toDateString() === d.toDateString();
     return today ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });

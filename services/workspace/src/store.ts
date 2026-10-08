@@ -4,7 +4,7 @@
  * `activity` is the one worth looking at: rows arrive from this service's own commands and from events other
  * services raised, and `source` says which. Nothing here reads another service's tables to build it.
  */
-import { membersSeed } from "@apps/service-kit";
+import { instant, membersSeed, millis } from "@apps/service-kit";
 import type pg from "pg";
 
 export type IssueState = "open" | "doing" | "done";
@@ -29,7 +29,8 @@ export interface Issue {
   dueOn: string | null;
   description: string | null;
   version: number;
-  updatedAt: number;
+  /** RFC 3339 in UTC, as the schema's Instant is on the wire; the column keeps epoch milliseconds. */
+  updatedAt: string;
 }
 
 /** What `updateIssue` may change: a key that is present is written, one that is absent is left alone. */
@@ -59,7 +60,7 @@ export interface Comment {
   id: string;
   issueId: string;
   body: string;
-  at: number;
+  at: string;
   byId: string;
 }
 
@@ -67,7 +68,7 @@ export interface Message {
   id: string;
   projectId: string;
   body: string;
-  at: number;
+  at: string;
   byId: string;
 }
 
@@ -78,8 +79,8 @@ export interface Notification {
   text: string;
   projectId: string;
   issueId: string | null;
-  at: number;
-  readAt: number | null;
+  at: string;
+  readAt: string | null;
 }
 
 export interface Attachment {
@@ -88,7 +89,7 @@ export interface Attachment {
   documentId: string;
   name: string;
   url: string;
-  at: number;
+  at: string;
   byId: string;
 }
 
@@ -101,7 +102,8 @@ export interface Project {
   color: ProjectColor;
   defaultAssigneeId: string | null;
   version: number;
-  updatedAt: number;
+  /** RFC 3339 in UTC, as the schema's Instant is on the wire; the column keeps epoch milliseconds. */
+  updatedAt: string;
 }
 
 export interface ProjectChanges {
@@ -116,9 +118,21 @@ export interface Activity {
   projectId: string;
   source: string;
   kind: string;
+  /** The subject and the detail as one line, as the feed was first written: kept for a reader that knows no other. */
   text: string;
-  at: number;
+  /** What was acted on, whole: an issue's title, a file's name, a project's name. */
+  subject: string;
+  /** What happened to it, when the line says more than its subject; null when it says no more. */
+  detail: string | null;
+  at: string;
   byId: string | null;
+}
+
+/** A page of rows, and whether there are more after it: read as one row past the page, so the last page says so. */
+export interface Paged<T> {
+  items: T[];
+  total: number;
+  hasMore: boolean;
 }
 
 export const SCHEMA = `
@@ -165,6 +179,11 @@ export const SCHEMA = `
   -- added after the first deploy. no reference to members: a line relayed from another service may name someone
   -- this service has not heard of yet, and the line is still worth keeping
   alter table activity add column if not exists by_id text;
+  -- added after the first deploy: a line's subject and detail apart, so neither is ever recovered from the text by
+  -- guessing at a colon. nullable on purpose: an instance from before them may still be writing during a rollout,
+  -- and its rows are read as their whole text and filled in by the next start
+  alter table activity add column if not exists subject text;
+  alter table activity add column if not exists detail text;
 
   create table if not exists messages (
     id text primary key,
@@ -230,7 +249,7 @@ const toIssue = (r: Record<string, unknown>): Issue => ({
   dueOn: (r["due_on"] as string | null) ?? null,
   description: (r["description"] as string | null) ?? null,
   version: r["version"] as number,
-  updatedAt: Number(r["updated_at"]),
+  updatedAt: instant(Number(r["updated_at"])),
 });
 
 const toMember = (r: Record<string, unknown>): Member => ({
@@ -244,7 +263,7 @@ const toComment = (r: Record<string, unknown>): Comment => ({
   id: r["id"] as string,
   issueId: r["issue_id"] as string,
   body: r["body"] as string,
-  at: Number(r["at"]),
+  at: instant(Number(r["at"])),
   byId: r["by_id"] as string,
 });
 
@@ -255,7 +274,7 @@ const toProject = (r: Record<string, unknown>): Project => ({
   color: r["color"] as ProjectColor,
   defaultAssigneeId: (r["default_assignee_id"] as string | null) ?? null,
   version: r["version"] as number,
-  updatedAt: Number(r["updated_at"]),
+  updatedAt: instant(Number(r["updated_at"])),
 });
 
 const toAttachment = (r: Record<string, unknown>): Attachment => ({
@@ -264,7 +283,7 @@ const toAttachment = (r: Record<string, unknown>): Attachment => ({
   documentId: r["document_id"] as string,
   name: r["name"] as string,
   url: r["url"] as string,
-  at: Number(r["at"]),
+  at: instant(Number(r["at"])),
   byId: r["by_id"] as string,
 });
 
@@ -272,7 +291,7 @@ const toMessage = (r: Record<string, unknown>): Message => ({
   id: r["id"] as string,
   projectId: r["project_id"] as string,
   body: r["body"] as string,
-  at: Number(r["at"]),
+  at: instant(Number(r["at"])),
   byId: r["by_id"] as string,
 });
 
@@ -283,9 +302,45 @@ const toNotification = (r: Record<string, unknown>): Notification => ({
   text: r["text"] as string,
   projectId: r["project_id"] as string,
   issueId: (r["issue_id"] as string | null) ?? null,
-  at: Number(r["at"]),
-  readAt: r["read_at"] === null ? null : Number(r["read_at"]),
+  at: instant(Number(r["at"])),
+  readAt: r["read_at"] === null ? null : instant(Number(r["read_at"])),
 });
+
+/**
+ * Fills in subject and detail on lines written before they had columns, from the one text those lines kept. Only
+ * where the text says unambiguously where the subject ends: a kind that never had a detail, a detail whose form the
+ * service wrote and nothing else can (", now version 3", ": open → doing"), or a text with exactly one ": " in it.
+ * Anything else, a title or a remark holding a colon of its own, is kept whole as the subject with no detail: a line
+ * that reads a little plainer, rather than one split in the wrong place. The "(id)" a relayed line ends with is for
+ * a log, not a person, and is left out of both; the text keeps it.
+ */
+export const BACKFILL = String.raw`
+  with old as (
+    select id, kind,
+      case when source = 'workspace' then text else regexp_replace(text, ' \([^()]+\)$', '') end as clean
+    from activity where subject is null
+  ), split as (
+    select id, kind, clean,
+      (length(clean) - length(replace(clean, ': ', ''))) / 2 as colons,
+      strpos(clean, ': ') as first
+    from old
+  )
+  update activity a set
+    subject = case
+      when s.kind in ('issue.created', 'document.added', 'document.renamed', 'document.indexed', 'document.empty') then s.clean
+      when s.kind = 'document.replaced' and s.clean ~ ', now version \d+$' then regexp_replace(s.clean, ', now version \d+$', '')
+      when s.kind = 'issue.moved' and s.clean ~ ': (open|doing|done) → (open|doing|done)$' then regexp_replace(s.clean, ': (open|doing|done) → (open|doing|done)$', '')
+      when s.colons = 1 then left(s.clean, s.first - 1)
+      else s.clean
+    end,
+    detail = case
+      when s.kind in ('issue.created', 'document.added', 'document.renamed', 'document.indexed', 'document.empty') then null
+      when s.kind = 'document.replaced' and s.clean ~ ', now version \d+$' then substring(s.clean from 'now version \d+$')
+      when s.kind = 'issue.moved' and s.clean ~ ': (open|doing|done) → (open|doing|done)$' then substring(s.clean from '(?:open|doing|done) → (?:open|doing|done)$')
+      when s.colons = 1 then substr(s.clean, s.first + 2)
+      else null
+    end
+  from split s where a.id = s.id`;
 
 const toActivity = (r: Record<string, unknown>): Activity => ({
   id: r["id"] as string,
@@ -293,7 +348,10 @@ const toActivity = (r: Record<string, unknown>): Activity => ({
   source: r["source"] as string,
   kind: r["kind"] as string,
   text: r["text"] as string,
-  at: Number(r["at"]),
+  // a row an older instance wrote after the columns came: its whole text, until the next start splits it
+  subject: (r["subject"] as string | null) ?? (r["text"] as string),
+  detail: (r["detail"] as string | null) ?? null,
+  at: instant(Number(r["at"])),
   byId: (r["by_id"] as string | null) ?? null,
 });
 
@@ -302,6 +360,7 @@ export class WorkspaceStore {
 
   async migrate(): Promise<void> {
     await this.sql.query(SCHEMA);
+    await this.sql.query(BACKFILL);
     await this.sql.query(SEED);
   }
 
@@ -310,15 +369,15 @@ export class WorkspaceStore {
     return rows[0] ? toIssue(rows[0]) : null;
   }
 
-  async issues(projectId: string, filter: IssueFilter, first: number, after: string | null): Promise<{ items: Issue[]; total: number }> {
+  async issues(projectId: string, filter: IssueFilter, first: number, after: string | null): Promise<Paged<Issue>> {
     const where = `project_id = $1
       and ($2::text is null or state = $2)
       and ($3::text is null or assignee_id = $3)
       and ($4::text is null or $4 = any(labels))`;
     const args = [projectId, filter.state ?? null, filter.assigneeId ?? null, filter.label ?? null];
-    const { rows } = await this.sql.query(`select * from issues where ${where} and ($5::text is null or id > $5) order by id limit $6`, [...args, after, first]);
+    const { rows } = await this.sql.query(`select * from issues where ${where} and ($5::text is null or id > $5) order by id limit $6`, [...args, after, first + 1]);
     const { rows: n } = await this.sql.query(`select count(*)::int as n from issues where ${where}`, args);
-    return { items: rows.map(toIssue), total: (n[0]?.["n"] as number) ?? 0 };
+    return { items: rows.slice(0, first).map(toIssue), total: (n[0]?.["n"] as number) ?? 0, hasMore: rows.length > first };
   }
 
   /** Every person with what they hold, across projects; a person holding nothing still appears, with zeros. */
@@ -336,52 +395,53 @@ export class WorkspaceStore {
     return rows.map((r) => ({ member: toMember(r), open: r["open"] as number, doing: r["doing"] as number, done: r["done"] as number, overdue: r["overdue"] as number }));
   }
 
-  async comments(issueId: string, first: number, after: string | null): Promise<{ items: Comment[]; total: number }> {
+  async comments(issueId: string, first: number, after: string | null): Promise<Paged<Comment>> {
     const { rows } = await this.sql.query(
-      "select * from comments where issue_id = $1 and ($2::text is null or id > $2) order by at, id limit $3",
-      [issueId, after, first],
+      "select * from comments where issue_id = $1 and ($2::text is null or (at, id) > (select at, id from comments where id = $2)) order by at, id limit $3",
+      [issueId, after, first + 1],
     );
     const { rows: n } = await this.sql.query("select count(*)::int as n from comments where issue_id = $1", [issueId]);
-    return { items: rows.map(toComment), total: (n[0]?.["n"] as number) ?? 0 };
+    return { items: rows.slice(0, first).map(toComment), total: (n[0]?.["n"] as number) ?? 0, hasMore: rows.length > first };
   }
 
-  async activity(projectId: string, first: number, after: string | null): Promise<{ items: Activity[]; total: number }> {
+  async activity(projectId: string, first: number, after: string | null): Promise<Paged<Activity>> {
     const { rows } = await this.sql.query(
       `select * from activity where project_id = $1
-         and ($2::text is null or at < (select at from activity where id = $2))
+         and ($2::text is null or (at, id) < (select at, id from activity where id = $2))
        order by at desc, id desc limit $3`,
-      [projectId, after, first],
+      [projectId, after, first + 1],
     );
     const { rows: n } = await this.sql.query("select count(*)::int as n from activity where project_id = $1", [projectId]);
-    return { items: rows.map(toActivity), total: (n[0]?.["n"] as number) ?? 0 };
+    return { items: rows.slice(0, first).map(toActivity), total: (n[0]?.["n"] as number) ?? 0, hasMore: rows.length > first };
   }
 
-  async messages(projectId: string, first: number, after: string | null): Promise<{ items: Message[]; total: number }> {
+  async messages(projectId: string, first: number, after: string | null): Promise<Paged<Message>> {
     // newest last, so a chat reads downwards; the page walks backwards from the newest, as a person scrolls up
     const { rows } = await this.sql.query(
       `select * from (
          select * from messages where project_id = $1 and ($2::text is null or (at, id) < (select at, id from messages where id = $2))
          order by at desc, id desc limit $3
        ) page order by at, id`,
-      [projectId, after, first],
+      [projectId, after, first + 1],
     );
     const { rows: n } = await this.sql.query("select count(*)::int as n from messages where project_id = $1", [projectId]);
-    return { items: rows.map(toMessage), total: (n[0]?.["n"] as number) ?? 0 };
+    // one past the page is the oldest row read, which sorts first here
+    return { items: rows.slice(rows.length > first ? 1 : 0).map(toMessage), total: (n[0]?.["n"] as number) ?? 0, hasMore: rows.length > first };
   }
 
   async say(m: Message): Promise<void> {
-    await this.sql.query("insert into messages (id, project_id, body, at, by_id) values ($1,$2,$3,$4,$5)", [m.id, m.projectId, m.body, m.at, m.byId]);
+    await this.sql.query("insert into messages (id, project_id, body, at, by_id) values ($1,$2,$3,$4,$5)", [m.id, m.projectId, m.body, millis(m.at), m.byId]);
   }
 
-  async notifications(recipientId: string, first: number, after: string | null): Promise<{ items: Notification[]; total: number }> {
+  async notifications(recipientId: string, first: number, after: string | null): Promise<Paged<Notification>> {
     const { rows } = await this.sql.query(
       `select * from notifications where recipient_id = $1
          and ($2::text is null or (at, id) < (select at, id from notifications where id = $2))
        order by at desc, id desc limit $3`,
-      [recipientId, after, first],
+      [recipientId, after, first + 1],
     );
     const { rows: n } = await this.sql.query("select count(*)::int as n from notifications where recipient_id = $1", [recipientId]);
-    return { items: rows.map(toNotification), total: (n[0]?.["n"] as number) ?? 0 };
+    return { items: rows.slice(0, first).map(toNotification), total: (n[0]?.["n"] as number) ?? 0, hasMore: rows.length > first };
   }
 
   async unread(recipientId: string): Promise<number> {
@@ -399,14 +459,14 @@ export class WorkspaceStore {
   async notify(n: Notification): Promise<boolean> {
     const { rowCount } = await this.sql.query(
       "insert into notifications (id, recipient_id, kind, text, project_id, issue_id, at) values ($1,$2,$3,$4,$5,$6,$7) on conflict (id) do nothing",
-      [n.id, n.recipientId, n.kind, n.text, n.projectId, n.issueId, n.at],
+      [n.id, n.recipientId, n.kind, n.text, n.projectId, n.issueId, millis(n.at)],
     );
     return !!rowCount;
   }
 
   /** Marks everything up to a moment as read, answering how many that was. Nothing is unmarked; done twice is done once. */
-  async markRead(recipientId: string, upTo: number, at: number): Promise<number> {
-    const { rowCount } = await this.sql.query("update notifications set read_at = $3 where recipient_id = $1 and at <= $2 and read_at is null", [recipientId, upTo, at]);
+  async markRead(recipientId: string, upTo: string, at: string): Promise<number> {
+    const { rowCount } = await this.sql.query("update notifications set read_at = $3 where recipient_id = $1 and at <= $2 and read_at is null", [recipientId, millis(upTo), millis(at)]);
     return rowCount ?? 0;
   }
 
@@ -425,7 +485,7 @@ export class WorkspaceStore {
   async createIssue(issue: Issue): Promise<void> {
     await this.sql.query(
       "insert into issues (id, project_id, title, state, assignee_id, priority, labels, due_on, description, version, updated_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
-      [issue.id, issue.projectId, issue.title, issue.state, issue.assigneeId, issue.priority, issue.labels, issue.dueOn, issue.description, issue.version, issue.updatedAt],
+      [issue.id, issue.projectId, issue.title, issue.state, issue.assigneeId, issue.priority, issue.labels, issue.dueOn, issue.description, issue.version, millis(issue.updatedAt)],
     );
   }
 
@@ -434,10 +494,10 @@ export class WorkspaceStore {
    * editing different fields at the same time both land in turn; the same field at the same time, the second is
    * told, because the version moved under them.
    */
-  async updateIssue(id: string, changes: IssueChanges, fromVersion: number, at: number): Promise<boolean> {
+  async updateIssue(id: string, changes: IssueChanges, fromVersion: number, at: string): Promise<boolean> {
     const columns: Record<keyof IssueChanges, string> = { title: "title", description: "description", priority: "priority", labels: "labels", dueOn: "due_on" };
     const sets: string[] = [];
-    const args: unknown[] = [id, at, fromVersion];
+    const args: unknown[] = [id, millis(at), fromVersion];
     for (const key of Object.keys(columns) as Array<keyof IssueChanges>) {
       if (!(key in changes)) continue;
       args.push(changes[key]);
@@ -448,19 +508,19 @@ export class WorkspaceStore {
   }
 
   /** Moves the issue only while its version is still what the caller read: two moves cannot both win. */
-  async moveIssue(id: string, to: IssueState, fromVersion: number, at: number): Promise<boolean> {
+  async moveIssue(id: string, to: IssueState, fromVersion: number, at: string): Promise<boolean> {
     const { rowCount } = await this.sql.query(
       "update issues set state = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4",
-      [id, to, at, fromVersion],
+      [id, to, millis(at), fromVersion],
     );
     return !!rowCount;
   }
 
   /** Same shape as a move: lands only while the version is what the caller read. */
-  async assignIssue(id: string, assigneeId: string | null, fromVersion: number, at: number): Promise<boolean> {
+  async assignIssue(id: string, assigneeId: string | null, fromVersion: number, at: string): Promise<boolean> {
     const { rowCount } = await this.sql.query(
       "update issues set assignee_id = $2, version = version + 1, updated_at = $3 where id = $1 and version = $4",
-      [id, assigneeId, at, fromVersion],
+      [id, assigneeId, millis(at), fromVersion],
     );
     return !!rowCount;
   }
@@ -476,10 +536,10 @@ export class WorkspaceStore {
   }
 
   /** Writes only the settings named, and only while the version is what the caller read. */
-  async updateProject(id: string, changes: ProjectChanges, fromVersion: number, at: number): Promise<boolean> {
+  async updateProject(id: string, changes: ProjectChanges, fromVersion: number, at: string): Promise<boolean> {
     const columns: Record<keyof ProjectChanges, string> = { name: "name", description: "description", color: "color", defaultAssigneeId: "default_assignee_id" };
     const sets: string[] = [];
-    const args: unknown[] = [id, at, fromVersion];
+    const args: unknown[] = [id, millis(at), fromVersion];
     for (const key of Object.keys(columns) as Array<keyof ProjectChanges>) {
       if (!(key in changes)) continue;
       args.push(changes[key]);
@@ -496,7 +556,7 @@ export class WorkspaceStore {
       `insert into attachments (id, issue_id, document_id, name, url, at, by_id) values ($1,$2,$3,$4,$5,$6,$7)
        on conflict (issue_id, document_id) do update set name = excluded.name, url = excluded.url
        returning *, (xmax = 0) as inserted`,
-      [a.id, a.issueId, a.documentId, a.name, a.url, a.at, a.byId],
+      [a.id, a.issueId, a.documentId, a.name, a.url, millis(a.at), a.byId],
     );
     return { pin: toAttachment(rows[0]!), inserted: rows[0]!["inserted"] as boolean };
   }
@@ -526,7 +586,7 @@ export class WorkspaceStore {
       comment.id,
       comment.issueId,
       comment.body,
-      comment.at,
+      millis(comment.at),
       comment.byId,
     ]);
   }
@@ -545,8 +605,8 @@ export class WorkspaceStore {
    */
   async record(entry: Activity): Promise<boolean> {
     const { rowCount } = await this.sql.query(
-      "insert into activity (id, project_id, source, kind, text, at, by_id) values ($1,$2,$3,$4,$5,$6,$7) on conflict (id) do nothing",
-      [entry.id, entry.projectId, entry.source, entry.kind, entry.text, entry.at, entry.byId],
+      "insert into activity (id, project_id, source, kind, text, subject, detail, at, by_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict (id) do nothing",
+      [entry.id, entry.projectId, entry.source, entry.kind, entry.text, entry.subject, entry.detail, millis(entry.at), entry.byId],
     );
     return !!rowCount;
   }

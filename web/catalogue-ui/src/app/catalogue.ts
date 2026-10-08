@@ -7,7 +7,7 @@
  * an index — because they are different things and a page that draws them alike is a jumble. Browsing one kind is
  * numbered pages (`@page(offset)`), because that is what a person leafing through a catalogue wants.
  */
-import { ChangeDetectionStrategy, Component, computed, effect, signal, untracked } from "@angular/core";
+import { ChangeDetectionStrategy, Component, computed, signal } from "@angular/core";
 import { NgTemplateOutlet } from "@angular/common";
 import { injectQuery, provideRayfold } from "@rayfold/angular";
 import { catalogueClient, documentsBase } from "./client";
@@ -22,7 +22,7 @@ export interface Entry {
   $type: "Product" | "Person" | "Article" | "File";
   id: string;
   name: string;
-  updatedAt: number;
+  updatedAt: string;
   // File
   projectId?: string;
   contentType?: string;
@@ -352,14 +352,6 @@ export class Catalogue {
   readonly pages = computed(() => Math.max(1, Math.ceil((this.list.data()?.total ?? 0) / PER_PAGE[this.kind() ?? "product"])));
   readonly pageNumbers = computed(() => Array.from({ length: this.pages() }, (_, i) => i + 1));
 
-  constructor() {
-    // a new phrase starts from the first results again
-    effect(() => {
-      this.q();
-      untracked(() => this.wanted.set(20));
-    });
-  }
-
   home_(kind: Kind) {
     switch (kind) {
       case "product":
@@ -421,7 +413,13 @@ export class Catalogue {
   type(value: string): void {
     this.typed.set(value);
     if (this.pending) clearTimeout(this.pending);
-    this.pending = setTimeout(() => this.q.set(value.trim()), 220);
+    // a new phrase starts from the first results again; set together, so the search goes once and not first with
+    // the old phrase's count
+    this.pending = setTimeout(() => {
+      const q = value.trim();
+      if (q !== this.q()) this.wanted.set(20);
+      this.q.set(q);
+    }, 220);
   }
 
   home(): void {
@@ -462,7 +460,7 @@ export class Catalogue {
       .toUpperCase();
   }
 
-  when(at: number): string {
+  when(at: string): string {
     return new Date(at).toLocaleDateString("en", { month: "short", day: "numeric" });
   }
 }

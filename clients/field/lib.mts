@@ -44,6 +44,11 @@ export class Line {
     return this.port;
   }
 
+  /** How many sockets are open across the line, both ends counted. */
+  get connections(): number {
+    return this.open.size;
+  }
+
   /** The cable, pulled: everything open is dropped and nothing new gets through. */
   cut(): void {
     this.up = false;
@@ -99,17 +104,21 @@ export interface FieldOptions {
   queue: QueueStorage;
 }
 
-/** A client on the line: binary frames, the offline queue, and the bearer that says who the device acts for. */
-export async function fieldClient(o: FieldOptions): Promise<{ client: RayfoldClient; manifest: Manifest }> {
+/**
+ * A client on the line: binary frames, the offline queue, and the bearer that says who the device acts for. `close`
+ * shuts its socket; a client that is dropped without it holds the connection open until the line goes down.
+ */
+export async function fieldClient(o: FieldOptions): Promise<{ client: RayfoldClient; manifest: Manifest; close: () => void }> {
   const manifest = await manifestOf(o.httpBase);
   const url = new URL(o.wsUrl);
   url.searchParams.set("token", o.who);
+  const transport = createWebSocketTransport({ url: url.toString(), ...(o.binary ? { binary: manifest.schema } : {}) });
   const client = new RayfoldClient({
     // a socket handshake carries no Authorization header from a page; a program can, but this one is written the way
     // a device would be: the identity rides on the URL, and the service reads it as it reads a bearer
-    transport: createWebSocketTransport({ url: url.toString(), ...(o.binary ? { binary: manifest.schema } : {}) }),
+    transport,
     client: "field/0.1.0",
     offline: { storage: o.queue, drainOnReconnect: false },
   });
-  return { client, manifest };
+  return { client, manifest, close: () => transport.close() };
 }

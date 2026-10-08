@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * The four front ends' dev servers, remotes first: the shell on :4200 loads the others at runtime.
+ * The front ends' dev servers, remotes first: the shell on :4200 loads the others at runtime, and the public help
+ * centre (React, on Vite) is on :4204, reached from the shell at /help/.
  *
- *   npm run web             # installs each web project the first time, then serves all four
+ *   npm run web             # installs each web project the first time, then serves all five
  *
- * Each is its own npm project with its own lockfile (web/README.md says why), so this is four `ng serve`s rather than
+ * Each is its own npm project with its own lockfile (web/README.md says why), so this is five dev servers rather than
  * one. Ctrl+C stops them all. Open http://localhost:4200 once "ready" is printed for the shell.
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -17,6 +18,7 @@ const apps = [
   { name: "documents-ui", port: 4202 },
   { name: "workspace-ui", port: 4201 },
   { name: "catalogue-ui", port: 4203 },
+  { name: "help", port: 4204, serve: "npx vite --port 4204 --strictPort" },
   { name: "shell", port: 4200 },
 ];
 for (const app of apps) {
@@ -28,7 +30,7 @@ for (const app of apps) {
 
 const children = apps.map((app) => {
   // one command line: npm and npx are .cmd files on Windows, which run through the shell
-  const child = spawn(`npx ng serve --port ${app.port}`, { cwd: join(web, app.name), stdio: ["ignore", "pipe", "pipe"], shell: true });
+  const child = spawn(app.serve ?? `npx ng serve --port ${app.port}`, { cwd: join(web, app.name), stdio: ["ignore", "pipe", "pipe"], shell: true });
   const tag = `[${app.name}] `;
   const forward = (stream, out) =>
     stream.on("data", (chunk) => {

@@ -16,6 +16,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:fleet": "node e2e/browser/run.mjs",
     "db": "node scripts/db.mjs",
     "dev": "node scripts/dev.mjs",
     "web": "node scripts/web.mjs",
@@ -23,12 +24,16 @@
     "up": "docker compose up --build",
     "down": "docker compose down -v",
     "pretest": "node scripts/check-install.mjs",
-    "schema:check": "rayfold check services/documents/src/documents.rayfold --against services/documents/rayfold.lock.json && rayfold check services/workspace/src/workspace.rayfold --against services/workspace/rayfold.lock.json && rayfold check services/catalogue/src/catalogue.rayfold --against services/catalogue/rayfold.lock.json",
-    "schema:lock": "rayfold lock services/documents/src/documents.rayfold --out services/documents/rayfold.lock.json && rayfold lock services/workspace/src/workspace.rayfold --out services/workspace/rayfold.lock.json && rayfold lock services/catalogue/src/catalogue.rayfold --out services/catalogue/rayfold.lock.json",
+    "schema:check": "rayfold check services/documents/src/documents.rayfold --against services/documents/rayfold.lock.json && rayfold check services/workspace/src/workspace.rayfold --against services/workspace/rayfold.lock.json && rayfold check services/catalogue/src/catalogue.rayfold --against services/catalogue/rayfold.lock.json && rayfold check services/feedback/src/feedback.rayfold --against services/feedback/rayfold.lock.json && rayfold check services/approvals/src/main/resources/approvals.rayfold --against services/approvals/rayfold.lock.json",
+    "schema:lock": "rayfold lock services/documents/src/documents.rayfold --out services/documents/rayfold.lock.json && rayfold lock services/workspace/src/workspace.rayfold --out services/workspace/rayfold.lock.json && rayfold lock services/catalogue/src/catalogue.rayfold --out services/catalogue/rayfold.lock.json && rayfold lock services/feedback/src/feedback.rayfold --out services/feedback/rayfold.lock.json && rayfold lock services/approvals/src/main/resources/approvals.rayfold --out services/approvals/rayfold.lock.json",
+    "schema:types": "rayfold gen ts services/catalogue/src/catalogue.rayfold --out web/help/src/gen/catalogue.ts && rayfold gen ts services/feedback/src/feedback.rayfold --out web/help/src/gen/feedback.ts && rayfold gen kotlin services/approvals/src/main/resources/approvals.rayfold --package keel.signoff.api --out clients/signoff/src/main/kotlin/keel/signoff/api/Approvals.kt",
+    "mock": "node scripts/mock.mjs",
+    "signoff": "node scripts/signoff.mjs",
     "field": "tsx clients/field/field.mts",
     "agent": "tsx clients/agent/agent.mts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@rayfold/cli": "^0.2.1",
     "@types/node": "^26.5.1",
     "@types/pg": "^8.23.1",

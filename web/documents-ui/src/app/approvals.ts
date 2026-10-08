@@ -14,8 +14,9 @@ export interface Approval {
   decision: "pending" | "approved" | "declined" | "withdrawn";
   note: string | null;
   stale: boolean;
-  askedAt: number;
-  decidedAt: number | null;
+  /** RFC 3339, as the protocol writes an Instant. */
+  askedAt: string;
+  decidedAt: string | null;
   requester: { id: string; name: string } | null;
   approver: { id: string; name: string } | null;
 }
@@ -148,7 +149,7 @@ export class Approvals {
     return e instanceof Error ? e.message : String(e);
   }
 
-  when(at: number): string {
+  when(at: string): string {
     return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 

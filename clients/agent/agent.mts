@@ -16,7 +16,7 @@ const say = (line: string) => console.log(line);
 const step = (n: number, what: string) => console.log(`\n${n}. ${what}`);
 const text = (r: { content?: Array<{ text?: string }> }) => (r.content ?? []).map((c) => c.text ?? "").join("\n").split("\n").map((l) => `   ${l}`).join("\n");
 
-step(1, `${WHO} mints a token for the agent: three operations, fifteen minutes`);
+step(1, `${WHO} mints a token for the agent: four operations, fifteen minutes`);
 const scoped = await mintAgentToken(WORKSPACE_URL, WHO, ["me", "issues", "createIssue", "addComment"]);
 say(`   ops ${scoped.ops.join(", ")}; expires ${new Date(scoped.expiresAt).toLocaleTimeString()}`);
 const mcp = new Mcp(WORKSPACE_URL, scoped.token);

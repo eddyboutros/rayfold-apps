@@ -4,6 +4,7 @@
  * Search is Postgres's own full text search over a union of the three tables: each row comes back with the kind it
  * is, and the resolver hands that kind to Rayfold as `$type`. That is the whole of what a union costs here.
  */
+import { instant, millis } from "@apps/service-kit";
 import type pg from "pg";
 import { SEED } from "./seed.ts";
 
@@ -21,7 +22,8 @@ export interface Product {
   /** What it costs us, in cents. The schema decides who reads it. */
   cost: number;
   availability: Availability;
-  updatedAt: number;
+  /** RFC 3339 in UTC, as the schema's Instant is on the wire; the column keeps epoch milliseconds. */
+  updatedAt: string;
 }
 
 export interface Person {
@@ -32,7 +34,7 @@ export interface Person {
   department: string;
   email: string;
   location: string;
-  updatedAt: number;
+  updatedAt: string;
 }
 
 export interface Article {
@@ -47,7 +49,9 @@ export interface Article {
   editorId: string | null;
   body: string;
   version: number;
-  updatedAt: number;
+  updatedAt: string;
+  /** When it went on the public help centre, RFC 3339; null while it is internal. */
+  publishedAt: string | null;
 }
 
 export interface ArticleRevision {
@@ -59,7 +63,7 @@ export interface ArticleRevision {
   tags: string[];
   body: string;
   editorId: string | null;
-  at: number;
+  at: string;
 }
 
 export interface File {
@@ -72,7 +76,7 @@ export interface File {
   url: string;
   excerpt: string;
   version: number;
-  updatedAt: number;
+  updatedAt: string;
 }
 
 export type Item = Product | Person | Article | File;
@@ -114,6 +118,8 @@ export const SCHEMA = `
   );
   -- added later: who wrote the current version. rows from before were written by their author
   alter table articles add column if not exists editor_id text references people(id);
+  -- added with the help centre: when an article went public. null is the team's alone, which every article was before
+  alter table articles add column if not exists published_at timestamptz;
 
   create table if not exists article_revisions (
     id text primary key,
@@ -170,7 +176,7 @@ const toProduct = (r: Record<string, unknown>): Product => ({
   price: r["price"] as number,
   cost: Number(r["cost"] ?? 0),
   availability: r["availability"] as Availability,
-  updatedAt: Number(r["updated_at"]),
+  updatedAt: instant(Number(r["updated_at"])),
 });
 
 const toPerson = (r: Record<string, unknown>): Person => ({
@@ -181,7 +187,7 @@ const toPerson = (r: Record<string, unknown>): Person => ({
   department: r["department"] as string,
   email: r["email"] as string,
   location: r["location"] as string,
-  updatedAt: Number(r["updated_at"]),
+  updatedAt: instant(Number(r["updated_at"])),
 });
 
 const toArticle = (r: Record<string, unknown>): Article => ({
@@ -195,7 +201,8 @@ const toArticle = (r: Record<string, unknown>): Article => ({
   editorId: (r["editor_id"] as string | null) ?? (r["author_id"] as string | null) ?? null,
   body: r["body"] as string,
   version: r["version"] as number,
-  updatedAt: Number(r["updated_at"]),
+  updatedAt: instant(Number(r["updated_at"])),
+  publishedAt: r["published_at"] ? (r["published_at"] as Date).toISOString() : null,
 });
 
 const toRevision = (r: Record<string, unknown>): ArticleRevision => ({
@@ -207,7 +214,7 @@ const toRevision = (r: Record<string, unknown>): ArticleRevision => ({
   tags: r["tags"] as string[],
   body: r["body"] as string,
   editorId: (r["editor_id"] as string | null) ?? null,
-  at: Number(r["at"]),
+  at: instant(Number(r["at"])),
 });
 
 const toFile = (r: Record<string, unknown>): File => ({
@@ -220,7 +227,7 @@ const toFile = (r: Record<string, unknown>): File => ({
   url: r["url"] as string,
   excerpt: excerptOf(r["text"] as string),
   version: r["version"] as number,
-  updatedAt: Number(r["updated_at"]),
+  updatedAt: instant(Number(r["updated_at"])),
 });
 
 const convert: Record<Kind, (r: Record<string, unknown>) => Item> = { product: toProduct, person: toPerson, article: toArticle, file: toFile };
@@ -272,13 +279,14 @@ export class CatalogueStore {
     return rows.map(toArticle);
   }
 
-  async revisions(articleId: string, first: number, after: string | null): Promise<{ items: ArticleRevision[]; total: number }> {
+  async revisions(articleId: string, first: number, after: string | null): Promise<{ items: ArticleRevision[]; total: number; hasMore: boolean }> {
     const { rows } = await this.sql.query(
       "select * from article_revisions where article_id = $1 and ($2::text is null or version < (select version from article_revisions where id = $2)) order by version desc limit $3",
-      [articleId, after, first],
+      // one past the page, so the last page says it is the last
+      [articleId, after, first + 1],
     );
     const { rows: counted } = await this.sql.query("select count(*)::int as n from article_revisions where article_id = $1", [articleId]);
-    return { items: rows.map(toRevision), total: (counted[0]?.["n"] as number) ?? 0 };
+    return { items: rows.slice(0, first).map(toRevision), total: (counted[0]?.["n"] as number) ?? 0, hasMore: rows.length > first };
   }
 
   async article(slug: string): Promise<Article | null> {
@@ -332,7 +340,7 @@ export class CatalogueStore {
   async createArticle(a: Article): Promise<void> {
     await this.sql.query(
       "insert into articles (id, name, slug, summary, tags, author_id, editor_id, body, version, updated_at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-      [a.id, a.name, a.slug, a.summary, a.tags, a.authorId, a.editorId, a.body, a.version, a.updatedAt],
+      [a.id, a.name, a.slug, a.summary, a.tags, a.authorId, a.editorId, a.body, a.version, millis(a.updatedAt)],
     );
   }
 
@@ -346,7 +354,7 @@ export class CatalogueStore {
       await client.query("begin");
       const { rowCount } = await client.query(
         "update articles set name = $2, summary = $3, tags = $4, body = $5, version = $6, updated_at = $7, editor_id = $9 where id = $1 and version = $8",
-        [a.id, a.name, a.summary, a.tags, a.body, a.version, a.updatedAt, fromVersion, a.editorId],
+        [a.id, a.name, a.summary, a.tags, a.body, a.version, millis(a.updatedAt), fromVersion, a.editorId],
       );
       if (!rowCount) {
         await client.query("rollback");
@@ -354,7 +362,7 @@ export class CatalogueStore {
       }
       await client.query(
         "insert into article_revisions (id, article_id, version, name, summary, tags, body, editor_id, at) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
-        [was.id, was.articleId, was.version, was.name, was.summary, was.tags, was.body, was.editorId, was.at],
+        [was.id, was.articleId, was.version, was.name, was.summary, was.tags, was.body, was.editorId, millis(was.at)],
       );
       await client.query("commit");
       return true;
@@ -377,13 +385,33 @@ export class CatalogueStore {
        on conflict (id) do update set name = excluded.name, project_id = excluded.project_id, content_type = excluded.content_type,
          size = excluded.size, url = excluded.url, text = excluded.text, version = excluded.version, updated_at = excluded.updated_at
        where files.version <= excluded.version`,
-      [file.id, file.name, file.projectId, file.contentType, file.size, file.url, file.text, file.version, file.updatedAt],
+      [file.id, file.name, file.projectId, file.contentType, file.size, file.url, file.text, file.version, millis(file.updatedAt)],
     );
     return !!rowCount;
   }
 
+  /**
+   * A kept file's new name, on the same bytes. Only the name: the version is the indexed text's, and a newer version's
+   * flow, which carries the name it was kept under, writes both when it lands.
+   */
+  async renameFile(id: string, name: string): Promise<void> {
+    await this.sql.query("update files set name = $2 where id = $1", [id, name]);
+  }
+
   async removeFile(id: string): Promise<void> {
     await this.sql.query("delete from files where id = $1", [id]);
+  }
+
+  /**
+   * On the help centre or off it. Publishing what is already published keeps the day it first went out, so a second
+   * click changes nothing a reader sees.
+   */
+  async publish(id: string, published: boolean, at: string): Promise<Article | null> {
+    const { rows } = await this.sql.query(
+      "update articles set published_at = case when $2 then coalesce(published_at, to_timestamp($3::float8 / 1000)) else null end where id = $1 returning *",
+      [id, published, millis(at)],
+    );
+    return rows[0] ? toArticle(rows[0]) : null;
   }
 
   async slugTaken(slug: string): Promise<boolean> {

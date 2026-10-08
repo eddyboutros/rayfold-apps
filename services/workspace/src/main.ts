@@ -6,10 +6,10 @@
  * on the project's feed, and wakes the live queries and streams watching it. No polling, no webhook to register,
  * and no table shared between the two services.
  */
-import { TEAM, personOf, schemaAt, startService, type Deps } from "@apps/service-kit";
+import { TEAM, instant, personOf, schemaAt, startService, type Deps } from "@apps/service-kit";
 import type { RayfoldServer } from "@rayfold/server";
 import { WorkspaceStore } from "./store.ts";
-import { resolvers, type Viewer } from "./resolvers.ts";
+import { joined, resolvers, type Viewer } from "./resolvers.ts";
 import { WORKSPACE_SHAPES } from "./shapes.ts";
 
 /**
@@ -46,19 +46,26 @@ const service = await startService({
     const store = new WorkspaceStore(deps.sql);
 
     /**
+     * What a relayed line says: the subject and detail apart, and the one text a reader of `text` has always had,
+     * which ends with the document's id in brackets for whoever reads a log.
+     */
+    type Said = { subject: string; detail: string | null; text: string };
+    const said = (subject: string, detail: string | null, documentId: string, text = joined(subject, detail)): Said => ({ subject, detail, text: `${text} (${documentId})` });
+
+    /**
      * Records a line for something another service did, once per fleet however many instances hear it. The id is
      * derived from what caused it, not random: the event reaches every instance of this service, and they must write
      * one row between them rather than one each. Delivered locally on every instance, written by only one: each has
      * its own connected clients to wake. `deliver` rather than `publish` for the same reason the id is derived: the
      * event is already on the relay, and sending anything back would multiply it by the fleet.
      */
-    const heard = (id: string, projectId: string, kind: string, text: string, byId: string | null, about: Record<string, unknown>, source = "documents") => {
-      const line = { id, projectId, source, kind, text, at: Date.now(), byId };
+    const heard = (id: string, projectId: string, kind: string, words: Said, byId: string | null, about: Record<string, unknown>, source = "documents") => {
+      const line = { id, projectId, source, kind, ...words, at: instant(Date.now()), byId };
       void store
         .record(line)
         .then((written) => {
           if (written) deps.platform.log.info("recorded what the documents service did", { ...about, kind });
-          server.events.deliver("ActivityHappened", { projectId, source: line.source, kind, text, byId });
+          server.events.deliver("ActivityHappened", { projectId, source: line.source, kind, ...words, byId });
           server.changes.deliver({ keys: new Set(), ops: new Set(["activity"]) });
         })
         .catch((e: unknown) => deps.platform.log.error("could not record a document change", { ...about, error: e instanceof Error ? e.message : String(e) }));
@@ -69,7 +76,9 @@ const service = await startService({
     // carries the project, so this service never asks the other which one: that is the whole of what one service
     // knows about another, and it is enough. the name is what a person reads; the id stays at the end for tracing.
     server.events.on("DocumentChanged", (payload) => {
-      const { documentId, projectId, name, version, byId } = payload as { documentId: string; projectId: string; name: string; version: number; byId: string };
+      const { documentId, projectId, name, version, byId, revision } = payload as { documentId: string; projectId: string; name: string; version: number; byId: string; revision?: boolean | null };
+      // a new name on the same bytes is a rename, not a new version: a publisher older than the field never says so
+      const renamed = revision === false;
       // a pin of this document on an issue here follows the rename: the row once for the fleet, and every open list
       // of issues on this instance re-runs, because the pins it read are the entities named
       void store
@@ -81,49 +90,55 @@ const service = await startService({
       heard(
         `documents:${documentId}:${version}`,
         projectId,
-        version === 1 ? "document.added" : "document.replaced",
-        version === 1 ? `${name} (${documentId})` : `${name}, now version ${version} (${documentId})`,
+        version === 1 ? "document.added" : renamed ? "document.renamed" : "document.replaced",
+        version === 1 || renamed ? said(name, null, documentId) : said(name, `now version ${version}`, documentId, `${name}, now version ${version}`),
         // the same person in both services: the fleet has one roster
         byId ?? null,
         { documentId, projectId, version },
       );
     });
     server.events.on("DocumentFiled", (payload) => {
-      const { documentId, projectId, name, folder, byId, at } = payload as { documentId: string; projectId: string; name: string; folder: string | null; byId: string; at?: number | string | null };
+      const { documentId, projectId, name, folder, byId, at } = payload as { documentId: string; projectId: string; name: string; folder: string | null; byId: string; at?: string | null };
       // the moment the documents service filed it, the same on every instance that hears it: one row per move for the
       // fleet, and a later move back into the same folder is a line of its own
-      heard(`documents:${documentId}:filed:${folder ?? ""}:${at ?? ""}`, projectId, "document.filed", `${name}: ${folder ?? "the root"} (${documentId})`, byId ?? null, { documentId, projectId, folder });
+      heard(`documents:${documentId}:filed:${folder ?? ""}:${at ?? ""}`, projectId, "document.filed", said(name, folder ?? "the root", documentId), byId ?? null, { documentId, projectId, folder });
     });
     server.events.on("DocumentTagged", (payload) => {
-      const { documentId, projectId, name, tags, byId, at } = payload as { documentId: string; projectId: string; name: string; tags: string[]; byId: string; at?: number | string | null };
-      heard(`documents:${documentId}:tagged:${tags.join(",")}:${at ?? ""}`, projectId, "document.tagged", `${name}: ${tags.length ? tags.join(" ") : "no tags"} (${documentId})`, byId ?? null, { documentId, projectId, tags });
+      const { documentId, projectId, name, tags, byId, at } = payload as { documentId: string; projectId: string; name: string; tags: string[]; byId: string; at?: string | null };
+      heard(`documents:${documentId}:tagged:${tags.join(",")}:${at ?? ""}`, projectId, "document.tagged", said(name, tags.length ? tags.join(" ") : "no tags", documentId), byId ?? null, { documentId, projectId, tags });
     });
     // raised by the approvals service, in Kotlin, on another port: the same relay, the same shape of line. the person
     // asked is told through the bell, and the one who asked hears the decision the same way
     server.events.on("ApprovalRequested", (payload) => {
       const { approvalId, documentId, projectId, documentName, requesterId, approverId } = payload as { approvalId: string; documentId: string; projectId: string; documentName: string; requesterId: string; approverId: string };
       const who = Object.fromEntries(TEAM.map((p) => [p.id, p.name]));
-      heard(`approvals:${approvalId}:asked`, projectId, "approval.requested", `${documentName}: ${who[approverId] ?? approverId} (${documentId})`, requesterId ?? null, { approvalId, projectId }, "approvals");
-      void tellOnce({ id: `approval:${approvalId}:asked`, recipientId: approverId, kind: "approval.requested", text: `${who[requesterId] ?? "Someone"} asked you to sign off on ${documentName}`, projectId, issueId: null });
+      heard(`approvals:${approvalId}:asked`, projectId, "approval.requested", said(documentName, who[approverId] ?? approverId, documentId), requesterId ?? null, { approvalId, projectId }, "approvals");
+      // a promise nobody awaits must not reject unheard: Node ends the process on an unhandled rejection
+      tellOnce({ id: `approval:${approvalId}:asked`, recipientId: approverId, kind: "approval.requested", text: `${who[requesterId] ?? "Someone"} asked you to sign off on ${documentName}`, projectId, issueId: null }).catch((e: unknown) =>
+        deps.platform.log.error("could not tell an approver", { approvalId, error: e instanceof Error ? e.message : String(e) }),
+      );
     });
     server.events.on("ApprovalDecided", (payload) => {
       const { approvalId, documentId, projectId, documentName, decision, byId, note } = payload as { approvalId: string; documentId: string; projectId: string; documentName: string; decision: string; byId: string; note: string | null };
       const who = Object.fromEntries(TEAM.map((p) => [p.id, p.name]));
-      heard(`approvals:${approvalId}:${decision}`, projectId, "approval.decided", `${documentName}: ${decision}${note ? `, ${note}` : ""} (${documentId})`, byId ?? null, { approvalId, projectId, decision }, "approvals");
+      heard(`approvals:${approvalId}:${decision}`, projectId, "approval.decided", said(documentName, `${decision}${note ? `, ${note}` : ""}`, documentId), byId ?? null, { approvalId, projectId, decision }, "approvals");
       // the one who asked hears the answer; a withdrawal is theirs already
       if (decision !== "withdrawn") {
-        void store.approvalRequesterOf(approvalId).then((requesterId) => {
-          if (requesterId && requesterId !== byId) {
-            return tellOnce({ id: `approval:${approvalId}:${decision}`, recipientId: requesterId, kind: "approval.decided", text: `${who[byId] ?? "Someone"} ${decision} ${documentName}${note ? `: ${note}` : ""}`, projectId, issueId: null });
-          }
-          return undefined;
-        });
+        void store
+          .approvalRequesterOf(approvalId)
+          .then((requesterId) => {
+            if (requesterId && requesterId !== byId) {
+              return tellOnce({ id: `approval:${approvalId}:${decision}`, recipientId: requesterId, kind: "approval.decided", text: `${who[byId] ?? "Someone"} ${decision} ${documentName}${note ? `: ${note}` : ""}`, projectId, issueId: null });
+            }
+            return undefined;
+          })
+          .catch((e: unknown) => deps.platform.log.error("could not tell a requester", { approvalId, error: e instanceof Error ? e.message : String(e) }));
       }
     });
 
     /** A notification written once for the fleet, and every open bell on this instance woken. */
     const tellOnce = async (n: { id: string; recipientId: string; kind: string; text: string; projectId: string; issueId: string | null }) => {
-      const notification = { ...n, at: Date.now(), readAt: null };
+      const notification = { ...n, at: instant(Date.now()), readAt: null };
       if (await store.notify(notification)) {
         server.events.deliver("Notified", { recipientId: n.recipientId, notificationId: n.id, kind: n.kind, text: n.text, projectId: n.projectId, issueId: n.issueId, at: notification.at });
         server.changes.deliver({ keys: new Set(), ops: new Set(["unread", "notifications"]) });
@@ -132,7 +147,7 @@ const service = await startService({
 
     server.events.on("DocumentNoted", (payload) => {
       const { documentId, projectId, name, excerpt, byId } = payload as { documentId: string; projectId: string; name: string; excerpt: string; byId: string };
-      heard(`documents:${documentId}:noted:${byId}:${excerpt}`, projectId, "document.noted", `${name}: ${excerpt} (${documentId})`, byId ?? null, { documentId, projectId });
+      heard(`documents:${documentId}:noted:${byId}:${excerpt}`, projectId, "document.noted", said(name, excerpt, documentId), byId ?? null, { documentId, projectId });
     });
 
     // NEEDS THE RAYFOLD CONSOLE: this queue is the console's — a separate commercial product in a private
@@ -148,7 +163,7 @@ const service = await startService({
         const indexed = job.results.index?.indexed === true;
         // the person who kept the file is told it is searchable now: a notification from one service about another's work
         if (indexed && job.byId) {
-          const notification = { id: `document:${job.documentId}:v${job.version}:indexed`, recipientId: job.byId, kind: "document.indexed", text: `${job.name} is searchable now`, projectId: job.projectId, issueId: null, at: Date.now(), readAt: null };
+          const notification = { id: `document:${job.documentId}:v${job.version}:indexed`, recipientId: job.byId, kind: "document.indexed", text: `${job.name} is searchable now`, projectId: job.projectId, issueId: null, at: instant(Date.now()), readAt: null };
           if (await store.notify(notification)) {
             server.events.deliver("Notified", { recipientId: job.byId, notificationId: notification.id, kind: notification.kind, text: notification.text, projectId: job.projectId, issueId: null, at: notification.at });
             server.changes.deliver({ keys: new Set(), ops: new Set(["unread", "notifications"]) });
@@ -159,15 +174,15 @@ const service = await startService({
           projectId: job.projectId,
           source: "catalogue",
           kind: indexed ? "document.indexed" : "document.empty",
-          // the kind carries the verb; the text is the file, so the feed reads "found nothing to index in <name>"
-          text: `${job.name} (${job.documentId})`,
-          at: Date.now(),
+          // the kind carries the verb and the file is the subject, so the feed reads "found nothing to index in <name>"
+          ...said(job.name, null, job.documentId),
+          at: instant(Date.now()),
           // no person did this: the platform did, which the feed shows as the product
           byId: null,
         };
         const written = await store.record(line);
         if (written) {
-          server.events.deliver("ActivityHappened", { projectId: line.projectId, source: line.source, kind: line.kind, text: line.text, byId: null });
+          server.events.deliver("ActivityHappened", { projectId: line.projectId, source: line.source, kind: line.kind, subject: line.subject, detail: line.detail, text: line.text, byId: null });
           server.changes.deliver({ keys: new Set(), ops: new Set(["activity"]) });
         }
         return { recorded: written };

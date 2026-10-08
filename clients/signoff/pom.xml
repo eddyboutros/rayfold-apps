@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  signoff: the sign-off queue from a terminal, for the people who work through one every day (Legal does). A Kotlin
+  program on the JVM client, dev.rayfold:rayfold-client from Maven Central, against the approvals service; its types are
+  generated from that service's schema with `rayfold gen kotlin`. Built and tested with the Maven wrapper:
+  ./mvnw verify (the tests start the approvals service's own jar, so build that first).
+
+  The parent is only for versions: the approvals service is the same team's, and Kotlin, coroutines and
+  serialization move together across both builds.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.1</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>keel</groupId>
+  <artifactId>signoff</artifactId>
+  <version>0.1.0</version>
+
+  <properties>
+    <java.version>21</java.version>
+    <kotlin.compiler.jvmTarget>21</kotlin.compiler.jvmTarget>
+  </properties>
+
+  <dependencies>
+    <!-- the client, and nothing of the server: HTTP for the commands, a socket for the live inbox -->
+    <dependency>
+      <groupId>dev.rayfold</groupId>
+      <artifactId>rayfold-client</artifactId>
+      <version>0.2.1</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jetbrains.kotlin</groupId>
+      <artifactId>kotlin-stdlib</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jetbrains.kotlinx</groupId>
+      <artifactId>kotlinx-coroutines-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.jetbrains.kotlinx</groupId>
+      <artifactId>kotlinx-serialization-json</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.jetbrains.kotlin</groupId>
+      <artifactId>kotlin-test-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- a test asks the approvals table what it holds, and clears what it wrote -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <sourceDirectory>${project.basedir}/src/main/kotlin</sourceDirectory>
+    <testSourceDirectory>${project.basedir}/src/test/kotlin</testSourceDirectory>
+    <plugins>
+      <plugin>
+        <groupId>org.jetbrains.kotlin</groupId>
+        <artifactId>kotlin-maven-plugin</artifactId>
+        <configuration>
+          <!-- the generated types are @Serializable: decoded straight from what the client receives -->
+          <compilerPlugins>
+            <plugin>kotlinx-serialization</plugin>
+          </compilerPlugins>
+        </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-maven-serialization</artifactId>
+            <version>${kotlin.version}</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+      <!-- npm run signoff runs it from source with this: ./mvnw -q compile exec:java -Dexec.args="inbox" -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <configuration>
+          <mainClass>keel.signoff.MainKt</mainClass>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

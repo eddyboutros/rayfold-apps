@@ -6,6 +6,7 @@
  * things happen when another service raises an event — see `main.ts` — so the feed is the fleet's, not this
  * service's, and nothing here reads another service's tables to build it.
  */
+import { instant } from "@apps/service-kit";
 import { RayfoldError, ok, type Capabilities, type Resolvers } from "@rayfold/server";
 import type { Activity, Attachment, Comment, Issue, IssueChanges, IssueState, Member, Message, Notification, Priority, Project, ProjectChanges, WorkspaceStore } from "./store.ts";
 
@@ -29,10 +30,18 @@ export interface Line {
   projectId: string;
   source: string;
   kind: string;
+  /** What was acted on, whole, whatever it holds: a colon in a title is the title's. */
+  subject: string;
+  /** What happened to it; null when the line says no more than its subject. */
+  detail: string | null;
+  /** Both as one line, for a reader of `text`: a line this service writes joins them with ": ". */
   text: string;
   /** Who did it; null for a line no person caused. */
   byId: string | null;
 }
+
+/** The one text a reader of `text` has always been given: the subject, then ": " and the detail when there is one. */
+export const joined = (subject: string, detail: string | null): string => (detail === null ? subject : `${subject}: ${detail}`);
 
 /** Labels as the project sees them: trimmed, lower-cased, no blanks, each once. */
 const tidy = (labels: string[]): string[] => [...new Set(labels.map((l) => l.trim().toLowerCase()).filter(Boolean))];
@@ -60,16 +69,15 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
     return issue;
   };
 
-  const pageOf = <T>(items: T[], total: number, cursor: (t: T) => string) => ({
-    items,
-    total,
-    hasMore: items.length > 0 && total > items.length,
-    cursor: items.length ? cursor(items[items.length - 1]!) : null,
-  });
+  /** A page as the schema's Page is: the cursor names the row the next page continues from (the last, unless `from` says). */
+  const pageOf = <T>({ items, total, hasMore }: { items: T[]; total: number; hasMore: boolean }, cursor: (t: T) => string, from: "last" | "first" = "last") => {
+    const at = from === "last" ? items[items.length - 1] : items[0];
+    return { items, total, hasMore, cursor: at ? cursor(at) : null };
+  };
 
   /** Records a line and returns the event that announces it, for a command to emit. */
   const line = async (entry: Line): Promise<{ event: string; payload: Record<string, unknown> }> => {
-    await store.record({ id: id(), at: now(), ...entry });
+    await store.record({ id: id(), at: instant(now()), ...entry });
     return { event: "ActivityHappened", payload: { ...entry } };
   };
 
@@ -83,16 +91,16 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
   /** Today as the day an issue's `dueOn` is compared with: a date, not an instant, so a due day is the whole day. */
   const today = () => new Date(now()).toISOString().slice(0, 10);
 
-  /** The one line every command writes: what happened, on which project, by the person calling. */
-  const did = (ctx: { viewer: unknown }, projectId: string, kind: string, text: string) =>
-    line({ projectId, source: "workspace", kind, text, byId: (ctx.viewer as Viewer).id });
+  /** The one line every command writes: what happened, to what, on which project, by the person calling. */
+  const did = (ctx: { viewer: unknown }, projectId: string, kind: string, subject: string, detail: string | null = null) =>
+    line({ projectId, source: "workspace", kind, subject, detail, text: joined(subject, detail), byId: (ctx.viewer as Viewer).id });
 
   /**
    * Tells one person something happened to them, and answers the event that carries it to their open screen. The id
    * is derived from the cause, so the same cause reaching two instances writes one notification.
    */
   const tell = async (recipientId: string, cause: string, n: Omit<Notification, "id" | "recipientId" | "at" | "readAt">): Promise<{ event: string; payload: Record<string, unknown> }> => {
-    const notification: Notification = { id: `${cause}:${recipientId}`, recipientId, at: now(), readAt: null, ...n };
+    const notification: Notification = { id: `${cause}:${recipientId}`, recipientId, at: instant(now()), readAt: null, ...n };
     await store.notify(notification);
     return { event: "Notified", payload: { recipientId, notificationId: notification.id, kind: n.kind, text: n.text, projectId: n.projectId, issueId: n.issueId, at: notification.at } };
   };
@@ -112,31 +120,24 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
       issue: ({ id: issueId }: { id: string }) => store.issue(issueId),
 
       issues: async ({ projectId, state, assigneeId, label, page }: { projectId: string; state?: IssueState | null; assigneeId?: string | null; label?: string | null; page: { first: number; after?: string | null } }) => {
-        const { items, total } = await store.issues(projectId, { state: state ?? null, assigneeId: assigneeId ?? null, label: label ?? null }, page.first, page.after ?? null);
-        return pageOf(items, total, (i) => i.id);
+        return pageOf(await store.issues(projectId, { state: state ?? null, assigneeId: assigneeId ?? null, label: label ?? null }, page.first, page.after ?? null), (i) => i.id);
       },
 
       workload: () => store.workload(today()),
 
-      comments: async ({ issueId, page }: { issueId: string; page: { first: number; after?: string | null } }) => {
-        const { items, total } = await store.comments(issueId, page.first, page.after ?? null);
-        return pageOf(items, total, (c) => c.id);
-      },
+      comments: async ({ issueId, page }: { issueId: string; page: { first: number; after?: string | null } }) => pageOf(await store.comments(issueId, page.first, page.after ?? null), (c) => c.id),
 
       activity: async ({ projectId, page }: { projectId: string; page: { first: number; after?: string | null } }) => {
-        const { items, total } = await store.activity(projectId, page.first, page.after ?? null);
-        return pageOf(items, total, (a) => a.id);
+        return pageOf(await store.activity(projectId, page.first, page.after ?? null), (a) => a.id);
       },
 
       messages: async ({ projectId, page }: { projectId: string; page: { first: number; after?: string | null } }) => {
-        const { items, total } = await store.messages(projectId, page.first, page.after ?? null);
-        // the cursor is the oldest shown: the next page is what came before it
-        return pageOf(items, total, (m) => m.id);
+        // the cursor is the oldest shown, which reads first: the next page is what came before it
+        return pageOf(await store.messages(projectId, page.first, page.after ?? null), (m) => m.id, "first");
       },
 
       notifications: async ({ page }: { page: { first: number; after?: string | null } }, ctx) => {
-        const { items, total } = await store.notifications((ctx.viewer as Viewer).id, page.first, page.after ?? null);
-        return pageOf(items, total, (n) => n.id);
+        return pageOf(await store.notifications((ctx.viewer as Viewer).id, page.first, page.after ?? null), (n) => n.id);
       },
 
       unread: (_: unknown, ctx) => store.unread((ctx.viewer as Viewer).id),
@@ -161,7 +162,7 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
           dueOn: dueOn ?? null,
           description: description ?? null,
           version: 1,
-          updatedAt: now(),
+          updatedAt: instant(now()),
         };
         // a dry run answers with the issue as it would be, and writes neither it nor its feed line
         if (ctx.simulate) return ok(issue);
@@ -189,7 +190,7 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
           if (who !== null && !(await store.membersByIds([who])).has(who)) throw new RayfoldError("invalid_argument", `updateProject().changes.defaultAssigneeId: nobody is ${who}`);
           applied.defaultAssigneeId = who;
         }
-        const next: Project = { ...project, ...applied, version: project.version + 1, updatedAt: now() };
+        const next: Project = { ...project, ...applied, version: project.version + 1, updatedAt: instant(now()) };
         const won = await store.updateProject(project.id, applied, project.version, next.updatedAt);
         if (!won) {
           const current = await store.project(projectId);
@@ -198,7 +199,7 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
         }
         const said = (Object.keys(applied) as Array<keyof ProjectChanges>).map((k) => ({ name: "renamed", description: "description", color: `colour ${next.color}`, defaultAssigneeId: "default assignee" })[k]);
         // every open list of projects re-runs by the patch on this one; the rail, which reads the REST route, is told by the page
-        return ok(next, { patch: feedChanged, emit: [await did(ctx, project.id, "project.edited", `${next.name}: ${said.join(", ") || "nothing"}`)] });
+        return ok(next, { patch: feedChanged, emit: [await did(ctx, project.id, "project.edited", next.name, said.join(", ") || "nothing")] });
       },
 
       updateIssue: async ({ id: issueId, changes }: { id: string; changes: IssueChanges }, ctx) => {
@@ -224,7 +225,7 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
           applied.labels = tidy(changes.labels!);
         }
         if (sent("dueOn")) applied.dueOn = changes.dueOn ?? null;
-        const next: Issue = { ...issue, ...applied, version: issue.version + 1, updatedAt: now() };
+        const next: Issue = { ...issue, ...applied, version: issue.version + 1, updatedAt: instant(now()) };
         if (ctx.simulate) return ok(next);
 
         const won = await store.updateIssue(issue.id, applied, issue.version, next.updatedAt);
@@ -234,14 +235,14 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
           throw RayfoldError.domain("NotFound", { id: issueId }, `Issue ${issueId} changed while this was running`);
         }
         const what = Object.keys(applied).map((k) => describeChange(k as keyof IssueChanges, next)).join(", ");
-        return ok(next, { patch: feedChanged, emit: [await did(ctx, issue.projectId, "issue.edited", `${next.title}: ${what || "nothing"}`)] });
+        return ok(next, { patch: feedChanged, emit: [await did(ctx, issue.projectId, "issue.edited", next.title, what || "nothing")] });
       },
 
       assignIssue: async ({ id: issueId, assigneeId }: { id: string; assigneeId?: string | null }, ctx) => {
         const issue = await find(issueId);
         ctx.checkVersion(`Issue:${issue.id}`, issue.version, issue);
         const to = assigneeId ?? null;
-        const next = { ...issue, assigneeId: to, version: issue.version + 1, updatedAt: now() };
+        const next = { ...issue, assigneeId: to, version: issue.version + 1, updatedAt: instant(now()) };
         if (ctx.simulate) return ok(next);
 
         const won = await store.assignIssue(issue.id, to, issue.version, next.updatedAt);
@@ -252,7 +253,7 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
         }
         const who = to ? ((await store.membersByIds([to])).get(to)?.name ?? to) : "nobody";
         const viewer = ctx.viewer as Viewer;
-        const emit = [await did(ctx, issue.projectId, "issue.assigned", `${issue.title}: ${who}`)];
+        const emit = [await did(ctx, issue.projectId, "issue.assigned", issue.title, who)];
         // the person it was handed to is told, unless they handed it to themselves
         const told = to !== null && to !== viewer.id;
         if (told) {
@@ -264,7 +265,7 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
       moveIssue: async ({ id: issueId, to }: { id: string; to: IssueState }, ctx) => {
         const issue = await find(issueId);
         ctx.checkVersion(`Issue:${issue.id}`, issue.version, issue);
-        const next = { ...issue, state: to, version: issue.version + 1, updatedAt: now() };
+        const next = { ...issue, state: to, version: issue.version + 1, updatedAt: instant(now()) };
         if (ctx.simulate) return ok(next);
 
         const won = await store.moveIssue(issue.id, to, issue.version, next.updatedAt);
@@ -278,7 +279,7 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
           patch: feedChanged,
           emit: [
             { event: "IssueMoved", payload: { issueId: issue.id, from: issue.state, to } },
-            await did(ctx, issue.projectId, "issue.moved", `${issue.title}: ${issue.state} → ${to}`),
+            await did(ctx, issue.projectId, "issue.moved", issue.title, `${issue.state} → ${to}`),
           ],
         });
       },
@@ -286,11 +287,11 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
       addComment: async ({ issueId, body }: { issueId: string; body: string }, ctx) => {
         const issue = await find(issueId);
         const viewer = ctx.viewer as Viewer;
-        const comment: Comment = { id: id(), issueId, body, at: now(), byId: viewer.id };
+        const comment: Comment = { id: id(), issueId, body, at: instant(now()), byId: viewer.id };
         await store.addComment(comment);
         const emit = [
           { event: "CommentAdded", payload: { issueId, commentId: comment.id } },
-          await did(ctx, issue.projectId, "comment.added", `${issue.title}: ${body.slice(0, 80)}`),
+          await did(ctx, issue.projectId, "comment.added", issue.title, body.slice(0, 80)),
         ];
         // whoever holds the issue hears about a reply on it, unless the reply is their own
         const holder = issue.assigneeId !== null && issue.assigneeId !== viewer.id ? issue.assigneeId : null;
@@ -308,11 +309,11 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
       attachDocument: async ({ issueId, documentId, name, url }: { issueId: string; documentId: string; name: string; url: string }, ctx) => {
         const issue = await find(issueId);
         const viewer = ctx.viewer as Viewer;
-        const { pin, inserted } = await store.attach({ id: id(), issueId, documentId, name, url, at: now(), byId: viewer.id });
+        const { pin, inserted } = await store.attach({ id: id(), issueId, documentId, name, url, at: instant(now()), byId: viewer.id });
         // pinning twice is once: the row already there, and no second line on the feed
         if (!inserted) return ok(pin);
         // the issue's attachments changed under every open list: the patch names the issue, whose type the lists return
-        return ok(pin, { patch: [{ inv: [`Issue:${issueId}`] }, ...feedChanged], emit: [await did(ctx, issue.projectId, "document.attached", `${issue.title}: ${name}`)] });
+        return ok(pin, { patch: [{ inv: [`Issue:${issueId}`] }, ...feedChanged], emit: [await did(ctx, issue.projectId, "document.attached", issue.title, name)] });
       },
 
       detachDocument: async ({ id: attachmentId }: { id: string }, ctx) => {
@@ -320,12 +321,12 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
         if (!gone) return ok(null);
         const issue = await find(gone.issueId);
         // no `del` of the pin: the answer is that very entity, and a client that deleted it would answer null
-        return ok(gone, { patch: [{ inv: [`Issue:${gone.issueId}`] }, ...feedChanged], emit: [await did(ctx, issue.projectId, "document.detached", `${issue.title}: ${gone.name}`)] });
+        return ok(gone, { patch: [{ inv: [`Issue:${gone.issueId}`] }, ...feedChanged], emit: [await did(ctx, issue.projectId, "document.detached", issue.title, gone.name)] });
       },
 
       say: async ({ projectId, body }: { projectId: string; body: string }, ctx) => {
         const viewer = ctx.viewer as Viewer;
-        const message: Message = { id: id(), projectId, body, at: now(), byId: viewer.id };
+        const message: Message = { id: id(), projectId, body, at: instant(now()), byId: viewer.id };
         await store.say(message);
         // a new Message: every open history of this project re-runs by the type rule; the stream carries the line
         return ok(message, { emit: [{ event: "Said", payload: { projectId, messageId: message.id, body, byId: viewer.id, byName: viewer.name ?? viewer.id, at: message.at } }] });
@@ -336,12 +337,12 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
         const viewer = ctx.viewer as Viewer;
         // the same person, marked: policies that read viewer.agent tell a program from the person it acts for
         const token = caps.mint({ id: viewer.id, name: viewer.name, agent: true }, { ops, ttlMs, iss: "workspace" });
-        return ok({ token, expiresAt: now() + ttlMs, ops });
+        return ok({ token, expiresAt: instant(now() + ttlMs), ops });
       },
 
       markRead: async ({ upTo }: { upTo: string }, ctx) => {
-        // an Instant argument arrives as RFC 3339 text; the store keeps epoch milliseconds
-        const n = await store.markRead((ctx.viewer as Viewer).id, Date.parse(upTo), now());
+        // an Instant argument arrives as RFC 3339 text, as every Instant leaves; the store turns both into its milliseconds
+        const n = await store.markRead((ctx.viewer as Viewer).id, upTo, instant(now()));
         return ok(n, { patch: n ? unreadChanged : [] });
       },
     },
@@ -401,10 +402,7 @@ export function resolvers({ store, caps, id = () => crypto.randomUUID(), now = D
       // one read per issue on the page: a thread is its own list, and the field is lazy so a list of issues never pays for it
       comments: async (issues: Issue[], { page }: { page: { first: number; after?: string | null } }) =>
         Promise.all(
-          issues.map(async (i) => {
-            const { items, total } = await store.comments(i.id, page.first, page.after ?? null);
-            return pageOf(items, total, (c) => c.id);
-          }),
+          issues.map(async (i) => pageOf(await store.comments(i.id, page.first, page.after ?? null), (c) => c.id)),
         ),
     },
 

@@ -17,15 +17,15 @@ export interface Notification {
   text: string;
   projectId: string;
   issueId: string | null;
-  at: number;
-  readAt: number | null;
+  at: string;
+  readAt: string | null;
 }
 
 interface Notified {
   notificationId: string;
   kind: string;
   text: string;
-  at: number;
+  at: string;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -207,7 +207,7 @@ export class Notifications {
     return e instanceof Error ? e.message : String(e);
   }
 
-  when(at: number): string {
+  when(at: string): string {
     const d = new Date(at);
     const today = new Date().toDateString() === d.toDateString();
     return today ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });

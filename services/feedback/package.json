@@ -1,0 +1,23 @@
+{
+  "name": "@apps/feedback",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Was this help page helpful? One answer per visitor per page, on Hono and Rayfold's fetch handler.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@apps/service-kit": "*",
+    "@rayfold/postgres": "^0.2.1",
+    "@rayfold/schema": "^0.2.1",
+    "@rayfold/server": "^0.2.1",
+    "hono": "^4.13.12",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@rayfold/client": "^0.2.1"
+  }
+}

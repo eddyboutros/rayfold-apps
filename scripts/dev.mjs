@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * The fleet in development: the four services on their own ports, against the Postgres from `npm run db`, each one's
+ * The fleet in development: the five services on their own ports, against the Postgres from `npm run db`, each one's
  * output prefixed with its name. Ctrl+C stops them all.
  *
- *   npm run dev                    # documents :4001, workspace :4002, catalogue :4003, approvals :4004
+ *   npm run dev                    # documents :4001, workspace :4002, catalogue :4003, approvals :4004, feedback :4005
  *   npm run dev -- --no-jvm        # without the Kotlin service, for a machine with no JDK
+ *
+ * Every service serves the explorer in development: /api/<service>/rayfold/explorer through the shell's dev server,
+ * signed in as whoever the shell's session says (the Kotlin one at http://localhost:4004/rayfold/explorer).
  *
  * The front ends' dev servers (`npm run web`) proxy /api/<service> to these ports, so the browser sees one origin, as
  * it does behind the gateway in production. Set CONSOLE_URL and CONSOLE_TOKEN in your environment to put the fleet
@@ -29,6 +32,8 @@ const shared = {
   OPS_TOKEN: process.env["OPS_TOKEN"] ?? "dev-ops-token",
   SERVICE_VERSION: "dev",
   APP_ENVIRONMENT: "development",
+  // the explorer, for the people building the fleet; nothing sets it in production
+  EXPLORER: "1",
 };
 
 const node = (name, port, extra = {}) => ({
@@ -41,8 +46,9 @@ const node = (name, port, extra = {}) => ({
 
 const services = [
   node("documents", 4001, { FILES_DIR: join(files, "files"), UPLOADS_DIR: join(files, "uploads"), PUBLIC_BASE: "/files" }),
-  node("workspace", 4002, { DOCUMENTS_PROJECT: "p1" }),
+  node("workspace", 4002),
   node("catalogue", 4003),
+  node("feedback", 4005),
 ];
 
 if (withJvm) {

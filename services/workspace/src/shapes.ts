@@ -12,7 +12,7 @@ export const WORKSPACE_SHAPES: readonly string[] = [
   "{ items { labels } }",
   "{ id name }",
   "{ items { id body at by { name } } }",
-  "{ items { id source kind text at by { id name } } }",
+  "{ items { id source kind subject detail at by { id name } } }",
   "{ items { id body at by { id name } } }",
   "{ items { id kind text projectId issueId at readAt } }",
   "{ member { id name title email } open doing done overdue }",

@@ -137,6 +137,12 @@ function safeGet(key: string): string | null {
             </button>
           }
 
+          <!-- the customers' site, another team's, in React: a page of its own, not a panel in this one -->
+          <a class="nav" href="/help/" target="_blank" rel="noopener">
+            <span class="glyph">↗</span>
+            Help centre
+          </a>
+
           <button type="button" class="nav palette-nav" (click)="openPalette()" title="Ctrl K">
             <span class="glyph">⌘</span>
             Anything…

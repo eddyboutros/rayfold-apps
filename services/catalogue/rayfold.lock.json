@@ -1,6 +1,6 @@
 {
   "rayfold": "0.1",
-  "hash": "7aba3b0fc0708e96cd53919570b93fb4328f31073236f153da78bf3d0c845edc",
+  "hash": "f53aee10e6de4115664453eb70ac619fa8f581afd84e01894bb39a7f971b3cba",
   "ir": {
     "rayfold": "0.1",
     "types": {
@@ -728,11 +728,151 @@
             "annotations": [],
             "ordinal": 10,
             "description": "Who wrote the current version: the author until someone edits it."
+          },
+          {
+            "name": "publishedAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 11,
+            "description": "When it went on the public help centre. Null while it is the team's alone."
           }
         ],
         "implements": [
           "Item"
         ]
+      },
+      "HelpPage": {
+        "kind": "entity",
+        "name": "HelpPage",
+        "annotations": [
+          {
+            "name": "cache",
+            "args": {
+              "maxAge": {
+                "$duration": 60000
+              },
+              "swr": {
+                "$duration": 600000
+              },
+              "scope": {
+                "$ident": "public"
+              }
+            }
+          },
+          {
+            "name": "allow",
+            "args": {
+              "read": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "this",
+                    "path": [
+                      "publishedAt"
+                    ]
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "A page of the public help centre: an article the company has published for its customers, read by anyone.\n\nThe same row as the article, through a narrower door: only what a customer should read, and only once it is\npublished. The rule is this type's own and reads nothing about who is asking, so an answer that holds only help\npages is public and a shared cache in front of the service may keep it. It can also run in SQL, so a list of help\npages is read with it in the WHERE: an article the team keeps to itself is never read for a visitor at all, rather\nthan read and then refused, and a page's total counts only what is published.",
+        "fields": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "slug",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2,
+            "description": "Its address on the help centre, as it is in the catalogue."
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "summary",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "tags",
+            "type": {
+              "kind": "list",
+              "of": {
+                "kind": "named",
+                "name": "String",
+                "nullable": false
+              },
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "body",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "publishedAt",
+            "type": {
+              "kind": "named",
+              "name": "Instant",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7
+          }
+        ],
+        "implements": []
       },
       "ArticleRevision": {
         "kind": "entity",
@@ -1051,6 +1191,80 @@
             "args": [],
             "annotations": [],
             "ordinal": 1
+          }
+        ]
+      },
+      "DocumentChanged": {
+        "kind": "event",
+        "name": "DocumentChanged",
+        "annotations": [],
+        "description": "Raised by the **documents** service, not by this one, and heard here: a file kept under a new name is found by that\nname. `revision` false is a new name on the same bytes; new bytes reach this service through the platform's flow.",
+        "fields": [
+          {
+            "name": "documentId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 1
+          },
+          {
+            "name": "projectId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 2
+          },
+          {
+            "name": "name",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 3
+          },
+          {
+            "name": "version",
+            "type": {
+              "kind": "named",
+              "name": "Int",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 4
+          },
+          {
+            "name": "byId",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 5
+          },
+          {
+            "name": "revision",
+            "type": {
+              "kind": "named",
+              "name": "Boolean",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
           }
         ]
       }
@@ -1450,6 +1664,90 @@
           }
         ]
       },
+      "helpPages": {
+        "kind": "query",
+        "name": "helpPages",
+        "args": [
+          {
+            "name": "page",
+            "type": {
+              "kind": "named",
+              "name": "PageArgs",
+              "nullable": false
+            },
+            "annotations": [],
+            "default": {
+              "first": 50
+            }
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Page",
+          "nullable": false,
+          "args": [
+            {
+              "kind": "named",
+              "name": "HelpPage",
+              "nullable": false
+            }
+          ]
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "cost",
+            "args": {
+              "base": 2,
+              "perItem": 1
+            }
+          }
+        ],
+        "description": "The help centre's pages, A to Z by address. Anyone may read them; a list holds only what is published."
+      },
+      "helpPage": {
+        "kind": "query",
+        "name": "helpPage",
+        "args": [
+          {
+            "name": "slug",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "annotations": [
+              {
+                "name": "range",
+                "args": {
+                  "min": 1,
+                  "max": 200
+                }
+              }
+            ]
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "HelpPage",
+          "nullable": true
+        },
+        "throws": [],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "http",
+            "args": {
+              "method": {
+                "$ident": "GET"
+              },
+              "path": "/help/{slug}"
+            }
+          }
+        ],
+        "description": "One help page by its address. An article that is not published is not there, whoever asks."
+      },
       "writeArticle": {
         "kind": "command",
         "name": "writeArticle",
@@ -1575,6 +1873,62 @@
           }
         ],
         "description": "Write or rewrite an article. With `id`, an edit — send `ifVersion`; without, a new page under a fresh slug."
+      },
+      "publishArticle": {
+        "kind": "command",
+        "name": "publishArticle",
+        "args": [
+          {
+            "name": "id",
+            "type": {
+              "kind": "named",
+              "name": "ID",
+              "nullable": false
+            },
+            "annotations": []
+          },
+          {
+            "name": "published",
+            "type": {
+              "kind": "named",
+              "name": "Boolean",
+              "nullable": false
+            },
+            "annotations": []
+          }
+        ],
+        "returns": {
+          "kind": "named",
+          "name": "Article",
+          "nullable": false
+        },
+        "throws": [
+          "NotFound"
+        ],
+        "emits": [],
+        "annotations": [
+          {
+            "name": "allow",
+            "args": {
+              "write": {
+                "$expr": {
+                  "k": "bin",
+                  "op": "!=",
+                  "l": {
+                    "k": "path",
+                    "root": "viewer",
+                    "path": []
+                  },
+                  "r": {
+                    "k": "lit",
+                    "v": null
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "description": "Put an article on the public help centre, or take it off. Publishing one already published keeps the day it first\nwent out; taking it off clears it. Anyone on the team may, as anyone may edit."
       }
     },
     "views": {
@@ -1702,5 +2056,5 @@
       }
     }
   },
-  "lockedAt": "2026-09-23T17:49:13.719Z"
+  "lockedAt": "2026-10-08T17:28:17.879Z"
 }

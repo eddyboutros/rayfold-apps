@@ -14,8 +14,8 @@ export interface PersonDetail {
   department: string;
   email: string;
   location: string;
-  updatedAt: number;
-  articles: Array<{ id: string; slug: string; name: string; summary: string; tags: string[]; updatedAt: number }>;
+  updatedAt: string;
+  articles: Array<{ id: string; slug: string; name: string; summary: string; tags: string[]; updatedAt: string }>;
   colleagues: Array<{ id: string; name: string; title: string; location: string }>;
 }
 
@@ -125,7 +125,7 @@ export class PersonView {
       .toUpperCase();
   }
 
-  when(at: number): string {
+  when(at: string): string {
     return new Date(at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   }
 }

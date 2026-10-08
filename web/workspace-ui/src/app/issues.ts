@@ -27,7 +27,7 @@ export interface Issue {
   title: string;
   state: State;
   version: number;
-  updatedAt: number;
+  updatedAt: string;
   assignee: Member | null;
   priority: Priority;
   labels: string[];
@@ -161,6 +161,7 @@ const RANK: Record<Priority, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
                     </div>
                     @if (openId() === issue.id) {
                       <div class="detail">
+                        @for (round of [formRound()]; track round) {
                         <form class="fields" (submit)="save($event, issue)">
                           <label>
                             <span class="muted">Priority</span>
@@ -190,6 +191,7 @@ const RANK: Record<Priority, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
                             }
                           </span>
                         </form>
+                        }
                         <workspace-attachments [issueId]="issue.id" [projectId]="projectId()" [pins]="issue.attachments" />
                         <workspace-thread [issueId]="issue.id" />
                       </div>
@@ -218,6 +220,8 @@ export class Issues {
   /** What the open issue's form has changed and not yet saved: only these keys are sent. */
   readonly changes = signal<Changes>({});
   readonly touched = computed(() => Object.keys(this.changes()));
+  /** Bumped to draw the open issue's form afresh: its inputs hold what was typed until they are made again. */
+  readonly formRound = signal(0);
   readonly priorities = PRIORITIES;
 
   readonly list = injectLive<{ items: Issue[] }>(
@@ -321,10 +325,9 @@ export class Issues {
 
   untouch(): void {
     this.changes.set({});
-    // the inputs are uncontrolled beyond their initial value; closing and reopening re-reads the issue
-    const id = this.openId();
-    this.openId.set(null);
-    this.openId.set(id);
+    // the inputs are uncontrolled beyond their initial value, so they are made again from the issue. closing and
+    // reopening it in one go did not: both writes land before the page is drawn, and nothing was made again
+    this.formRound.update((n) => n + 1);
   }
 
   async submit(event: Event): Promise<void> {

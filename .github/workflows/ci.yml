@@ -36,11 +36,14 @@ jobs:
       - run: npm run typecheck
       # each schema against its lockfile: a breaking change to a contract fails the build, not a customer (spec 11)
       - run: npm run schema:check
+      # the help centre's and the signoff client's types are generated from the schemas they read; a schema changed
+      # without them fails here
+      - run: npm run schema:types && git diff --exit-code web/help/src/gen clients/signoff/src/main/kotlin/keel/signoff/api
       # a service is tested the way it is deployed: its own main.ts, its own migration, a real database
       - run: npm test
 
   approvals:
-    name: The JVM service against a real Postgres
+    name: The JVM service and its client against a real Postgres
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -68,6 +71,9 @@ jobs:
           cache: maven
       # the same way the Dockerfile builds it: the wrapper, the tests against the database
       - run: chmod +x mvnw && ./mvnw -q -B verify
+      # the Kotlin client, against the jar just built and tested: the service as it is deployed, not a stand-in
+      - run: chmod +x mvnw && ./mvnw -q -B verify
+        working-directory: clients/signoff
 
   images:
     name: Every service builds an image
@@ -78,10 +84,12 @@ jobs:
       - run: docker build -f services/workspace/Dockerfile -t apps/workspace .
       - run: docker build -f services/catalogue/Dockerfile -t apps/catalogue .
       - run: docker build -f services/approvals/Dockerfile -t apps/approvals .
+      - run: docker build -f services/feedback/Dockerfile -t apps/feedback .
       - run: docker build --build-arg APP=shell -t apps/shell web
       - run: docker build --build-arg APP=documents-ui --build-arg BASE_HREF=/remotes/documents-ui/ -t apps/documents-ui web
       - run: docker build --build-arg APP=workspace-ui --build-arg BASE_HREF=/remotes/workspace-ui/ -t apps/workspace-ui web
       - run: docker build --build-arg APP=catalogue-ui --build-arg BASE_HREF=/remotes/catalogue-ui/ -t apps/catalogue-ui web
+      - run: docker build --build-arg APP=help -t apps/help web
 
   frontends:
     name: Every front end builds
@@ -90,7 +98,7 @@ jobs:
       # every front end reports on its own; one failing must not hide what the others would have said
       fail-fast: false
       matrix:
-        app: [shell, documents-ui, workspace-ui, catalogue-ui]
+        app: [shell, documents-ui, workspace-ui, catalogue-ui, help]
     defaults:
       run:
         working-directory: web/${{ matrix.app }}
@@ -102,4 +110,8 @@ jobs:
       # each front end is its own project with its own lockfile, so each installs on its own
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=moderate
-      - run: npx ng build
+      # ng build for the Angular apps, tsc and vite build for the help centre: each project says how it builds
+      - run: npm run build
+      # each front end's specs, against real Rayfold servers built from the services' own schemas: ng test for the
+      # Angular apps, vitest for the help centre. Once, not watching
+      - run: npm test -- --watch=false

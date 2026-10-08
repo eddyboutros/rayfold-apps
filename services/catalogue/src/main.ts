@@ -8,7 +8,9 @@
  * table, no call from one service to the other, and a worker that dies leaves a job the next one takes. The console
  * shows the run moving from queue to queue.
  */
-import { personOf, schemaAt, startService, type Deps } from "@apps/service-kit";
+import { instant, personOf, schemaAt, startService, type Deps } from "@apps/service-kit";
+import { createPgStore } from "@rayfold/postgres";
+import { loadSchema } from "@rayfold/schema";
 import { CatalogueStore, excerptOf } from "./store.ts";
 import { resolvers, type Viewer } from "./resolvers.ts";
 import { textOf } from "./extract.ts";
@@ -40,17 +42,33 @@ interface Extracted {
 
 type IndexJob = ExtractJob & { results: { extract: Extracted | null } };
 
+const schema = schemaAt(new URL("./catalogue.rayfold", import.meta.url));
+
 const service = await startService({
   name: "catalogue",
-  schema: schemaAt(new URL("./catalogue.rayfold", import.meta.url)),
+  schema,
   migrate: async (sql) => new CatalogueStore(sql).migrate(),
-  resolvers: (deps) => resolvers({ store: new CatalogueStore(deps.sql) }),
+  resolvers: (deps) =>
+    resolvers({
+      store: new CatalogueStore(deps.sql),
+      // a help page is an article row by its slug: the store reads the columns the type names, and pages through
+      // them in slug order, which is the help centre's A to Z
+      help: createPgStore(deps.sql, { ir: loadSchema(schema).ir, naming: "snake", tables: { HelpPage: { table: "articles", id: "slug" } } }),
+    }),
   viewer: (req) => whoIs(req),
 
   onStart: async (server, deps: Deps) => {
     const store = new CatalogueStore(deps.sql);
     const { platform } = deps;
     const { log } = platform;
+
+    // a file renamed in the documents service is found here by its new name, as a pin on an issue follows it in the
+    // workspace: the relay brings the event, and this service never asks the other. New bytes come through the flow
+    server.events.on("DocumentChanged", (payload) => {
+      const { documentId, name, revision } = payload as { documentId: string; name: string; revision?: boolean | null };
+      if (revision !== false) return;
+      store.renameFile(documentId, name).catch((e: unknown) => log.error("could not rename a kept file", { documentId, error: e instanceof Error ? e.message : String(e) }));
+    });
     // NEEDS THE RAYFOLD CONSOLE: the queues below, and the flow that puts work on them, are the console's — a
     // separate commercial product in a private repository, not yet on sale. Without CONSOLE_URL these workers never
     // take a job and the Files kind stays empty; the rest of the catalogue serves as before.
@@ -87,7 +105,7 @@ const service = await startService({
         url: job.url,
         text: extracted.text,
         version: job.version,
-        updatedAt: Date.now(),
+        updatedAt: instant(Date.now()),
       });
       // a File is an entity this service returns from live queries: a screen that subscribes to `items` hears this
       if (kept) server.changes.publish({ keys: new Set([`File:${job.documentId}`]), ops: new Set(["items", "search"]) });

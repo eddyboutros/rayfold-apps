@@ -8,6 +8,7 @@
 import { ChangeDetectionStrategy, Component, ViewEncapsulation, computed, input, output, signal } from "@angular/core";
 import { injectCommand, injectQuery } from "@rayfold/angular";
 import { render } from "./markdown";
+import { HelpFeedback } from "./help-feedback";
 
 export interface FullArticle {
   id: string;
@@ -17,9 +18,11 @@ export interface FullArticle {
   tags: string[];
   body: string | null;
   version: number;
-  updatedAt: number;
+  updatedAt: string;
   author: { id: string; name: string } | null;
   editor: { id: string; name: string } | null;
+  /** On the public help centre since then, RFC 3339; null while it is the team's alone. */
+  publishedAt: string | null;
 }
 
 /** An earlier version, as the history lists it; the body arrives in a later frame, as the article's own does. */
@@ -30,7 +33,7 @@ export interface Revision {
   summary: string;
   tags: string[];
   body: string | null;
-  at: number;
+  at: string;
   editor: { name: string } | null;
 }
 
@@ -40,6 +43,7 @@ export interface Revision {
   // the body is rendered HTML, which scoped styles cannot reach; every rule in the sheet is prefixed with this
   // element's own selector instead, so nothing leaks either way
   encapsulation: ViewEncapsulation.None,
+  imports: [HelpFeedback],
   styleUrl: "./article.css",
   template: `
     <article class="card">
@@ -54,16 +58,16 @@ export interface Revision {
       } @else if (editing()) {
         <form class="edit" (submit)="save($event)">
           <header>
-            <input class="input title" name="name" [value]="article()!.name" required aria-label="Title" />
+            <input class="input title" name="name" [value]="draft()!.name" required aria-label="Title" />
             <span class="actions">
               <button type="button" class="btn quiet" (click)="editing.set(false)">Cancel</button>
               <button type="submit" class="btn primary" [disabled]="write.running()">Save</button>
             </span>
           </header>
           <div class="body">
-            <input class="input" name="summary" [value]="article()!.summary" placeholder="One line about this page" aria-label="Summary" />
-            <input class="input" name="tags" [value]="article()!.tags.join(', ')" placeholder="tags, separated by commas" aria-label="Tags" />
-            <textarea class="input" name="body" rows="22" aria-label="Body">{{ article()!.body }}</textarea>
+            <input class="input" name="summary" [value]="draft()!.summary" placeholder="One line about this page" aria-label="Summary" />
+            <input class="input" name="tags" [value]="draft()!.tags.join(', ')" placeholder="tags, separated by commas" aria-label="Tags" />
+            <textarea class="input" name="body" rows="22" aria-label="Body">{{ draft()!.body }}</textarea>
             @if (failed(); as message) {
               <p class="bad" role="alert">{{ message }}</p>
             }
@@ -85,13 +89,19 @@ export interface Revision {
                   · last edited by {{ article()!.editor?.name }}
                 }
               }
+              @if (article()!.publishedAt; as since) {
+                · <a class="public" [href]="'/help/' + article()!.slug" target="_blank" rel="noopener">on the help centre</a> since {{ when(since) }}
+              }
             </p>
           </div>
           <span class="actions">
             @if (article()!.version > 1) {
               <button type="button" class="btn quiet" [class.on]="history()" (click)="history.update((h) => !h); viewing.set(null)">History</button>
             }
-            <button type="button" class="btn" (click)="editing.set(true)">Edit</button>
+            <button type="button" class="btn quiet" (click)="publish(!article()!.publishedAt)" [disabled]="publishing.running()">
+              {{ article()!.publishedAt ? "Take off the help centre" : "Publish to the help centre" }}
+            </button>
+            <button type="button" class="btn" (click)="edit()">Edit</button>
           </span>
         </header>
         @if (history()) {
@@ -162,6 +172,12 @@ export interface Revision {
             } @else {
               <div class="prose" [innerHTML]="html()"></div>
             }
+            @if (failed(); as message) {
+              <p class="bad" role="alert">{{ message }}</p>
+            }
+            @if (article()!.publishedAt) {
+              <catalogue-help-feedback [slug]="article()!.slug" />
+            }
           }
         </div>
       }
@@ -173,6 +189,12 @@ export class ArticleView {
   readonly close = output<void>();
 
   readonly editing = signal(false);
+  /**
+   * What the form was opened on. The form is filled from this, not from the article, which moves under it: a save by
+   * someone else, or the current version a refusal carries, replaced what the person was typing and then said their
+   * form was kept.
+   */
+  readonly draft = signal<FullArticle | null>(null);
   readonly failed = signal<string | null>(null);
   /** The history panel, and the earlier version being read instead of the current one. */
   readonly history = signal(false);
@@ -180,7 +202,7 @@ export class ArticleView {
   readonly render = render;
 
   readonly page = injectQuery<FullArticle | null>("article", () => ({ slug: this.slug() }), {
-    shape: "{ id slug name summary tags body version updatedAt author { id name } editor { id name } }",
+    shape: "{ id slug name summary tags body version updatedAt publishedAt author { id name } editor { id name } }",
     enabled: () => this.slug() !== "",
   });
   readonly article = computed(() => this.page.data() ?? null);
@@ -194,13 +216,19 @@ export class ArticleView {
   });
 
   readonly write = injectCommand<FullArticle>("writeArticle");
+  readonly publishing = injectCommand<FullArticle>("publishArticle");
 
   describe(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
   }
 
-  when(at: number): string {
+  when(at: string): string {
     return new Date(at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  edit(): void {
+    this.draft.set(this.article());
+    this.editing.set(true);
   }
 
   async save(event: Event): Promise<void> {
@@ -220,6 +248,21 @@ export class ArticleView {
       this.editing.set(false);
       await this.page.refetch();
       if (this.history()) await this.revisions.refetch();
+    } catch (e: unknown) {
+      this.failed.set(this.describe(e));
+    }
+  }
+
+  /**
+   * On the public help centre or off it. The answer is the article, and the client patches the one it holds, so the
+   * byline and this button change without a second read.
+   */
+  async publish(published: boolean): Promise<void> {
+    const current = this.article();
+    if (!current) return;
+    this.failed.set(null);
+    try {
+      await this.publishing.run({ id: current.id, published }, { shape: "{ id publishedAt }" });
     } catch (e: unknown) {
       this.failed.set(this.describe(e));
     }

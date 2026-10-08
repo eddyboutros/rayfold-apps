@@ -10,6 +10,7 @@ import { RayfoldClient, createFetchTransport } from "@rayfold/client";
 import { createServer } from "node:http";
 import type { RunningService } from "@apps/service-kit";
 import pg from "pg";
+import { until } from "./wait.ts";
 
 /**
  * The tests' own database, not the one a person develops against: every test empties the tables it uses, and a
@@ -39,11 +40,32 @@ async function ensureDatabase(url: string): Promise<void> {
 export interface TestService {
   base: string;
   sql: pg.Pool;
+  /** The running service itself: its server, for what only it can say (how many live queries are open). */
+  service: RunningService;
   opsToken: string;
   client: (who: string) => RayfoldClient;
   /** Empties the service's tables between tests, leaving the seed rows. */
   reset: () => Promise<void>;
   stop: () => Promise<void>;
+}
+
+/** Waits until every live query a test opened on the service has closed: one left open is a leak. */
+export const liveClosed = (svc: TestService): Promise<true> =>
+  until(`${svc.service.server.identity?.name ?? "the service"}'s live queries to close`, () => svc.service.server.changes.size === 0 || undefined);
+
+/** Every connection to the tests' database now, by backend pid. */
+export async function backends(sql: pg.Pool): Promise<Set<number>> {
+  const { rows } = await sql.query("select pid from pg_stat_activity where datname = current_database()");
+  return new Set(rows.map((r) => r["pid"] as number));
+}
+
+/**
+ * The connections opened since `before` that have held a LISTEN: a relay's own. Its last statement is LISTEN or, once
+ * the relay has let go, UNLISTEN; either way the connection is there until someone ends it.
+ */
+export async function listenersSince(sql: pg.Pool, before: Set<number>): Promise<number[]> {
+  const { rows } = await sql.query("select pid from pg_stat_activity where datname = current_database() and query ilike '%listen %'");
+  return rows.map((r) => r["pid"] as number).filter((pid) => !before.has(pid));
 }
 
 /** A port nothing is listening on, asked of the operating system rather than guessed. */
@@ -63,6 +85,7 @@ const TABLES: Record<string, string[]> = {
   workspace: ["attachments", "comments", "activity", "issues", "messages", "notifications"],
   // the catalogue's own tables are reference data, seeded at start and kept; the files it indexes are the fleet's
   catalogue: ["files"],
+  feedback: ["ratings"],
 };
 
 /**
@@ -96,6 +119,7 @@ export async function startTestService(name: string, env: Record<string, string>
   return {
     base,
     sql,
+    service,
     opsToken: OPS_TOKEN,
     // a client over fetch owns no socket of its own, so there is nothing to close: it is made per test and dropped
     client: (who) => new RayfoldClient({ transport: createFetchTransport({ url: `${base}/rayfold`, headers: () => ({ authorization: `Bearer ${who}` }) }) }),

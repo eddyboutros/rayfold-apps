@@ -24,7 +24,7 @@ export interface Doc {
   size: number;
   url: string;
   version: number;
-  updatedAt: number;
+  updatedAt: string;
   owner: { id: string; name: string } | null;
   folder: string | null;
   tags: string[];
@@ -312,7 +312,7 @@ export class Documents {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
 
-  when(at: number): string {
+  when(at: string): string {
     return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 

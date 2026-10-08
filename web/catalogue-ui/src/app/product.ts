@@ -17,7 +17,7 @@ export interface ProductDetail {
   /** Null for anyone outside the product team: the field is partial, so the page still loads without it. */
   cost: number | null;
   availability: "available" | "limited" | "waitlist" | "retired";
-  updatedAt: number;
+  updatedAt: string;
   related: Array<{ id: string; name: string; sku: string; price: number; availability: ProductDetail["availability"]; summary: string }>;
 }
 
@@ -125,7 +125,7 @@ export class ProductView {
     return new Intl.NumberFormat("en", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(cents / 100);
   }
 
-  when(at: number): string {
+  when(at: string): string {
     return new Date(at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   }
 }

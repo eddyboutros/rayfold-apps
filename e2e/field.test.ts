@@ -1,11 +1,12 @@
-import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { connect } from "node:net";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RayfoldClientError } from "@rayfold/client";
 import { canonicalShape, parseShapeText, shapeIdOf } from "@rayfold/schema";
-import { Line, fieldClient, fileQueue } from "../clients/field/lib.mts";
-import { startTestService, type TestService } from "./harness.ts";
+import { Line, fieldClient, fileQueue, manifestOf } from "../clients/field/lib.mts";
+import { liveClosed, startTestService, type TestService } from "./harness.ts";
 import { until } from "./wait.ts";
 
 /**
@@ -34,6 +35,15 @@ beforeEach(async () => {
   await svc.reset();
   line.restore();
 });
+/** Every socket a test opened, closed when it ends, as a device closes its client when it is done. */
+const opened: Array<() => void> = [];
+afterEach(async () => {
+  for (const close of opened.splice(0)) close();
+  // closed means the socket is gone across the line, not only dropped by this side
+  await until("every socket across the line to close", () => (line.connections === 0 ? true : undefined));
+  vi.unstubAllGlobals();
+  await liveClosed(svc);
+});
 
 interface Issue {
   id: string;
@@ -43,10 +53,30 @@ interface Issue {
   comments?: { items: Array<{ body: string }> };
 }
 
-const field = (binary: boolean, queuePath = join(dir, `${binary ? "rb" : "json"}.json`)) =>
-  fieldClient({ httpBase: svc.base, wsUrl: `ws://127.0.0.1:${line.port}/rayfold/ws`, who: "ada", binary, queue: fileQueue(queuePath) });
+const field = async (binary: boolean, queuePath = join(dir, `${binary ? "rb" : "json"}.json`)) => {
+  const made = await fieldClient({ httpBase: svc.base, wsUrl: `ws://127.0.0.1:${line.port}/rayfold/ws`, who: "ada", binary, queue: fileQueue(queuePath) });
+  opened.push(made.close);
+  return made;
+};
+
+/** What the client puts on its socket, by kind: the WebSocket it is given records each message's type before sending it. */
+function tapSockets(): Array<"text" | "binary"> {
+  const sent: Array<"text" | "binary"> = [];
+  const Real = globalThis.WebSocket;
+  vi.stubGlobal(
+    "WebSocket",
+    class extends Real {
+      override send(data: Parameters<WebSocket["send"]>[0]): void {
+        sent.push(typeof data === "string" ? "text" : "binary");
+        super.send(data);
+      }
+    },
+  );
+  return sent;
+}
 
 it("speaks Rayfold Binary over the socket, and the identity on the URL is the same person as a bearer", async () => {
+  const sent = tapSockets();
   const { client, manifest } = await field(true);
   expect(manifest.extensions).toEqual(expect.arrayContaining(["live", "rb"]));
   expect(await client.query("me", {}, { shape: "{ id name }" })).toEqual({ $type: "Member", id: "u1", name: "Ada Lovelace" });
@@ -54,6 +84,28 @@ it("speaks Rayfold Binary over the socket, and the identity on the URL is the sa
   const { client: plain } = await field(false);
   const made = await client.command<Issue>("createIssue", { projectId: PROJECT, title: "Count the pallets" }, { shape: "{ id title state version }" });
   expect(await plain.query<Issue>("issue", { id: made.id }, { shape: "{ id title state version }" })).toEqual({ $type: "Issue", ...made });
+  // RB from the binary client, JSON text from the other: me and createIssue as bytes, the read as text
+  expect(sent).toEqual(["binary", "binary", "text"]);
+});
+
+it("a cut line refuses a new connection outright, and a restored one carries it", async () => {
+  const tryConnect = () =>
+    new Promise<"refused" | "carried">((resolve) => {
+      const socket = connect(line.port, "127.0.0.1");
+      socket.once("connect", () => socket.write("GET /rayfold/ready HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"));
+      let got = "";
+      socket.on("data", (d) => (got += d.toString()));
+      socket.once("close", () => resolve(got.startsWith("HTTP/1.1 ") ? "carried" : "refused"));
+      socket.once("error", () => undefined);
+    });
+  line.cut();
+  expect(await tryConnect()).toBe("refused");
+  line.restore();
+  expect(await tryConnect()).toBe("carried");
+});
+
+it("a service with no manifest is said to have none", async () => {
+  await expect(manifestOf(`${svc.base}/nowhere`)).rejects.toThrow(`no manifest at ${svc.base}/nowhere: 404`);
 });
 
 it("a deferred block arrives after the frame that carries the rest, and the client hands back the whole", async () => {

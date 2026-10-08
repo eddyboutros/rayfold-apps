@@ -15,6 +15,8 @@ const platforms: Platform[] = [];
 
 afterEach(async () => {
   for (const p of platforms.splice(0)) await p.stop();
+  // a stopped platform has closed its configuration query on the console
+  if (console_) await until("the console's live queries to close", () => (console_.server.changes.size === 0 ? true : undefined));
   await console_?.stop();
 });
 
@@ -64,8 +66,11 @@ describe("configuration", () => {
     platforms.push(platform);
     await platform.config.ready();
     expect(platform.connected).toBe(false);
-    expect(said.some((l) => l.includes("CONSOLE_TOKEN is not"))).toBe(true);
+    expect(said).toEqual([
+      "[documents] CONSOLE_URL is set but CONSOLE_TOKEN is not: the console refuses a caller without one. running without the platform; mint a service token on the console's Access screen",
+    ]);
     expect(await platform.enqueue("extract-text", { documentId: "d1" })).toBeNull();
+    expect(said).toHaveLength(2);
     // guard: with the token the same console is a platform
     const on = connect();
     await on.config.ready();
@@ -144,14 +149,15 @@ describe("logs", () => {
     }
     await platform.stop();
 
-    expect(console_.logs.map((l) => [l.service, l.severity, l.body])).toEqual([
-      ["documents", "INFO", "the service started"],
-      ["documents", "WARN", "the mirror lags"],
-      ["documents", "INFO", "looked up a thing"],
+    // the number is what a log store filters by; the text is for a person
+    expect(console_.logs.map((l) => [l.service, l.severity, l.severityNumber, l.body])).toEqual([
+      ["documents", "INFO", 9, "the service started"],
+      ["documents", "WARN", 13, "the mirror lags"],
+      ["documents", "INFO", 9, "looked up a thing"],
     ]);
-    expect(console_.logs[1]?.attributes).toMatchObject({ seconds: 240 });
+    expect(console_.logs[1]?.attributes).toEqual({ seconds: 240 });
     const inBatch = console_.logs[2]!;
-    expect(inBatch.traceId).toBeTruthy();
+    expect(inBatch.traceId).toMatch(/^[0-9a-f]{32}$/);
     const spanTraces = (console_.traces as Array<{ resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ traceId: string; name: string }> }> }> }>)
       .flatMap((t) => t.resourceSpans.flatMap((r) => r.scopeSpans.flatMap((s) => s.spans)));
     expect(spanTraces.find((s) => s.name === "rayfold query thing")?.traceId).toBe(inBatch.traceId);
@@ -299,5 +305,120 @@ describe("the queue", () => {
     c.work("extract-text", async () => "c", { leaseMs: 300, idleMs: 30 });
     await until("the lapsed job to be taken over", async () => (console_.jobs.find((j) => j.id === second!.id)?.state === "done" ? true : undefined));
     expect(console_.jobs.find((j) => j.id === second!.id)).toMatchObject({ result: "c", worker: "catalogue-c", attempts: 2 });
+  });
+});
+
+describe("what a service asks of the platform", () => {
+  it("a value that is not a number is the fallback, and a value removed in the console is said to be gone", async () => {
+    console_ = await startStandInConsole();
+    const said: string[] = [];
+    await operator().command("setConfig", { app: "documents", environment: "test", key: "uploads.maxBytes", value: "lots" }, { shape: "{ key }", key: crypto.randomUUID() });
+    const platform = connect({ log: (l) => said.push(l) });
+    await platform.config.ready();
+    expect(platform.config.get("uploads.maxBytes")).toBe("lots");
+    expect(platform.config.number("uploads.maxBytes", 5)).toBe(5);
+    await operator().command("removeConfig", { app: "documents", environment: "test", key: "uploads.maxBytes" }, { shape: "{ key }", key: crypto.randomUUID() });
+    await until("the removal to arrive", () => (platform.config.get("uploads.maxBytes") === undefined ? true : undefined));
+    expect(said).toEqual(["configuration: uploads.maxBytes=lots", "configuration: uploads.maxBytes=(removed)"]);
+  });
+
+  it("a job put on with a lock carries it, and a flow started twice with one key is started once", async () => {
+    console_ = await startStandInConsole();
+    const platform = connect();
+    const put = await platform.enqueue("extract-text", { documentId: "d1" }, { lock: "doc:d1" });
+    expect(console_.jobs.find((j) => j.id === put?.id)).toMatchObject({ lock: "doc:d1", key: null });
+    await platform.defineFlow("kept", [{ name: "one", queue: "q1" }]);
+    expect(console_.flows.get("kept")).toEqual([{ name: "one", queue: "q1" }]);
+    const first = await platform.startFlow("kept", { documentId: "d1" }, { key: "d1:1" });
+    const again = await platform.startFlow("kept", { documentId: "d1" }, { key: "d1:1" });
+    const other = await platform.startFlow("kept", { documentId: "d1" }, { key: "d1:2" });
+    expect(first).toEqual({ id: expect.any(String), started: true });
+    expect(again).toEqual({ id: first!.id, started: false });
+    expect(other).toEqual({ id: expect.any(String), started: true });
+    expect(other!.id).not.toBe(first!.id);
+    expect(console_.runs.map((r) => r.key)).toEqual(["d1:1", "d1:2"]);
+  });
+
+  it("a stopped platform takes no more work and holds no live query open on the console", async () => {
+    console_ = await startStandInConsole();
+    const a = connect({ app: "catalogue", instance: "catalogue-a" });
+    await a.config.ready();
+    expect(console_.server.changes.size).toBe(1);
+    a.work("extract-text", async () => "a", { idleMs: 30 });
+    await a.stop();
+    await until("the config query to close", () => (console_.server.changes.size === 0 ? true : undefined));
+    // a second worker on the same queue takes what is put on it; the stopped one, which polled every 30ms, takes nothing
+    const b = connect({ app: "catalogue", instance: "catalogue-b" });
+    b.work("extract-text", async () => "b", { idleMs: 30 });
+    for (let i = 0; i < 3; i++) {
+      const put = await operator().command<{ id: string }>("enqueue", { queue: "extract-text", payload: { n: i } }, { shape: "{ id }", key: crypto.randomUUID() });
+      await until(`job ${i} to be done`, () => (console_.jobs.find((j) => j.id === put.id)?.state === "done" ? true : undefined));
+    }
+    expect(console_.jobs.map((j) => j.worker)).toEqual(["catalogue-b", "catalogue-b", "catalogue-b"]);
+  });
+
+  it("a finished job's lease is not renewed any more, while the next job's is", async () => {
+    console_ = await startStandInConsole();
+    const worker = connect({ app: "catalogue", instance: "catalogue-1" });
+    const release: Array<() => void> = [];
+    const started = signal<string>();
+    worker.work("extract-text", async (job) => {
+      started.fire(job.id);
+      await new Promise<void>((r) => release.push(r));
+      return "ok";
+    }, { leaseMs: 150, idleMs: 30 });
+    const first = await operator().command<{ id: string }>("enqueue", { queue: "extract-text", payload: {} }, { shape: "{ id }", key: crypto.randomUUID() });
+    await started.wait("the first job");
+    await until("a renewal of the first", () => (console_.beats.includes(first.id) ? true : undefined));
+    release.shift()!();
+    await until("the first to be done", () => (console_.jobs.find((j) => j.id === first.id)?.state === "done" ? true : undefined));
+    // the second job's own renewals measure the time that passes: three of them is three intervals of the first's
+    const second = await operator().command<{ id: string }>("enqueue", { queue: "extract-text", payload: {} }, { shape: "{ id }", key: crypto.randomUUID() });
+    await started.wait("the second job");
+    // counted once the worker has moved on, so the first job's handler has finished; asked, not granted: a renewal of
+    // a job that is done is refused, and still a request that should not be made
+    const beatsWhenDone = console_.beatsAsked.filter((id) => id === first.id).length;
+    await until("three renewals of the second", () => (console_.beats.filter((id) => id === second.id).length >= 3 ? true : undefined));
+    expect(console_.beatsAsked.filter((id) => id === first.id)).toHaveLength(beatsWhenDone);
+    release.shift()!();
+  });
+
+  it("a lease is renewed often enough to keep a job that outlives it: another worker never gets it", async () => {
+    // the console's own clock, as it runs: a lease the worker failed to renew in time would lapse and be handed on
+    console_ = await startStandInConsole();
+    const ran: string[] = [];
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    const started = signal<string>();
+    connect({ app: "catalogue", instance: "catalogue-a" }).work("extract-text", async (job) => {
+      ran.push("a");
+      started.fire(job.id);
+      await held;
+      return "a";
+    }, { leaseMs: 1_500, idleMs: 30 });
+    const put = await operator().command<{ id: string }>("enqueue", { queue: "extract-text", payload: {} }, { shape: "{ id }", key: crypto.randomUUID() });
+    await started.wait("worker a to start");
+    connect({ app: "catalogue", instance: "catalogue-b" }).work("extract-text", async () => {
+      ran.push("b");
+      return "b";
+    }, { leaseMs: 1_500, idleMs: 30 });
+    // renewed at a third of the lease: four renewals is longer than the lease itself, and b has polled throughout
+    await until("four renewals", () => (console_.beats.filter((id) => id === put.id).length >= 4 ? true : undefined), 10_000);
+    release();
+    await until("the job to be done", () => (console_.jobs.find((j) => j.id === put.id)?.state === "done" ? true : undefined));
+    expect(ran).toEqual(["a"]);
+    expect(console_.jobs.find((j) => j.id === put.id)).toMatchObject({ worker: "catalogue-a", attempts: 1 });
+  });
+
+  it("with no console, the service says so once, however often it asks", async () => {
+    const said: string[] = [];
+    const platform = connectPlatform({ app: "documents", environment: "test", instance: "documents-1", log: (l) => said.push(l) });
+    platforms.push(platform);
+    await platform.enqueue("q", {});
+    await platform.defineQueue("q", {});
+    await platform.defineFlow("f", []);
+    expect(await platform.startFlow("f", {})).toBeNull();
+    platform.work("q", async () => undefined)();
+    expect(said).toEqual(["no CONSOLE_URL: running without the platform (defaults, no queue, no traces)"]);
   });
 });

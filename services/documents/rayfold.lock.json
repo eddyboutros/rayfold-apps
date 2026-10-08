@@ -1,6 +1,6 @@
 {
   "rayfold": "0.1",
-  "hash": "9cb4eddb03ccde4b0ad80c2d3a3071f74df4f3c776a22d88d7fe6b7b67ffcf1d",
+  "hash": "fbda95dbbf55f6db74326af4f160fec0e62b5d019a1e90e8d33ce3ce8b377b21",
   "ir": {
     "rayfold": "0.1",
     "types": {
@@ -783,7 +783,7 @@
         "kind": "event",
         "name": "DocumentChanged",
         "annotations": [],
-        "description": "Raised on every change, with who made it, so another service can say so without asking this one.",
+        "description": "Raised when a document is kept, replaced or renamed, with who did it, so another service can say so without asking this\none. `revision` says whether its bytes changed: true for a new document or a new version, false for a new name on the\nsame bytes. Absent from a publisher older than the field, which raised it only for new bytes and renames alike.",
         "fields": [
           {
             "name": "documentId",
@@ -839,6 +839,17 @@
             "args": [],
             "annotations": [],
             "ordinal": 5
+          },
+          {
+            "name": "revision",
+            "type": {
+              "kind": "named",
+              "name": "Boolean",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
           }
         ]
       },
@@ -2160,5 +2171,5 @@
     },
     "views": {}
   },
-  "lockedAt": "2026-09-23T17:49:13.540Z"
+  "lockedAt": "2026-10-08T17:28:17.653Z"
 }

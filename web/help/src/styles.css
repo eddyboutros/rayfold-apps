@@ -1,0 +1,228 @@
+/*
+ * The help centre: Keel's tokens and base pieces, set for reading rather than working. One column, a larger size,
+ * more air. Customers read these pages start to finish; nobody reads a work queue that way.
+ */
+
+body {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.help {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 32px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.brand:hover {
+  text-decoration: none;
+}
+
+.mark {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  transform: rotate(45deg) scale(0.8);
+}
+
+/* ---- the front page */
+.hero {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.hero h1 {
+  font-size: 30px;
+}
+
+.hero .lede {
+  font-size: 15px;
+}
+
+.search {
+  margin-top: 8px;
+  padding: 11px 14px;
+  font-size: 15px;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.tags .pill {
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.pages {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.pages .card a {
+  display: grid;
+  gap: 3px;
+  padding: 14px 16px;
+  color: var(--ink);
+}
+
+.pages .card a:hover {
+  text-decoration: none;
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+}
+
+.pages .card .skeleton {
+  margin: 18px 16px;
+}
+
+/* ---- one guide */
+.crumbs {
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.article article {
+  display: grid;
+  gap: 10px;
+}
+
+.article h1 {
+  font-size: 28px;
+}
+
+.article .lede {
+  font-size: 16px;
+}
+
+.byline {
+  font-size: 13px;
+}
+
+.prose {
+  margin-top: 14px;
+}
+
+.prose h2 {
+  font-size: 19px;
+  margin: 28px 0 8px;
+}
+
+.prose h3,
+.prose h4 {
+  font-size: 16px;
+  margin: 22px 0 6px;
+}
+
+.prose p,
+.prose ul,
+.prose ol {
+  margin: 0 0 12px;
+}
+
+.prose li + li {
+  margin-top: 4px;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0 16px;
+  font-size: 14px;
+  display: block;
+  overflow-x: auto;
+}
+
+.prose th,
+.prose td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.prose th {
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.prose code {
+  background: var(--sunken);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* ---- was this helpful? */
+.feedback {
+  margin-top: 36px;
+}
+
+.feedback .body {
+  display: grid;
+  gap: 10px;
+}
+
+.feedback .ask,
+.feedback .answered {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.feedback .actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.feedback .why {
+  display: grid;
+  gap: 8px;
+}
+
+.feedback textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+
+.feedback .bad {
+  color: var(--bad);
+}
+
+.feedback .score {
+  font-size: 13px;
+}
+
+footer {
+  margin-top: 48px;
+  font-size: 13px;
+  text-align: center;
+}

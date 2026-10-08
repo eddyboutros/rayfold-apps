@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@apps/service-kit": "*",
+    "@rayfold/postgres": "^0.2.1",
+    "@rayfold/schema": "^0.2.1",
     "@rayfold/server": "^0.2.1",
     "pg": "^8.23.0"
   },

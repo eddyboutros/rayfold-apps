@@ -4,5 +4,11 @@
     "pathRewrite": {
       "^/api/catalogue": ""
     }
+  },
+  "/api/feedback": {
+    "target": "http://localhost:4005",
+    "pathRewrite": {
+      "^/api/feedback": ""
+    }
   }
 }

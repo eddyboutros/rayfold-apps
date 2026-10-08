@@ -13,7 +13,7 @@ import { workspaceClient } from "./client";
 export interface Message {
   id: string;
   body: string;
-  at: number;
+  at: string;
   by: { id: string; name: string } | null;
 }
 
@@ -23,7 +23,7 @@ interface Said {
   body: string;
   byId: string;
   byName: string;
-  at: number;
+  at: string;
 }
 
 @Component({
@@ -187,7 +187,7 @@ export class Chat {
     return e instanceof Error ? e.message : String(e);
   }
 
-  when(at: number): string {
+  when(at: string): string {
     const d = new Date(at);
     const today = new Date().toDateString() === d.toDateString();
     return today ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });

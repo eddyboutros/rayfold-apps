@@ -1,6 +1,6 @@
 {
   "rayfold": "0.1",
-  "hash": "2df671fd99084166743fbc2ab92ab0b32faba38b4f82fa07b3475cb5918f1c95",
+  "hash": "a5f5f387090085ab4a8ada0be68cba72ea9e9d559403c64924b3a17d52418643",
   "ir": {
     "rayfold": "0.1",
     "types": {
@@ -1204,7 +1204,8 @@
             },
             "args": [],
             "annotations": [],
-            "ordinal": 5
+            "ordinal": 5,
+            "description": "The subject and the detail as one line, as the feed was first written: \": \" between them, and a relayed line ends\nwith the document's id in brackets. Kept for a reader that knows no other; a title with a colon of its own makes it\nambiguous, so read `subject` and `detail`."
           },
           {
             "name": "at",
@@ -1228,6 +1229,30 @@
             "annotations": [],
             "ordinal": 7,
             "description": "Who did it. Absent when the line came from something no person did."
+          },
+          {
+            "name": "subject",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": false
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 8,
+            "description": "What was acted on, whole, whatever it holds: an issue's title, a file's name, a project's name. This and `detail`\ncame after the first deploy, and come last so the field numbers already on the wire stay where they were."
+          },
+          {
+            "name": "detail",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 9,
+            "description": "What happened to it: where it moved, who it went to, what was said, which version. Null when the line says no more."
           }
         ],
         "implements": []
@@ -1690,6 +1715,28 @@
             "args": [],
             "annotations": [],
             "ordinal": 5
+          },
+          {
+            "name": "subject",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
+          },
+          {
+            "name": "detail",
+            "type": {
+              "kind": "named",
+              "name": "String",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 7
           }
         ]
       },
@@ -1822,6 +1869,17 @@
             "args": [],
             "annotations": [],
             "ordinal": 5
+          },
+          {
+            "name": "revision",
+            "type": {
+              "kind": "named",
+              "name": "Boolean",
+              "nullable": true
+            },
+            "args": [],
+            "annotations": [],
+            "ordinal": 6
           }
         ]
       },
@@ -3761,5 +3819,5 @@
     },
     "views": {}
   },
-  "lockedAt": "2026-09-23T17:49:13.631Z"
+  "lockedAt": "2026-10-08T18:47:33.177Z"
 }

@@ -11,7 +11,7 @@ import { injectCommand, injectLive } from "@rayfold/angular";
 export interface Comment {
   id: string;
   body: string;
-  at: number;
+  at: string;
   by: { name: string } | null;
 }
 
@@ -80,7 +80,7 @@ export class Thread {
     return e instanceof Error ? e.message : String(e);
   }
 
-  when(at: number): string {
+  when(at: string): string {
     const d = new Date(at);
     const today = new Date().toDateString() === d.toDateString();
     return today ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });

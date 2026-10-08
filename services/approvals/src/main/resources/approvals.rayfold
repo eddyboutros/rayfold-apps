@@ -38,8 +38,11 @@ error AlreadyDecided { id: ID, decision: Decision }
 
 event ApprovalRequested { approvalId: ID, documentId: ID, projectId: ID, documentName: String, requesterId: ID, approverId: ID }
 event ApprovalDecided { approvalId: ID, documentId: ID, projectId: ID, documentName: String, decision: Decision, byId: ID, note: String? }
-"""Raised by the documents service and heard here: a pending sign-off on an older version is stale from then on."""
-event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID }
+"""
+Raised by the documents service and heard here: a pending sign-off on an older version is stale from then on, when the
+bytes changed. A new name on the same bytes (`revision: false`) leaves it as it is.
+"""
+event DocumentChanged { documentId: ID, projectId: ID, name: String, version: Int, byId: ID, revision: Boolean? }
 
 query approval(id: ID): Approval? @allow(read: viewer != null)
 """Every sign-off on a document, newest first. Ask for it `live` and a decision made elsewhere lands as it is made."""

@@ -1,0 +1,50 @@
+// Feedback: what the people reading the public help centre think of each page. "Was this helpful?", one answer per
+// visitor per page, with a line of why if they like.
+//
+// The support team's service, and the fleet's one on the web-standard runtime: Hono in front of Rayfold's fetch
+// handler, the same shared idempotency store and relay as everyone else. Its readers are of two kinds. A visitor is
+// anyone on the help centre, known only by a cookie this service sets the first time it sees them; a member is
+// someone on the team, signed in to Keel, who reads every answer on the page they wrote.
+//
+// A help page is named by its slug, the help centre's address for it. The catalogue owns the pages; this service only
+// knows the name, as the workspace only knows a document's id.
+
+"""
+One visitor's answer on one page. Answering again changes it rather than adding a second.
+
+Who reads one is a row-level rule, pushed into SQL: a member reads them all, a visitor only their own. So a visitor's
+list of a page's answers holds exactly theirs, and its total counts only that, without the service writing a WHERE
+for it.
+"""
+entity Rating @cache(maxAge: 0s, scope: private) @allow(read: viewer.member != null || this.visitorId == viewer.visitor) {
+  id: ID
+  """The help page's slug."""
+  slug: String
+  visitorId: ID
+  helpful: Boolean
+  """What they said, if anything."""
+  comment: String?
+  at: Instant
+}
+
+"""How a page is doing: how many found it helpful and how many did not. Anyone may see it; it names nobody."""
+entity Score {
+  """The help page's slug."""
+  id: ID
+  helpful: Int
+  unhelpful: Int
+}
+
+"""How a page is doing. Ask for it `live` and every answer lands as it is given."""
+query score(slug: String @range(min: 1, max: 200)): Score @cost(base: 2)
+
+"""
+A page's answers, newest first: every one for a member, and only their own for a visitor. Page-sized, because a page
+read by thousands has thousands of answers.
+"""
+query ratings(slug: String @range(min: 1, max: 200), page: PageArgs = { first: 20 }): Page<Rating>
+  @allow(read: viewer != null) @cost(base: 2, perItem: 1)
+
+"""Was this page helpful? A visitor answers once per page; answering again changes the answer."""
+command rate(slug: String @range(min: 1, max: 200), helpful: Boolean, comment: String? @range(max: 1000)): Rating
+  @allow(write: viewer.visitor != null)
