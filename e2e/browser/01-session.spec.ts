@@ -30,6 +30,19 @@ test("the sign-in page lists the team, and choosing a person signs in as them ev
   expect(await asBrowser(page, "catalogue", "items", { kind: "person", page: { first: 1 } }, "{ total }")).toEqual({ total: 12 });
 });
 
+// a browser allows six connections to one host, across all its tabs: a page that holds requests open (as the remotes'
+// build notifications did, three a tab) leaves the next tab of the shell blank, waiting for its own scripts
+test("three tabs of the shell in one browser each load the remotes' panels", async ({ page, context }) => {
+  await signIn(page, ADA);
+  const tabs = [page, await context.newPage(), await context.newPage()];
+  for (const tab of tabs.slice(1)) await tab.goto(`${BASE}/`);
+  for (const tab of tabs) {
+    await expect(tab.locator(".rail .who strong")).toHaveText("Ada Lovelace");
+    await expect(tab.getByPlaceholder("What needs doing?")).toBeVisible();
+    await expect(tab.locator("section.slot").getByText("Choose a file")).toBeVisible();
+  }
+});
+
 test("signing out clears the cookie and the next person is someone else to every service", async ({ page, context }) => {
   await signIn(page, ADA);
   await page.locator(".rail button.leave").click();

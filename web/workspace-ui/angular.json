@@ -34,6 +34,7 @@
             "rebuildDelay": 500,
             "dev": true,
             "cacheExternalArtifacts": false,
+            "buildNotifications": { "enable": false },
             "port": 0
           }
         },

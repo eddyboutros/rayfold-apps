@@ -39,6 +39,9 @@ DOCUMENTS_URL=http://localhost:8080/api/documents WORKSPACE_URL=http://localhost
 ### Developing, with each piece on its own
 
 The way to work on it: the services and the front ends run from source and reload as you edit. Three terminals.
+The shell reloads itself; after an edit to documents-ui, workspace-ui or catalogue-ui, reload the shell's page. Their
+build notifications are off because each is a request the shell's page keeps open, and with three of them a second tab
+on `localhost:4200` would find Chrome's six connections to it taken and never load.
 
 ```sh
 npm run db                        # Postgres in Docker on 127.0.0.1:55432; start it once, it keeps its data
